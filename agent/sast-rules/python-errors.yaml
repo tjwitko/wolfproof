@@ -1,4 +1,4 @@
-# Error-handling rules for Python, written for agent-gate (candidate-rules #3).
+# Error-handling rules for Python, written for wolfproof (candidate-rules #3).
 #
 # A broad `except Exception` around code that raises a client error catches that error too, and
 # re-raises it as a 500: a malformed request is reported as the service's own fault, and a webhook

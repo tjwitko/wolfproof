@@ -1,4 +1,4 @@
-name: "agent-gate"
+name: "wolfproof"
 description: "Run the security control set against a project and fail the build on blocking findings or on a control that could not run."
 author: "tjwitko"
 
@@ -24,7 +24,7 @@ inputs:
     required: false
     default: ""
   terraform-guard:
-    description: "Path to terraform-guard-mcp/index.mjs. Overrides .agent-gate.json and node_modules."
+    description: "Path to terraform-guard-mcp/index.mjs. Overrides .wolfproof.json and node_modules."
     required: false
     default: ""
   dep-audit:
@@ -97,12 +97,12 @@ runs:
           if [ -z "${!v}" ]; then unset "$v"; fi
         done
 
-        RESULT="${RUNNER_TEMP:-/tmp}/agent-gate.json"
+        RESULT="${RUNNER_TEMP:-/tmp}/wolfproof.json"
         ARGS=("${{ inputs.project }}")
         [ -n "${{ inputs.task-file }}" ] && ARGS+=("${{ inputs.task-file }}")
         # Written outside the workspace, so nothing in the checkout can stand in for it.
         if [ -n "$WOLFPROOF_BASELINE" ]; then
-          BASELINE_FILE="${RUNNER_TEMP:-/tmp}/agent-gate-baseline.txt"
+          BASELINE_FILE="${RUNNER_TEMP:-/tmp}/wolfproof-baseline.txt"
           printf '%s\n' "$WOLFPROOF_BASELINE" > "$BASELINE_FILE"
           ARGS+=("--baseline=$BASELINE_FILE")
         fi
@@ -118,7 +118,7 @@ runs:
           // A usage error or a gate that fell over writes a document with only the reason in it.
           // Rendering it as a result would print nothing useful before failing on r.controls.
           if (r.error) {
-            console.log(`agent-gate did not produce a verdict: ${r.error}`);
+            console.log(`wolfproof did not produce a verdict: ${r.error}`);
             process.exit(0);
           }
           if (r.baseline) console.log(`baseline : set by the workflow (${r.baseline})`);
@@ -159,31 +159,31 @@ runs:
         case "$CODE" in
           0)
             echo "outcome=clean" >> "$GITHUB_OUTPUT"
-            echo "::notice title=agent-gate::No blocking findings."
+            echo "::notice title=wolfproof::No blocking findings."
             exit 0
             ;;
           1)
             echo "outcome=blocked" >> "$GITHUB_OUTPUT"
-            echo "::error title=agent-gate: blocked::$BLOCKING blocking finding(s). The gate ran in full; these are real."
+            echo "::error title=wolfproof: blocked::$BLOCKING blocking finding(s). The gate ran in full; these are real."
             exit 1
             ;;
           3)
             echo "outcome=incomplete" >> "$GITHUB_OUTPUT"
             if [ -n "$REASON" ]; then
-              echo "::error title=agent-gate: INCOMPLETE::The gate could not run: $REASON. This is not a verdict on the project."
+              echo "::error title=wolfproof: INCOMPLETE::The gate could not run: $REASON. This is not a verdict on the project."
             else
-              echo "::error title=agent-gate: INCOMPLETE::Part of the gate could not run. This is not a pass and not a clean failure — the project was not fully checked. See the control list in the log."
+              echo "::error title=wolfproof: INCOMPLETE::Part of the gate could not run. This is not a pass and not a clean failure — the project was not fully checked. See the control list in the log."
             fi
             exit 1
             ;;
           2)
             echo "outcome=incomplete" >> "$GITHUB_OUTPUT"
-            echo "::error title=agent-gate: usage error::The gate refused its inputs${REASON:+: $REASON}. Check the project and task-file inputs. This is not a verdict on the project."
+            echo "::error title=wolfproof: usage error::The gate refused its inputs${REASON:+: $REASON}. Check the project and task-file inputs. This is not a verdict on the project."
             exit 1
             ;;
           *)
             echo "outcome=incomplete" >> "$GITHUB_OUTPUT"
-            echo "::error title=agent-gate::Unexpected exit $CODE — treating as incomplete rather than as a pass."
+            echo "::error title=wolfproof::Unexpected exit $CODE — treating as incomplete rather than as a pass."
             exit 1
             ;;
         esac

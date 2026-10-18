@@ -1,4 +1,4 @@
-# Injection rules for Java, written for agent-gate. See python.yaml for the split between blocking
+# Injection rules for Java, written for wolfproof. See python.yaml for the split between blocking
 # taint rules (ERROR) and advisory pattern rules (WARNING).
 rules:
   - id: java-command-injection

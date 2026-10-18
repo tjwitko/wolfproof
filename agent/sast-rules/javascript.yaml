@@ -1,4 +1,4 @@
-# Injection rules for JavaScript and TypeScript, written for agent-gate. See python.yaml for the split
+# Injection rules for JavaScript and TypeScript, written for wolfproof. See python.yaml for the split
 # between blocking taint rules and advisory pattern rules.
 rules:
   - id: javascript-command-injection

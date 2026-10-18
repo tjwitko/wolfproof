@@ -26,7 +26,7 @@ a month removing: a gate that reports green because nobody asked it anything.
 ## The check
 
 ```yaml
-- uses: your-org/agent-gate@v1
+- uses: your-org/wolfproof@v1
   with:
     project: .
     task-file: docs/task.md

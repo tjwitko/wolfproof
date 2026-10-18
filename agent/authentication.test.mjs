@@ -1290,8 +1290,8 @@ test("a Go health endpoint stays exempt", () => {
 
 // --- comments are not code -------------------------------------------------------------------
 //
-// This check read comments as code, and that failed in both directions. Running agent-gate on
-// agent-gate blocked with two credential findings, both from comments in this checker quoting the
+// This check read comments as code, and that failed in both directions. Running the gate on
+// its own source blocked with two credential findings, both from comments in this checker quoting the
 // patterns it was written against -- and a phantom POST /webhook from a comment that quotes a route,
 // which is what let the credential findings be reported at all. The reverse was worse: a commented-
 // out `app.use(requireAuth)` counted as protection, so a service with every route open passed.
@@ -1333,7 +1333,7 @@ test("a Python comment quoting a vulnerable comparison is not one either", () =>
 });
 
 test("a commented-out route is not an endpoint", () => {
-  // The phantom that let agent-gate's own credential findings through: with no real routes this
+  // The phantom that let the gate's own credential findings through: with no real routes this
   // check reports "no HTTP routes were identified" and says nothing about credentials.
   const { routes, unknown } = run(
     {

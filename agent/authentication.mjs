@@ -70,7 +70,7 @@ const TEST_FILE =
 const TEST_DIRS = new Set(["__tests__", "__mocks__", "fixtures", "testdata"]);
 
 // Comments are not code, and this check used to read them as code in both directions. Running
-// agent-gate over its own source blocked on two credential findings, both from comments here that
+// the gate over its own source blocked on two credential findings, both from comments here that
 // quote the patterns this file was written against, and on a phantom `POST /webhook` from a comment
 // quoting a route -- which is what let the credential findings be reported at all. The reverse was
 // worse: a commented-out `app.use(requireAuth)` counted as protection, so a service with every route

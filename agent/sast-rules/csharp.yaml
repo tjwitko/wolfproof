@@ -1,4 +1,4 @@
-# Injection and credential rules for C#, written for agent-gate. See python.yaml for the split between
+# Injection and credential rules for C#, written for wolfproof. See python.yaml for the split between
 # blocking taint rules (ERROR) and advisory pattern rules (WARNING). Sources are ASP.NET Core: the
 # HttpRequest, the parameters of attribute-routed actions, and minimal-API handler parameters.
 rules:

@@ -117,7 +117,7 @@ test("unavailableCheckers reads only its own marker", () => {
 // --- a toolchain that stops answering ----------------------------------------------------------
 //
 // A local corpus run sat for thirteen minutes on one fixture: `docker pull golang:1.22` at 0% CPU,
-// blocked on Docker Desktop's credential helper, and nothing timed it out. Since agent-gate-init
+// blocked on Docker Desktop's credential helper, and nothing timed it out. Since `wolfproof init`
 // installs a pre-commit hook that runs this check, a Go project on a machine in that state would
 // hang every commit, indefinitely, with no message.
 //

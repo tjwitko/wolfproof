@@ -23,7 +23,7 @@ import path from "path";
 
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 
-// Only files osv-scanner actually reads, measured against 2.4.0 (see agent-gate's
+// Only files osv-scanner actually reads, measured against 2.4.0 (see
 // agent/unscanned-manifests.mjs): a "lockfile" the scanner ignores made a scan authoritative that had
 // never read it. requirements.lock and bun.lockb were on this list and are not read; their
 // replacements, requirements-lock.txt and bun.lock, are.

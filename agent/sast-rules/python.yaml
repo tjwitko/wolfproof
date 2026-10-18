@@ -1,4 +1,4 @@
-# Injection rules for Python, written for agent-gate. Taint rules (ERROR) block: they fire only when
+# Injection rules for Python, written for wolfproof. Taint rules (ERROR) block: they fire only when
 # data from an HTTP request reaches a shell, a SQL string or an evaluator. Pattern rules (WARNING) are
 # advisories: they see the dangerous construction without knowing where its input came from.
 rules:

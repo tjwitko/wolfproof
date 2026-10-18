@@ -16,7 +16,7 @@
 //     starts blocking is a false positive on code people ship. Every rule this project has written
 //     was first measured this way, and the first pass of each had false positives only real code
 //     showed: 31 on Bitwarden from services whose methods are named like HTTP calls, 28 path
-//     traversals on agent-gate from `import.meta.url`.
+//     traversals on this repository from `import.meta.url`.
 //
 // Nothing here copies those apps into this repository. The manifest holds each one's URL and full
 // commit SHA, and this clones exactly that commit, shallow, scans it, and deletes it. Copying would

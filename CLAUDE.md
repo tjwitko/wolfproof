@@ -1,9 +1,12 @@
 # CLAUDE.md
 
-**This directory is published as [`agent-gate`](https://github.com/tjwitko/agent-gate)** — a set of
-deterministic security controls that run against a project and return one verdict: clean, blocked,
-or could-not-run. It is a CLI, a GitHub Action and a library, and it is what the repository is
-named, versioned and released as.
+**This directory is published as `wolfproof`** — a set of deterministic security controls that run
+against a project and return one verdict: clean, blocked, or could-not-run. It is a CLI, a GitHub
+Action and a library. It was called **agent-gate** until v1.2.0, and the repository is still
+[`tjwitko/agent-gate`](https://github.com/tjwitko/agent-gate) until it is renamed; the old command
+names, `.agent-gate.json` and the `AGENT_GATE_*` variables are accepted for one release, and
+`wolfproof init --upgrade` moves a project's stanza and hook to the new names. The unscoped npm name
+`wolfproof` is held by a placeholder (prints install steps, exits 3) until the first npm release.
 
 It used to be `local-delegate-mcp` as well — an MCP server that delegates subtasks to a
 locally-hosted model. That came first and the gate grew around it. It now lives in
@@ -15,7 +18,8 @@ model.
 ## The gate
 
 ```
-agent-gate <project-dir> [task-file]  ->  bin/validate.mjs
+wolfproof <project-dir> [task-file]  ->  bin/validate.mjs
+wolfproof init [project-dir] ...     ->  bin/init.mjs   (setup; its own exit codes: 0, 1, 2, 70)
 ```
 
 It spawns the four control servers itself, runs ~18 validators, and exits with a contract nothing
@@ -24,7 +28,7 @@ not run. Exit 1 and exit 3 must never become each other — a check that cannot 
 passes, which is the single rule the whole project is built around.
 
 The controls are the four sibling MCP servers, resolved via `lib/resolve-controls.mjs` from an
-explicit env var, `.agent-gate.json`, `node_modules`, or a sibling checkout, in that order. A
+explicit env var, `.wolfproof.json`, `node_modules`, or a sibling checkout, in that order. A
 control that resolves from nowhere is an exit-3 condition and never a silent skip, which is why that
 file reports *how* each control resolved rather than only *that* it did.
 
@@ -120,7 +124,7 @@ Tests run per-file (`node --test agent/immutability.test.mjs`). The path must be
 
 - **The gate must pass its own gate, and CI checks that it does.** The `self` job in
   `.github/workflows/gate.yml` runs the action against `.` with `.github/gate-task.txt`. It exists
-  because agent-gate failed its own gate for a month without anyone noticing: its other jobs ran the
+  because this project failed its own gate for a month without anyone noticing: its other jobs ran the
   action against corpus fixtures and never against this tree. The findings came from comments in
   `agent/authentication.mjs` quoting the patterns it detects — a rule file necessarily contains the
   patterns it looks for. If the self job goes red on a validator's own source, fix the validator's

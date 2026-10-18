@@ -1,4 +1,4 @@
-# Injection rules for Ruby (Rails, Sinatra), written for agent-gate. See python.yaml for the split
+# Injection rules for Ruby (Rails, Sinatra), written for wolfproof. See python.yaml for the split
 # between blocking taint rules (ERROR) and advisory pattern rules (WARNING).
 #
 # Measured against Semgrep's Ruby matching before being written: `system($X)` matches the

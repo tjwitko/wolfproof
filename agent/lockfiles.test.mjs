@@ -73,7 +73,7 @@ test("the sibling copy agrees, when there is one to compare against", async () =
   assert.deepEqual(
     [...LOCKFILES].sort(),
     [...other.LOCKFILES].sort(),
-    "agent-gate and local-copilot-stack disagree about what a lockfile is"
+    "wolfproof and local-copilot-stack disagree about what a lockfile is"
   );
 });
 

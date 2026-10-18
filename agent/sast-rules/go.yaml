@@ -1,4 +1,4 @@
-# Injection rules for Go, written for agent-gate. See python.yaml for the split between blocking taint
+# Injection rules for Go, written for wolfproof. See python.yaml for the split between blocking taint
 # rules and advisory pattern rules.
 rules:
   - id: go-command-injection

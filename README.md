@@ -1,27 +1,41 @@
-# agent-gate
+# wolfproof
 
 [![gate](https://github.com/tjwitko/agent-gate/actions/workflows/gate.yml/badge.svg)](https://github.com/tjwitko/agent-gate/actions/workflows/gate.yml)
 [![release](https://img.shields.io/github/v/release/tjwitko/agent-gate)](https://github.com/tjwitko/agent-gate/releases/latest)
 [![license](https://img.shields.io/github/license/tjwitko/agent-gate)](LICENSE)
 
-Run a set of security and completeness controls against a project directory and get back one
-verdict: **clean**, **blocked**, or **could-not-run**.
+Most application-security tools have two verdicts: pass or fail. That leaves a third case with
+nowhere to go. When a scanner is not installed, a control cannot be reached, or a test suite cannot
+run, nothing is found — and on a two-verdict tool, nothing found reads as a pass.
 
-It is built for code that an AI agent wrote. Agents produce plausible work quickly, and the usual
-review signals — it builds, there are tests, the summary says "production-ready" — stop being
-reliable. agent-gate checks the things that plausible-looking work gets wrong: infrastructure that
-plans clean but is open to the world, dependencies with known CVEs — or with no lockfile, so nothing
-scanned them — credentials hardcoded into source, request data reaching a shell or a SQL query,
-endpoints with no authentication, container base images past end of life, and test suites that do
-not run. Where the task states a requirement — tests, secret rotation, a retention period — the code
-is held to it, and the code's author cannot quietly edit the requirement away.
+In the story of the three little pigs, all three houses looked like houses until the wolf came. The
+straw and the sticks fell at the first huff; only the third pig's house of brick was wolfproof. A
+check that never ran is a straw wall with a green tick on it.
 
-It is equally useful on code a human wrote. Nothing in it assumes an agent.
+**wolfproof adds the third verdict: clean, blocked, or could-not-run.** If any part of it could not
+run, it says which part and exits 3 — never "clean". "I could not check this" and "I checked this
+and it is fine" are different facts, and a tool that collapses them stops protecting anything
+without anyone noticing.
 
-**The distinguishing feature is the third verdict.** Most gates have two answers: pass or fail. This
-one refuses to report "clean" when part of it could not run — a missing scanner, an unreachable
-control, a test suite whose toolchain is absent. "I could not check this" and "I checked this and it
-is fine" are different facts, and collapsing them is how a gate quietly stops protecting anything.
+What it checks is the work that looks finished and is not: infrastructure that plans clean but is
+open to the world; dependencies with high or critical CVEs — or with no lockfile, so nothing scanned
+them; credentials hardcoded in source; request data reaching a shell, a SQL query, an outbound
+request or a file path; endpoints with no authentication; container base images past end of life;
+and test suites that do not run. Where the task states a requirement — tests, secret rotation, a
+retention period — the code is held to it, and the code's author cannot quietly edit the requirement
+away.
+
+It was built for code that AI agents write, because agents produce plausible work quickly and the
+usual signals — it builds, there are tests, the summary says "production-ready" — stop being
+reliable. Nothing in it assumes an agent, and it is as useful on code people wrote.
+
+Like the third pig's house, it is the third verdict — could-not-run — that makes your code
+wolfproof.
+
+> **Formerly agent-gate.** The project was called agent-gate until v1.2.0. The old command names,
+> `.agent-gate.json` and the `AGENT_GATE_*` variables still work for one release, and
+> `wolfproof init --upgrade` moves a project's setup to the new names — see [Upgrading](#upgrading).
+> The repository keeps its `tjwitko/agent-gate` address until it is renamed.
 
 ---
 
@@ -65,30 +79,31 @@ npm install --save-dev github:tjwitko/agent-gate#v1.1.18
 
 The four control servers come with it as dependencies — there is nothing else to clone or wire up.
 They are pinned to specific release tags, so this installs the same five components every time;
-`./node_modules/.bin/agent-gate --version` shows which.
+`./node_modules/.bin/wolfproof --version` shows which.
 Drop the `#v1.1.18` to track `main` instead, which moves.
 
 ### Run it
 
 ```bash
-./node_modules/.bin/agent-gate .
+./node_modules/.bin/wolfproof .
 ```
 
 Point it at any directory. To get the most out of it, pass the task the code was written to satisfy:
 
 ```bash
-./node_modules/.bin/agent-gate . task.txt
+./node_modules/.bin/wolfproof . task.txt
 ```
 
-**Not `npx agent-gate`**, which this README recommended up to v1.1.16. The package installs from
-GitHub as `@tjwitko/agent-gate`; the unscoped name `agent-gate` is not on npm. Where agent-gate is
-not installed, npx looks that name up on the public registry, and when stdin is not a terminal — as
-in an agent's shell — npm answers its own install prompt with yes. Measured from a directory without
-it: `npx agent-gate .` and `npm exec --no -- agent-gate .` queried the registry and exited 1, the
-gate's code for blocking findings, and `npx --no agent-gate --version` printed npm's version and
-exited 0. If anyone publishes that name, the same command runs their code. The path makes no request
-and exits 127 when nothing is installed. `agent-gate-init --upgrade` moves a project set up by an
-earlier version onto it.
+**Run it by path, not through npx.** Where a command is not installed, npx looks its name up on the
+public registry, and when stdin is not a terminal — as in an agent's shell — npm answers its own
+install prompt with yes. Up to v1.1.16 this README recommended `npx agent-gate`, a name that was not
+ours on npm: measured from a directory without it, `npx agent-gate .` and `npm exec --no --
+agent-gate .` queried the registry and exited 1, the gate's code for blocking findings, and
+`npx --no agent-gate --version` printed npm's version and exited 0. The name `wolfproof` is ours,
+held on npm by a placeholder until the first release there — `npx wolfproof` prints how to install
+it and exits 3 — but the path is still the command to use: it runs the version the project pinned,
+makes no request, and exits 127 when nothing is installed. `wolfproof init --upgrade` moves a
+project set up by an earlier version onto it.
 
 Six checks are gated on what the task asked for — immutability, retention, secret rotation, tests,
 error distinction, and required artifacts. Without a task file they report "not checked", which is
@@ -212,8 +227,8 @@ Every control line says **how it resolved**, so you can see at a glance that all
 ## Set it up
 
 ```bash
-./node_modules/.bin/agent-gate-init --new my-project --hook --task task.txt   # a new project
-./node_modules/.bin/agent-gate-init --hook --task task.txt                    # an existing one
+./node_modules/.bin/wolfproof init --new my-project --hook --task task.txt   # a new project
+./node_modules/.bin/wolfproof init --hook --task task.txt                    # an existing one
 ```
 
 Both do the same three things, and the second is the first without `--new`:
@@ -231,18 +246,18 @@ reported and left alone. `--force mcp|agents|hook` says otherwise, per file.
 
 It exits **1** when it left something alone, so a script can tell "set up" from "already had one".
 
-After upgrading the package, `agent-gate-init --upgrade` refreshes what it wrote — see [Upgrading](#upgrading).
+After upgrading the package, `wolfproof init --upgrade` refreshes what it wrote — see [Upgrading](#upgrading).
 
 ### The pre-commit hook
 
 ```
-git commit  ->  agent-gate . task.txt --pre-commit  ->  0 commit proceeds
+git commit  ->  wolfproof . task.txt --pre-commit   ->  0 commit proceeds
                                                         1 findings                                                              2 usage          > blocked
                                                         3 could not run  /
 ```
 
 **Exit 3 blocks.** A commit that nothing checked must not be easier to land than one that failed a
-check. For the same reason the hook fails closed: if `agent-gate` is not installed it blocks with
+check. For the same reason the hook fails closed: if `wolfproof` is not installed it blocks with
 exit 3 rather than waving the commit through, because a hook that passes when it could not run
 leaves a repository that looks protected and is not. (Up to v1.1.16 the hook's check for this tested
 for `npx`, which is always there, so in a clone without `node_modules` it went on to the public
@@ -298,7 +313,7 @@ thing it just wrote. Point your client at them:
 **The gate is a command, not a tool.** The agent runs it and reads the exit code:
 
 ```bash
-./node_modules/.bin/agent-gate . task.txt
+./node_modules/.bin/wolfproof . task.txt
 ```
 
 **That asymmetry is the whole design.** Across four runs of one task with identical tooling, the
@@ -330,7 +345,7 @@ by the command above.
 ### The loop that results
 
 1. The agent builds, calling the MCP tools for feedback as it goes.
-2. It runs `./node_modules/.bin/agent-gate . task.txt`.
+2. It runs `./node_modules/.bin/wolfproof . task.txt`.
 3. **Exit 1** — blocking findings, each with a remediation. It fixes and repeats.
 4. **Exit 3** — part of the gate could not run. Not a pass, and the output names which part.
 5. **Exit 0** — nothing is blocking. The agent reports what was *not* established alongside that.
@@ -349,7 +364,7 @@ name: gate
 on: [pull_request]
 
 jobs:
-  agent-gate:
+  wolfproof:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -426,14 +441,14 @@ See [`docs/ci.md`](docs/ci.md) for a full worked example including a pinned tool
 
 ## Upgrading
 
-The four controls come **with** the gate — `@tjwitko/agent-gate` pins them — so upgrading the gate
+The four controls come **with** the gate — `wolfproof` pins them — so upgrading the gate
 upgrades them. You only upgrade a control separately if you wired it into an editor on its own.
 
 ### 1. See what you are on
 
 ```text
-$ ./node_modules/.bin/agent-gate --version
-agent-gate 1.1.18
+$ ./node_modules/.bin/wolfproof --version
+wolfproof 1.1.18
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -458,7 +473,7 @@ behind its own fixes, and nothing in the output said so. Every gate run now prin
 each control beside where it was found, in the CLI and in the Action's log alike.
 
 The controls are not all that decides a verdict. The scanners they shell out to are the rest: a
-semgrep upgrade moves `sast` findings with no agent-gate change, and osv-scanner answers from a live
+semgrep upgrade moves `sast` findings with no wolfproof change, and osv-scanner answers from a live
 database, so the same tree and pins can give different dependency findings on different days.
 `--version` lists each one on `PATH`, and `not found` for one that is not — a missing scanner switches its checks off.
 The `--json` report carries the same list as `toolchain`, and `scannedAt`, the time the run started.
@@ -484,22 +499,29 @@ npm install --save-dev github:tjwitko/agent-gate#v1.1.18
 ### 3. Refresh what setup wrote
 
 ```bash
-./node_modules/.bin/agent-gate-init --upgrade
+./node_modules/.bin/wolfproof init --upgrade
 ```
 
-Upgrading the package does not touch what `agent-gate-init` wrote into your project, so without this
+Upgrading the package does not touch what `wolfproof init` wrote into your project, so without this
 a project keeps an older release's stanza and hook indefinitely. `--upgrade` refreshes exactly
 those, and nothing it did not write:
 
 | | refreshed when | left alone when |
 | --- | --- | --- |
-| `AGENTS.md` stanza | it sits between agent-gate's markers | there are no markers, or the end marker is missing |
-| pre-commit hook | it carries the `Installed by agent-gate-init` header | anyone else wrote it |
-| `.mcp.json` controls | the entry is one agent-gate wrote, or the control is missing | you defined the control yourself |
+| `AGENTS.md` stanza | it sits between wolfproof's markers, or agent-gate's from an earlier version | there are no markers, or the end marker is missing |
+| pre-commit hook | it carries the `Installed by wolfproof init` header, or `Installed by agent-gate-init` | anyone else wrote it |
+| `.mcp.json` controls | the entry is one setup wrote, or the control is missing | you defined the control yourself |
 
 The task file is read back from what setup wrote, so you do not have to repeat it — and it is not
 quietly dropped, which would switch six checks off. Running it twice changes nothing the second
-time. It exits **1** if something of agent-gate's own could not be refreshed, and says what.
+time. It exits **1** if something of its own could not be refreshed, and says what.
+
+**Coming from agent-gate** (v1.1.18 or earlier): run the same command. It replaces the
+`agent-gate` markers, stanza command and hook with `wolfproof` ones and keeps the task file. Until
+you do, the old `./node_modules/.bin/agent-gate` in your stanza and hook keeps working, with a note on
+stderr. Rename `.agent-gate.json` to `.wolfproof.json` and `AGENT_GATE_*` variables to
+`WOLFPROOF_*` when convenient; the old names are read until the next minor release, and a run that
+reads `.agent-gate.json` says so.
 
 `--force` would also refresh these, and would also overwrite a hook you wrote. Use `--upgrade`.
 
@@ -561,7 +583,7 @@ A gate that crashes exits 3 too, never Node's default 1, and in `--json` mode st
 document: `{"exitCode": 3, "incomplete": true, "error": "..."}`. A usage error writes
 `{"exitCode": 2, "error": "..."}`.
 
-`agent-gate-init` has its own codes: `0` done, `1` left an existing file alone (reported, and
+`wolfproof init` has its own codes: `0` done, `1` left an existing file alone (reported, and
 `--force` overrides), `2` usage error, `70` failed partway — rerun after fixing the cause, since
 nothing it writes overwrites.
 
@@ -681,7 +703,8 @@ Listed so that a clean verdict is read for what it is.
 Controls resolve in this order, and the run reports which rule won:
 
 1. **Environment variable** — `TFGUARD_SERVER`, `DEPAUDIT_SERVER`, `SECRETGUARD_SERVER`, `IDENTITYGUARD_SERVER`
-2. **`.agent-gate.json`** in the project being checked
+2. **`.wolfproof.json`** in the project being checked (`.agent-gate.json` is still read until the
+   next minor release)
 3. **`node_modules`** — the normal case
 4. **A sibling checkout** — for developing the controls themselves
 

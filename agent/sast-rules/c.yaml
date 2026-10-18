@@ -1,4 +1,4 @@
-# Injection rules for C and C++, written for agent-gate. See python.yaml for the split between blocking
+# Injection rules for C and C++, written for wolfproof. See python.yaml for the split between blocking
 # taint rules (ERROR) and advisory pattern rules (WARNING).
 #
 # C has no common HTTP framework, so request data is named where it enters: the CGI environment,

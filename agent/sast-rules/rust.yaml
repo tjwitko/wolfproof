@@ -1,4 +1,4 @@
-# Injection and credential rules for Rust (axum, actix-web), written for agent-gate. See python.yaml for
+# Injection and credential rules for Rust (axum, actix-web), written for wolfproof. See python.yaml for
 # the split between blocking taint rules (ERROR) and advisory pattern rules (WARNING). No XXE rule: the
 # common Rust XML crates do not resolve external entities. No evaluator either.
 rules:
