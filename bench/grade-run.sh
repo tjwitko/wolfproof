@@ -11,7 +11,7 @@
 set -euo pipefail
 
 LLM_ROOT="${LLM_ROOT:-$HOME/LLM}"
-CONTROLS="$LLM_ROOT/agent-gate"
+CONTROLS="$LLM_ROOT/wolfproof"
 # Default only. The real answer comes from the run itself, below: a run built for one task and
 # graded against another reports its task-gated checks as "not checked" on a project that was asked
 # for exactly those things, which reads as the model omitting them.
@@ -61,7 +61,7 @@ echo " run      : $DIR"
 echo " task     : $(basename "$TASK")"
 # All five control repos, because the gate is not one repository. Two runs once carried identical
 # "controls @" lines while dep-audit had changed between them.
-for r in agent-gate terraform-guard-mcp dep-audit-mcp secret-guard-mcp identity-guard-mcp; do
+for r in wolfproof terraform-guard-mcp dep-audit-mcp secret-guard-mcp identity-guard-mcp; do
   d="$LLM_ROOT/$r"
   sha="$(git -C "$d" rev-parse --short HEAD 2>/dev/null || echo unknown)"
   git -C "$d" diff --quiet 2>/dev/null || sha="$sha (UNCOMMITTED — grade not reproducible)"

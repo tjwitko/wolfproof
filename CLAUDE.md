@@ -5,8 +5,9 @@ against a project and return one verdict: clean, blocked, or could-not-run. It i
 Action and a library. It was called **agent-gate** until v1.2.0; the repository is now
 [`tjwitko/wolfproof`](https://github.com/tjwitko/wolfproof) (renamed from `tjwitko/agent-gate` —
 git and install URLs redirect, Actions do not, so workflows must say `tjwitko/wolfproof`; never
-create a new repository named `agent-gate`, which would end the redirect). The local checkout's
-directory is still `agent-gate`, and the bench scripts name it so. The old command
+create a new repository named `agent-gate`, which would end the redirect). The local checkout is
+`~/LLM/wolfproof`; `~/LLM/agent-gate` is a symlink to it, kept so older bench runs (whose AGENTS.md
+names the old absolute path) and sessions started under the old path keep working. The old command
 names, `.agent-gate.json` and the `AGENT_GATE_*` variables are accepted for one release, and
 `wolfproof init --upgrade` moves a project's stanza and hook to the new names. The unscoped npm name
 `wolfproof` is held by a placeholder (prints install steps, exits 3) until the first npm release.
