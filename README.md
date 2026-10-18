@@ -76,16 +76,16 @@ script on `PATH` is a different fact and will not satisfy it.
 
 ### Install
 
-Latest release: **[v1.2.0](https://github.com/tjwitko/wolfproof/releases/latest)**
+Latest release: **[v1.3.0](https://github.com/tjwitko/wolfproof/releases/latest)**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.2.0
+npm install --save-dev github:tjwitko/wolfproof#v1.3.0
 ```
 
 The four control servers come with it as dependencies — there is nothing else to clone or wire up.
 They are pinned to specific release tags, so this installs the same five components every time;
 `./node_modules/.bin/wolfproof --version` shows which.
-Drop the `#v1.2.0` to track `main` instead, which moves.
+Drop the `#v1.3.0` to track `main` instead, which moves.
 
 ### Run it
 
@@ -383,9 +383,9 @@ jobs:
 
       # Everything the controls drive, at the versions this release was tested with: Terraform,
       # gitleaks, osv-scanner, checkov, ruff and pytest, each checked after install.
-      - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.2.0
+      - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.3.0
 
-      - uses: tjwitko/wolfproof@v1.2.0
+      - uses: tjwitko/wolfproof@v1.3.0
         with:
           project: .
           task-file: task.txt
@@ -422,7 +422,7 @@ a requirement every project must meet, set it in a workflow the project cannot e
 organisation ruleset requires, for instance:
 
 ```yaml
-      - uses: tjwitko/wolfproof@v1.2.0
+      - uses: tjwitko/wolfproof@v1.3.0
         with:
           task-file: task.txt
           baseline: |
@@ -453,7 +453,7 @@ upgrades them. You only upgrade a control separately if you wired it into an edi
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.2.0
+wolfproof 1.3.0
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -488,8 +488,8 @@ The `--json` report carries the same list as `toolchain`, and `scannedAt`, the t
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.2.0
-- uses: tjwitko/wolfproof@v1.2.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.3.0
+- uses: tjwitko/wolfproof@v1.3.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -498,7 +498,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.2.0
+npm install --save-dev github:tjwitko/wolfproof#v1.3.0
 ```
 
 ### 3. Refresh what setup wrote
