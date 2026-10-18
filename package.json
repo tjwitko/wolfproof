@@ -54,7 +54,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tjwitko/agent-gate.git"
+    "url": "git+https://github.com/tjwitko/wolfproof.git"
   },
   "engines": {
     "node": ">=20"

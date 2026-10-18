@@ -1,8 +1,8 @@
 # wolfproof
 
-[![gate](https://github.com/tjwitko/agent-gate/actions/workflows/gate.yml/badge.svg)](https://github.com/tjwitko/agent-gate/actions/workflows/gate.yml)
-[![release](https://img.shields.io/github/v/release/tjwitko/agent-gate)](https://github.com/tjwitko/agent-gate/releases/latest)
-[![license](https://img.shields.io/github/license/tjwitko/agent-gate)](LICENSE)
+[![gate](https://github.com/tjwitko/wolfproof/actions/workflows/gate.yml/badge.svg)](https://github.com/tjwitko/wolfproof/actions/workflows/gate.yml)
+[![release](https://img.shields.io/github/v/release/tjwitko/wolfproof)](https://github.com/tjwitko/wolfproof/releases/latest)
+[![license](https://img.shields.io/github/license/tjwitko/wolfproof)](LICENSE)
 
 Most application-security tools have two verdicts: pass or fail. That leaves a third case with
 nowhere to go. When a scanner is not installed, a control cannot be reached, or a test suite cannot
@@ -35,7 +35,10 @@ wolfproof.
 > **Formerly agent-gate.** The project was called agent-gate until v1.2.0. The old command names,
 > `.agent-gate.json` and the `AGENT_GATE_*` variables still work for one release, and
 > `wolfproof init --upgrade` moves a project's setup to the new names — see [Upgrading](#upgrading).
-> The repository keeps its `tjwitko/agent-gate` address until it is renamed.
+> The repository moved from `tjwitko/agent-gate` to `tjwitko/wolfproof`. Git and install URLs under
+> the old name redirect, and every earlier tag is here; **workflows must say `tjwitko/wolfproof`**,
+> because GitHub does not redirect Actions — `uses: tjwitko/wolfproof@…` fails with "repository not
+> found".
 
 ---
 
@@ -71,10 +74,10 @@ script on `PATH` is a different fact and will not satisfy it.
 
 ### Install
 
-Latest release: **[v1.1.18](https://github.com/tjwitko/agent-gate/releases/latest)**
+Latest release: **[v1.1.18](https://github.com/tjwitko/wolfproof/releases/latest)**
 
 ```bash
-npm install --save-dev github:tjwitko/agent-gate#v1.1.18
+npm install --save-dev github:tjwitko/wolfproof#v1.1.18
 ```
 
 The four control servers come with it as dependencies — there is nothing else to clone or wire up.
@@ -378,9 +381,9 @@ jobs:
 
       # Everything the controls drive, at the versions this release was tested with: Terraform,
       # gitleaks, osv-scanner, checkov, ruff and pytest, each checked after install.
-      - uses: tjwitko/agent-gate/.github/actions/control-tooling@v1.1.18
+      - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.1.18
 
-      - uses: tjwitko/agent-gate@v1.1.18
+      - uses: tjwitko/wolfproof@v1.1.18
         with:
           project: .
           task-file: task.txt
@@ -417,7 +420,7 @@ a requirement every project must meet, set it in a workflow the project cannot e
 organisation ruleset requires, for instance:
 
 ```yaml
-      - uses: tjwitko/agent-gate@v1.1.18
+      - uses: tjwitko/wolfproof@v1.1.18
         with:
           task-file: task.txt
           baseline: |
@@ -483,17 +486,17 @@ The `--json` report carries the same list as `toolchain`, and `scannedAt`, the t
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/agent-gate/.github/actions/control-tooling@v1.1.18
-- uses: tjwitko/agent-gate@v1.1.18
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.1.18
+- uses: tjwitko/wolfproof@v1.1.18
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
-miss: a search for `agent-gate@` does not match the first line.
+miss: a search for `wolfproof@` does not match the first line.
 
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/agent-gate#v1.1.18
+npm install --save-dev github:tjwitko/wolfproof#v1.1.18
 ```
 
 ### 3. Refresh what setup wrote
@@ -521,7 +524,8 @@ time. It exits **1** if something of its own could not be refreshed, and says wh
 you do, the old `./node_modules/.bin/agent-gate` in your stanza and hook keeps working, with a note on
 stderr. Rename `.agent-gate.json` to `.wolfproof.json` and `AGENT_GATE_*` variables to
 `WOLFPROOF_*` when convenient; the old names are read until the next minor release, and a run that
-reads `.agent-gate.json` says so.
+reads `.agent-gate.json` says so. In workflows, change both `uses: tjwitko/agent-gate…` lines to
+`tjwitko/wolfproof…` now: GitHub does not redirect Actions, so the old path fails.
 
 `--force` would also refresh these, and would also overwrite a hook you wrote. Use `--upgrade`.
 
@@ -775,8 +779,8 @@ rather than clean. The credential-free source scan still runs.
 ## Development
 
 ```bash
-git clone https://github.com/tjwitko/agent-gate
-cd agent-gate
+git clone https://github.com/tjwitko/wolfproof
+cd wolfproof
 npm install
 npm test          # unit tests
 npm run corpus    # regression corpus — thirteen frozen projects

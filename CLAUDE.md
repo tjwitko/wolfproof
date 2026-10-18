@@ -2,8 +2,11 @@
 
 **This directory is published as `wolfproof`** — a set of deterministic security controls that run
 against a project and return one verdict: clean, blocked, or could-not-run. It is a CLI, a GitHub
-Action and a library. It was called **agent-gate** until v1.2.0, and the repository is still
-[`tjwitko/agent-gate`](https://github.com/tjwitko/agent-gate) until it is renamed; the old command
+Action and a library. It was called **agent-gate** until v1.2.0; the repository is now
+[`tjwitko/wolfproof`](https://github.com/tjwitko/wolfproof) (renamed from `tjwitko/agent-gate` —
+git and install URLs redirect, Actions do not, so workflows must say `tjwitko/wolfproof`; never
+create a new repository named `agent-gate`, which would end the redirect). The local checkout's
+directory is still `agent-gate`, and the bench scripts name it so. The old command
 names, `.agent-gate.json` and the `AGENT_GATE_*` variables are accepted for one release, and
 `wolfproof init --upgrade` moves a project's stanza and hook to the new names. The unscoped npm name
 `wolfproof` is held by a placeholder (prints install steps, exits 3) until the first npm release.
