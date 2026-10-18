@@ -457,8 +457,9 @@ test("an init that cannot write is exit 70, not 1, and says what to do", { skip:
 // --- the rename: wolfproof, and `wolfproof init` ----------------------------------------------
 //
 // agent-gate became wolfproof in v1.2.0, and agent-gate-init became a subcommand: one command name
-// is one npm name to own, since `npx` fetches any command name it cannot find. Projects set up under
-// the old names must upgrade in place, and the old commands must keep working for a release.
+// is one npm name to own, since `npx` fetches any command name it cannot find. The old commands were
+// kept for one release; what stays is --upgrade recognising what any earlier version wrote, so a
+// project set up under the old names still moves over in place.
 
 // What v1.1.17 and v1.1.18 wrote: the installed bin by path, under agent-gate's markers.
 const V118_STANZA = "<!-- agent-gate:start v1.1.18 -->\n## Security gate\n\n    ./node_modules/.bin/agent-gate . task.txt\n\nold words\n<!-- agent-gate:end -->\n";
@@ -500,7 +501,6 @@ test("recoverTask reads the wolfproof command too", () => {
 
 // Run as processes: which command answers, and with which exit code, is a property of a process.
 const VALIDATE = new URL("./validate.mjs", import.meta.url).pathname;
-const INIT = new URL("./init.mjs", import.meta.url).pathname;
 const run = (file, args, opts = {}) => spawnSync(process.execPath, [file, ...args], { encoding: "utf8", timeout: 120_000, ...opts });
 
 test("`wolfproof init` is the setup command: --version, --help and a real run", () => {
@@ -531,27 +531,20 @@ test("a setup that fails under `wolfproof init` exits 70, setup's code, not the 
   }
 });
 
-test("the old command names still work for a release, and say what to type instead", () => {
-  // Installed bins are symlinks named for the command, which is how each one knows its old name.
-  const bin = mkdtempSync(path.join(tmpdir(), "init-alias-"));
+test("since v1.3.0 the only installed command is wolfproof", () => {
+  // agent-gate and agent-gate-init were kept for one release (v1.2.0). An installed alias is a name
+  // npx resolves too, so each one kept is one more name to own on npm.
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.deepEqual(pkg.bin, { wolfproof: "./bin/validate.mjs" });
+});
+
+test("run through a symlink named wolfproof, the gate runs and says nothing about names", () => {
+  const bin = mkdtempSync(path.join(tmpdir(), "init-bin-"));
   try {
-    symlinkSync(VALIDATE, path.join(bin, "agent-gate"));
-    symlinkSync(INIT, path.join(bin, "agent-gate-init"));
     symlinkSync(VALIDATE, path.join(bin, "wolfproof"));
-
-    let r = run(path.join(bin, "agent-gate-init"), ["--version"]);
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout.trim(), `wolfproof init ${VERSION}`);
-    assert.match(r.stderr, /agent-gate-init is now `wolfproof init`/);
-
-    // A usage error in --json mode: the note goes to stderr, so stdout is still one JSON document.
-    r = run(path.join(bin, "agent-gate"), [path.join(bin, "missing"), "--json"]);
+    const r = run(path.join(bin, "wolfproof"), [path.join(bin, "missing"), "--json"]);
     assert.equal(r.status, 2);
     assert.equal(JSON.parse(r.stdout).exitCode, 2);
-    assert.match(r.stderr, /agent-gate is now `wolfproof`/);
-
-    r = run(path.join(bin, "wolfproof"), [path.join(bin, "missing"), "--json"]);
-    assert.equal(r.status, 2);
-    assert.doesNotMatch(r.stderr, /is now/, "the new name says nothing about names");
+    assert.doesNotMatch(r.stderr, /is now/);
   } finally { rmSync(bin, { recursive: true, force: true }); }
 });

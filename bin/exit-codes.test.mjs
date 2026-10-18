@@ -155,3 +155,36 @@ test("the JSON report records when it ran and with which tools", () => {
     rmSync(d, { recursive: true, force: true });
   }
 });
+
+// --- names from before the rename (agent-gate, until v1.2.0) ------------------------------------
+//
+// Read in v1.2.0, not since v1.3.0. Neither may stop applying silently.
+
+test("an AGENT_GATE_* variable left set is reported as unread, and pins nothing", () => {
+  const d = scratch();
+  try {
+    const doc = JSON.parse(cli([path.join(d, "proj"), "--json"], { AGENT_GATE_TODAY: "2026-10-01" }).stdout);
+    assert.equal(doc.judgedAsOf, null, "the old name pins no date");
+    assert.ok(doc.advisories.some((a) => /AGENT_GATE_TODAY is set and no longer read since v1\.3\.0; set WOLFPROOF_TODAY instead/.test(a.message)),
+      JSON.stringify(doc.advisories.map((a) => a.message)));
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("a project with only .agent-gate.json exits 3 and says to rename it", () => {
+  // Its declared controls would otherwise quietly stop applying and the project be checked by
+  // whatever node_modules holds. Could-not-run, because the configuration the project states was not read.
+  const d = scratch();
+  try {
+    writeFileSync(path.join(d, "proj", ".agent-gate.json"), JSON.stringify({ controls: {} }));
+    const r = cli([path.join(d, "proj"), "--json"]);
+    assert.equal(r.code, 3, `exit ${r.code}`);
+    const doc = JSON.parse(r.stdout);
+    assert.equal(doc.incomplete, true);
+    const human = cli([path.join(d, "proj")]);
+    assert.match(human.stdout, /!! \.agent-gate\.json is no longer read: agent-gate was renamed wolfproof/);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});

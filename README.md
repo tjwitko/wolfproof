@@ -32,12 +32,14 @@ reliable. Nothing in it assumes an agent, and it is as useful on code people wro
 Like the third pig's house, it is the third verdict — could-not-run — that makes your code
 wolfproof.
 
-> **Formerly agent-gate.** The project was called agent-gate until v1.2.0. The old command names,
-> `.agent-gate.json` and the `AGENT_GATE_*` variables still work for one release, and
-> `wolfproof init --upgrade` moves a project's setup to the new names — see [Upgrading](#upgrading).
+> **Formerly agent-gate.** The project was called agent-gate until v1.2.0, which still accepted the
+> old names. Since v1.3.0 it does not: the `agent-gate` and `agent-gate-init` commands are gone, a
+> project with only `.agent-gate.json` exits 3 until the file is renamed `.wolfproof.json`, and an
+> `AGENT_GATE_*` variable is reported as set and unread. `wolfproof init --upgrade` still moves a
+> project set up by any earlier version to the new names — see [Upgrading](#upgrading).
 > The repository moved from `tjwitko/agent-gate` to `tjwitko/wolfproof`. Git and install URLs under
 > the old name redirect, and every earlier tag is here; **workflows must say `tjwitko/wolfproof`**,
-> because GitHub does not redirect Actions — `uses: tjwitko/wolfproof@…` fails with "repository not
+> because GitHub does not redirect Actions — `uses: tjwitko/agent-gate@…` fails with "repository not
 > found".
 
 ---
@@ -519,13 +521,14 @@ The task file is read back from what setup wrote, so you do not have to repeat i
 quietly dropped, which would switch six checks off. Running it twice changes nothing the second
 time. It exits **1** if something of its own could not be refreshed, and says what.
 
-**Coming from agent-gate** (v1.1.18 or earlier): run the same command. It replaces the
-`agent-gate` markers, stanza command and hook with `wolfproof` ones and keeps the task file. Until
-you do, the old `./node_modules/.bin/agent-gate` in your stanza and hook keeps working, with a note on
-stderr. Rename `.agent-gate.json` to `.wolfproof.json` and `AGENT_GATE_*` variables to
-`WOLFPROOF_*` when convenient; the old names are read until the next minor release, and a run that
-reads `.agent-gate.json` says so. In workflows, change both `uses: tjwitko/agent-gate…` lines to
-`tjwitko/wolfproof…` now: GitHub does not redirect Actions, so the old path fails.
+**Coming from agent-gate** (v1.1.18 or earlier): run the same command, straight after installing.
+It replaces the `agent-gate` markers, stanza command and hook with `wolfproof` ones and keeps the task
+file. Until you do, a stanza or hook that still says `./node_modules/.bin/agent-gate` finds no such
+command — the hook fails closed with exit 3, it does not let the commit through. Rename
+`.agent-gate.json` to `.wolfproof.json` (a project with only the old file exits 3 and says so) and
+`AGENT_GATE_*` variables to `WOLFPROOF_*` (an old one left set is reported, not read). In workflows,
+change both `uses: tjwitko/agent-gate…` lines to `tjwitko/wolfproof…`: GitHub does not redirect
+Actions, so the old path fails.
 
 `--force` would also refresh these, and would also overwrite a hook you wrote. Use `--upgrade`.
 
@@ -707,8 +710,8 @@ Listed so that a clean verdict is read for what it is.
 Controls resolve in this order, and the run reports which rule won:
 
 1. **Environment variable** — `TFGUARD_SERVER`, `DEPAUDIT_SERVER`, `SECRETGUARD_SERVER`, `IDENTITYGUARD_SERVER`
-2. **`.wolfproof.json`** in the project being checked (`.agent-gate.json` is still read until the
-   next minor release)
+2. **`.wolfproof.json`** in the project being checked (`.agent-gate.json`, its name before v1.2.0,
+   is not read: a project with only that file exits 3 until it is renamed)
 3. **`node_modules`** — the normal case
 4. **A sibling checkout** — for developing the controls themselves
 

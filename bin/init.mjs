@@ -5,10 +5,10 @@
 //   wolfproof init [project-dir] --upgrade        refresh what an earlier version wrote
 //   wolfproof init --version
 //
-// Reached as a subcommand of `wolfproof` (bin/validate.mjs hands `init` over before anything else),
-// and, for one release, as the `agent-gate-init` command it used to be. One command name rather
-// than two is one name on npm to own: every command name is also a package name `npx` will fetch
-// from the public registry when the tool is not installed.
+// Reached as a subcommand of `wolfproof` (bin/validate.mjs hands `init` over before anything else).
+// It was the separate `agent-gate-init` command until v1.2.0. One command name rather than two is
+// one name on npm to own: every command name is also a package name `npx` will fetch from the public
+// registry when the tool is not installed.
 //
 // Two jobs, which are the same job: make a directory one the gate runs against. `--new` creates it
 // and `git init`s it first; without it, an existing project is updated in place.
@@ -128,7 +128,8 @@ function validateCommand(projectDir, taskFile, { preCommit = false, fromDir = pr
  */
 function writeMcpJson(projectDir, opts, log) {
   const file = path.join(projectDir, ".mcp.json");
-  const { config, file: configFile, note } = readConfig(projectDir);
+  const { config, file: configFile, note, error: configError } = readConfig(projectDir);
+  if (configError) log.warn(configError);
   if (note) log.warn(note);
   const controls = resolveControls(projectDir, { config, configFile });
 
@@ -377,7 +378,8 @@ function upgradeMcp(projectDir, opts, log) {
     return;
   }
   doc.mcpServers ||= {};
-  const { config, file: configFile, note } = readConfig(projectDir);
+  const { config, file: configFile, note, error: configError } = readConfig(projectDir);
+  if (configError) log.warn(configError);
   if (note) log.warn(note);
   const changed = [];
   const current = [];
@@ -488,8 +490,8 @@ async function main(argv) {
   process.exit(leftAlone ? EXIT.LEFT_ALONE : EXIT.OK);
 }
 
-// realpathSync, not path.resolve. npm installs a bin as a symlink, so `./node_modules/.bin/agent-gate-init`
-// (this file's old command name, kept for one release) has argv[1] pointing at the symlink while import.meta.url points at the real
+// realpathSync, not path.resolve. npm installs a bin as a symlink, so an installed command had argv[1]
+// pointing at the symlink while import.meta.url points at the real
 // file; path.resolve does not follow symlinks, the comparison is false, main() never runs, and the
 // command exits 0 having done nothing. bin/validate.mjs shipped exactly this bug once and carries
 // the same comment. Writing a second entry point reproduced it within the hour, which is the
@@ -532,10 +534,9 @@ export async function runInit(argv) {
   }
 }
 
-// Invoked as `agent-gate-init`, the command's name until v1.2.0. It still works, for one release,
-// and says what to type instead -- on stderr, so nothing that reads stdout sees a difference.
+// Run by path (`node bin/init.mjs`), as in development. The installed command is `wolfproof init`;
+// `agent-gate-init`, its name until v1.2.0, is no longer installed.
 if (invokedDirectly()) {
-  process.stderr.write("note: agent-gate-init is now `wolfproof init`. The old name works until the next minor release.\n");
   await runInit(process.argv.slice(2));
 }
 

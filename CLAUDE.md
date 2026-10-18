@@ -7,9 +7,12 @@ Action and a library. It was called **agent-gate** until v1.2.0; the repository 
 git and install URLs redirect, Actions do not, so workflows must say `tjwitko/wolfproof`; never
 create a new repository named `agent-gate`, which would end the redirect). The local checkout is
 `~/LLM/wolfproof`. Bench runs made before the rename name `~/LLM/agent-gate/bin/validate.mjs` in
-their AGENTS.md; that path no longer exists, so re-running one means editing it. The old command
-names, `.agent-gate.json` and the `AGENT_GATE_*` variables are accepted for one release, and
-`wolfproof init --upgrade` moves a project's stanza and hook to the new names. The unscoped npm name
+their AGENTS.md; that path no longer exists, so re-running one means editing it. v1.2.0 accepted
+the old names; since v1.3.0 the `agent-gate`/`agent-gate-init` commands are gone, `.agent-gate.json`
+alone is an exit-3 config error, and a set `AGENT_GATE_*` variable is an advisory — none is silently
+ignored. `wolfproof init --upgrade` still recognises every earlier version's markers and hook, which
+is the one piece of the old names deliberately kept: without it an old project would get a second
+stanza instead of a replaced one. The unscoped npm name
 `wolfproof` is held by a placeholder (prints install steps, exits 3) until the first npm release.
 
 It used to be `local-delegate-mcp` as well — an MCP server that delegates subtasks to a

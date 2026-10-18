@@ -9,9 +9,7 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "wolfproof": "./bin/validate.mjs",
-    "agent-gate": "./bin/validate.mjs",
-    "agent-gate-init": "./bin/init.mjs"
+    "wolfproof": "./bin/validate.mjs"
   },
   "files": [
     "bin/",

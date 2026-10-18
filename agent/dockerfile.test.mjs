@@ -97,9 +97,9 @@ test("judged as of WOLFPROOF_TODAY: the end-of-life date itself is the first day
   const df = { Dockerfile: "FROM node:20-alpine\n" };
   assert.deepEqual(check(df, { env: { WOLFPROOF_TODAY: "2026-04-29" } }).failures, []);
   assert.equal(check(df, { env: { WOLFPROOF_TODAY: "2026-04-30" } }).failures.length, 1);
-  // AGENT_GATE_TODAY, its name before v1.2.0, still pins the date.
-  assert.equal(check(df, { env: { AGENT_GATE_TODAY: "2026-04-30" } }).failures.length, 1);
-  assert.deepEqual(check(df, { env: { AGENT_GATE_TODAY: "2026-04-29" } }).failures, []);
+  // AGENT_GATE_TODAY, its name before v1.2.0, no longer pins anything since v1.3.0 (the gate reports
+  // it as set and unread): judged against the real date, the image is long past end of life.
+  assert.equal(check(df, { env: { AGENT_GATE_TODAY: "2026-04-29" } }).failures.length, 1);
 });
 
 test("Containerfile and *.Dockerfile are read; installed dependencies are not", () => {

@@ -4,7 +4,7 @@
 //   wolfproof <project-dir> [task-file] [--json]
 //   wolfproof init ...            set a project up; see bin/init.mjs
 //
-// Called agent-gate until v1.2.0. That command name still works for one release.
+// Called agent-gate until v1.2.0; that command name is no longer installed since v1.3.0.
 //
 // Exit codes are the contract and nothing may collapse them:
 //   0  nothing blocking
@@ -27,7 +27,7 @@ import { splitSentences, unjudgedSentences, alwaysOnCoverage } from "../agent/re
 import { validateProject, localTools, McpClient } from "../lib/gate-core.mjs";
 import { resolveControls, readConfig, CONFIG_FILE } from "../lib/resolve-controls.mjs";
 import { toolchain } from "../lib/toolchain.mjs";
-import { setting } from "../lib/settings.mjs";
+import { setting, legacySettingsInUse } from "../lib/settings.mjs";
 
 const EXIT = { CLEAN: 0, BLOCKED: 1, USAGE: 2, INCOMPLETE: 3 };
 
@@ -144,6 +144,11 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
   r.failures.unshift(...requirements.failures);
   r.advisories.unshift(...requirements.advisories);
   if (configNote) r.advisories.unshift(`config: ${configNote}`);
+  // Since v1.3.0 only WOLFPROOF_* is read. An AGENT_GATE_* variable left in a pipeline -- a pinned
+  // end-of-life date, a hooks path -- has stopped applying, and says so rather than going quiet.
+  for (const { name, use } of legacySettingsInUse(env)) {
+    r.advisories.unshift(`settings: ${name} is set and no longer read since v1.3.0; set ${use} instead.`);
+  }
   for (const c of clients) c.proc?.kill();
 
   // A server that connected but whose tool the gate never invoked. Not the same as one that could
@@ -436,11 +441,6 @@ if (invokedDirectly() && process.argv[2] === "init") {
   const { runInit } = await import("./init.mjs");
   await runInit(process.argv.slice(3));
 } else if (invokedDirectly()) {
-  // Run as `agent-gate`, the command's name until v1.2.0: it still works for one release, and says
-  // what to type instead. stderr only, so a --json document on stdout is unchanged.
-  if (path.basename(process.argv[1]) === "agent-gate") {
-    process.stderr.write("note: agent-gate is now `wolfproof`. The old name works until the next minor release.\n");
-  }
   const json = process.argv.includes("--json");
   const crash = (err) => {
     const r = failClosed(err, { json, wroteResult });
