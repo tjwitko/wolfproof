@@ -6,6 +6,7 @@ import { tmpdir } from "os";
 import path from "path";
 
 import { unscannedManifests, NEEDS_LOCKFILE } from "./unscanned-manifests.mjs";
+import { setting } from "../lib/settings.mjs";
 
 function project(files) {
   const dir = mkdtempSync(path.join(tmpdir(), "unscanned-"));
@@ -106,9 +107,9 @@ test("installed dependencies are not the project's manifests", () => {
 
 // The table above is a claim about osv-scanner, measured against 2.4.0. This holds it to the real
 // scanner, so a version bump that changes what it reads fails here instead of making the table
-// quietly wrong. CI sets AGENT_GATE_REQUIRE_SCANNERS so a missing scanner fails rather than skips.
+// quietly wrong. CI sets WOLFPROOF_REQUIRE_SCANNERS so a missing scanner fails rather than skips.
 const haveScanner = spawnSync("osv-scanner", ["--version"]).status === 0;
-const required = process.env.AGENT_GATE_REQUIRE_SCANNERS === "1";
+const required = setting(process.env, "REQUIRE_SCANNERS") === "1";
 
 const LOCK_FIXTURES = {
   "package-lock.json": '{"name":"p","lockfileVersion":3,"packages":{"":{"name":"p"},"node_modules/lodash":{"version":"4.17.4"}}}',
@@ -150,7 +151,7 @@ function osvReads(name, body) {
 
 const scannerTest = (name, fn) =>
   test(name, { skip: !haveScanner && !required && "osv-scanner not installed" }, () => {
-    assert.ok(haveScanner, "AGENT_GATE_REQUIRE_SCANNERS is set and osv-scanner is not on PATH");
+    assert.ok(haveScanner, "WOLFPROOF_REQUIRE_SCANNERS is set and osv-scanner is not on PATH");
     fn();
   });
 

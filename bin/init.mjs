@@ -128,8 +128,9 @@ function validateCommand(projectDir, taskFile, { preCommit = false, fromDir = pr
  */
 function writeMcpJson(projectDir, opts, log) {
   const file = path.join(projectDir, ".mcp.json");
-  const { config } = readConfig(projectDir);
-  const controls = resolveControls(projectDir, { config });
+  const { config, file: configFile, note } = readConfig(projectDir);
+  if (note) log.warn(note);
+  const controls = resolveControls(projectDir, { config, configFile });
 
   const unresolved = controls.filter((c) => !c.entry);
   if (unresolved.length) {
@@ -376,11 +377,12 @@ function upgradeMcp(projectDir, opts, log) {
     return;
   }
   doc.mcpServers ||= {};
-  const { config } = readConfig(projectDir);
+  const { config, file: configFile, note } = readConfig(projectDir);
+  if (note) log.warn(note);
   const changed = [];
   const current = [];
   const custom = [];
-  for (const c of resolveControls(projectDir, { config })) {
+  for (const c of resolveControls(projectDir, { config, configFile })) {
     if (!c.entry) {
       log.warn(`.mcp.json: ${c.name} could not be located in this install — set ${c.envVar}`);
       continue;

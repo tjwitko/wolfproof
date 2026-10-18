@@ -17,6 +17,7 @@ import { tmpdir } from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { toolchain, toolchainDrift } from "../lib/toolchain.mjs";
+import { setting } from "../lib/settings.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..");
@@ -108,8 +109,8 @@ const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 // The dockerfile check judges base images against end-of-life dates, so its verdict on a frozen
 // fixture moves on the day a release ages out, with nothing changed. Comparing against frozen
 // verdicts, the gate is asked to judge as of the date they were measured; --update measures as of
-// today and records today. An explicit AGENT_GATE_TODAY still wins.
-if (!UPDATE && !process.env.AGENT_GATE_TODAY) process.env.AGENT_GATE_TODAY = manifest.measured;
+// today and records today. An explicit WOLFPROOF_TODAY (or AGENT_GATE_TODAY) still wins.
+if (!UPDATE && !setting(process.env, "TODAY")) process.env.WOLFPROOF_TODAY = manifest.measured;
 console.log(`corpus: ${manifest.entries.length} deliverables${UPDATE ? " — RE-DERIVING expected values" : `, verdicts measured ${manifest.measured}`}\n`);
 
 const CURRENT_TOOLCHAIN = await toolchain();

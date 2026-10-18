@@ -7,13 +7,14 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import { sastFailures, sastTargets } from "./sast.mjs";
+import { setting } from "../lib/settings.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const haveSemgrep = spawnSync("semgrep", ["--version"], { env: { ...process.env, SEMGREP_ENABLE_VERSION_CHECK: "0" } }).status === 0;
-const required = process.env.AGENT_GATE_REQUIRE_SCANNERS === "1";
+const required = setting(process.env, "REQUIRE_SCANNERS") === "1";
 const scanner = (name, fn) =>
   test(name, { skip: !haveSemgrep && !required && "semgrep not installed" }, () => {
-    assert.ok(haveSemgrep, "AGENT_GATE_REQUIRE_SCANNERS is set and semgrep is not on PATH");
+    assert.ok(haveSemgrep, "WOLFPROOF_REQUIRE_SCANNERS is set and semgrep is not on PATH");
     fn();
   });
 

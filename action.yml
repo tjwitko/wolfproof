@@ -73,7 +73,7 @@ runs:
         SECRETGUARD_SERVER: ${{ inputs.secret-guard }}
         IDENTITYGUARD_SERVER: ${{ inputs.identity-guard }}
         # Through the environment, never interpolated into the script: it is free text.
-        AGENT_GATE_BASELINE: ${{ inputs.baseline }}
+        WOLFPROOF_BASELINE: ${{ inputs.baseline }}
       run: |
         # GitHub runs composite `run:` steps as `bash --noprofile --norc -e -o pipefail`, and
         # `set -uo pipefail` does NOT clear that inherited -e. The gate's exit code is this action's
@@ -101,9 +101,9 @@ runs:
         ARGS=("${{ inputs.project }}")
         [ -n "${{ inputs.task-file }}" ] && ARGS+=("${{ inputs.task-file }}")
         # Written outside the workspace, so nothing in the checkout can stand in for it.
-        if [ -n "$AGENT_GATE_BASELINE" ]; then
+        if [ -n "$WOLFPROOF_BASELINE" ]; then
           BASELINE_FILE="${RUNNER_TEMP:-/tmp}/agent-gate-baseline.txt"
-          printf '%s\n' "$AGENT_GATE_BASELINE" > "$BASELINE_FILE"
+          printf '%s\n' "$WOLFPROOF_BASELINE" > "$BASELINE_FILE"
           ARGS+=("--baseline=$BASELINE_FILE")
         fi
 

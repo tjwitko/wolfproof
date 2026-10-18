@@ -27,6 +27,7 @@ import { splitSentences, unjudgedSentences, alwaysOnCoverage } from "../agent/re
 import { validateProject, localTools, McpClient } from "../lib/gate-core.mjs";
 import { resolveControls, readConfig, CONFIG_FILE } from "../lib/resolve-controls.mjs";
 import { toolchain } from "../lib/toolchain.mjs";
+import { setting } from "../lib/settings.mjs";
 
 const EXIT = { CLEAN: 0, BLOCKED: 1, USAGE: 2, INCOMPLETE: 3 };
 
@@ -106,8 +107,8 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
   const tools = toolchain({ env });
   const taskText = requirements.text;
 
-  const { config, error: configError } = readConfig(projectDir);
-  const controls = resolveControls(projectDir, { config, env });
+  const { config, error: configError, file: configFile, note: configNote } = readConfig(projectDir);
+  const controls = resolveControls(projectDir, { config, env, configFile });
 
   const registry = new Map();
   const clients = [];
@@ -142,6 +143,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
   const r = await validateProject(projectDir, registry, taskText, { preCommit });
   r.failures.unshift(...requirements.failures);
   r.advisories.unshift(...requirements.advisories);
+  if (configNote) r.advisories.unshift(`config: ${configNote}`);
   for (const c of clients) c.proc?.kill();
 
   // A server that connected but whose tool the gate never invoked. Not the same as one that could
@@ -178,7 +180,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
     scannedAt,
     // End-of-life dates are judged as of this day instead of the clock when it is set, as the corpus
     // does to keep a frozen verdict from ageing. Recorded so a pinned run does not pass for a live one.
-    judgedAsOf: env.AGENT_GATE_TODAY || null,
+    judgedAsOf: setting(env, "TODAY") || null,
     toolchain: await tools,
     // Which sentences of the requirements switched no check on. A gated-off check says only "not
     // checked", so a requirement nothing recognised was otherwise visible nowhere.

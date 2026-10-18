@@ -62,7 +62,7 @@ jobs:
         run: pipx install semgrep==1.180.0 && semgrep --version
       - run: npm test
         env:
-          AGENT_GATE_REQUIRE_SCANNERS: "1"
+          WOLFPROOF_REQUIRE_SCANNERS: "1"
 
   corpus:
     name: regression corpus
@@ -178,7 +178,7 @@ jobs:
           # verdict would change on the day its node:22 ages out, with nothing changed here. Judged as
           # of the date the corpus was measured, like corpus/run.mjs does, so this job tests the
           # action rather than the calendar.
-          echo "AGENT_GATE_TODAY=$(node -p 'require("./corpus/manifest.json").measured')" >> "$GITHUB_ENV"
+          echo "WOLFPROOF_TODAY=$(node -p 'require("./corpus/manifest.json").measured')" >> "$GITHUB_ENV"
 
       - id: clean
         uses: ./

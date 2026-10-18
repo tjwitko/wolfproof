@@ -15,7 +15,7 @@
 // checkov has no end-of-life rule, which is why the blocking half is this project's own: checkov
 // 3.3.10 over the probe flagged HEALTHCHECK and USER and said nothing about node:14.
 //
-// The dates are agent/eol-data.mjs, generated from endoflife.date. "Today" is AGENT_GATE_TODAY when
+// The dates are agent/eol-data.mjs, generated from endoflife.date. "Today" is WOLFPROOF_TODAY when
 // set, so the frozen corpus judges its fixtures on the date it measured them rather than drifting
 // every time a release ages out.
 import { readdirSync, readFileSync } from "fs";
@@ -25,6 +25,7 @@ import path from "path";
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { EOL, PRODUCTS, EOL_FETCHED } from "./eol-data.mjs";
+import { setting } from "../lib/settings.mjs";
 
 const isDockerfile = (name) =>
   name === "Dockerfile" || name === "Containerfile" || /^Dockerfile\.[\w.-]+$/.test(name) || /\.[Dd]ockerfile$/.test(name);
@@ -105,7 +106,7 @@ export function parseRef(ref) {
 }
 
 const today = (env = process.env) => {
-  const pinned = env.AGENT_GATE_TODAY;
+  const pinned = setting(env, "TODAY");
   if (pinned && /^\d{4}-\d{2}-\d{2}$/.test(pinned)) return pinned;
   return new Date().toISOString().slice(0, 10);
 };

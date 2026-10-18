@@ -145,15 +145,15 @@ function withFakeDocker(mode, fn) {
       "esac\nexit 0\n"
   );
   chmodSync(docker, 0o755);
-  const saved = { PATH: process.env.PATH, T: process.env.AGENT_GATE_DOCKER_TIMEOUT_MS };
+  const saved = { PATH: process.env.PATH, T: process.env.WOLFPROOF_DOCKER_TIMEOUT_MS };
   process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
-  process.env.AGENT_GATE_DOCKER_TIMEOUT_MS = "1500";
+  process.env.WOLFPROOF_DOCKER_TIMEOUT_MS = "1500";
   try {
     return fn();
   } finally {
     process.env.PATH = saved.PATH;
-    if (saved.T === undefined) delete process.env.AGENT_GATE_DOCKER_TIMEOUT_MS;
-    else process.env.AGENT_GATE_DOCKER_TIMEOUT_MS = saved.T;
+    if (saved.T === undefined) delete process.env.WOLFPROOF_DOCKER_TIMEOUT_MS;
+    else process.env.WOLFPROOF_DOCKER_TIMEOUT_MS = saved.T;
     rmSync(bin, { recursive: true, force: true });
   }
 }

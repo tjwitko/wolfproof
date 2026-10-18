@@ -8,7 +8,7 @@ import path from "path";
 import { dockerfileFailures, findDockerfiles, baseImages, imageEol, parseRef } from "./dockerfile.mjs";
 import { EOL, PRODUCTS } from "./eol-data.mjs";
 
-const NOW = { AGENT_GATE_TODAY: "2026-10-13" };
+const NOW = { WOLFPROOF_TODAY: "2026-10-13" };
 
 function check(files, { env = NOW, checkov = false } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "dockerfile-"));
@@ -93,10 +93,13 @@ test("registry prefixes and digests are seen through", () => {
 });
 
 // The corpus pins this, so a frozen verdict does not move on the day a release ages out.
-test("judged as of AGENT_GATE_TODAY: the end-of-life date itself is the first day without support", () => {
+test("judged as of WOLFPROOF_TODAY: the end-of-life date itself is the first day without support", () => {
   const df = { Dockerfile: "FROM node:20-alpine\n" };
-  assert.deepEqual(check(df, { env: { AGENT_GATE_TODAY: "2026-04-29" } }).failures, []);
+  assert.deepEqual(check(df, { env: { WOLFPROOF_TODAY: "2026-04-29" } }).failures, []);
+  assert.equal(check(df, { env: { WOLFPROOF_TODAY: "2026-04-30" } }).failures.length, 1);
+  // AGENT_GATE_TODAY, its name before v1.2.0, still pins the date.
   assert.equal(check(df, { env: { AGENT_GATE_TODAY: "2026-04-30" } }).failures.length, 1);
+  assert.deepEqual(check(df, { env: { AGENT_GATE_TODAY: "2026-04-29" } }).failures, []);
 });
 
 test("Containerfile and *.Dockerfile are read; installed dependencies are not", () => {
@@ -141,7 +144,7 @@ test("without checkov, the advisory says which rules did not run", () => {
     writeFileSync(path.join(dir, "Dockerfile"), "FROM node:24-alpine\n");
     const src = `import { dockerfileFailures } from ${JSON.stringify(new URL("./dockerfile.mjs", import.meta.url).href)};
       console.log(JSON.stringify(dockerfileFailures(${JSON.stringify(dir)})));`;
-    const r = spawnSync(path.join(bin, "node"), ["--input-type=module", "-e", src], { encoding: "utf8", env: { PATH: bin, AGENT_GATE_TODAY: "2026-10-13" } });
+    const r = spawnSync(path.join(bin, "node"), ["--input-type=module", "-e", src], { encoding: "utf8", env: { PATH: bin, WOLFPROOF_TODAY: "2026-10-13" } });
     const out = JSON.parse(r.stdout);
     assert.deepEqual(out.failures, []);
     assert.match(out.advisories.join("\n"), /checkov is not installed, so 1 Dockerfile\(s\) were checked for end-of-life base images only/);

@@ -143,7 +143,7 @@ test("the JSON report records when it ran and with which tools", () => {
   const d = scratch();
   try {
     const before = Date.now();
-    const r = cli([path.join(d, "proj"), "--json"], { AGENT_GATE_TODAY: "2026-10-01" });
+    const r = cli([path.join(d, "proj"), "--json"], { WOLFPROOF_TODAY: "2026-10-01" });
     const doc = JSON.parse(r.stdout);
     const at = Date.parse(doc.scannedAt);
     assert.ok(at >= before - 1000 && at <= Date.now(), `scannedAt ${doc.scannedAt}`);

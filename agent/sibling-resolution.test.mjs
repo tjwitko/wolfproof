@@ -57,12 +57,13 @@ test("a hooks directory without a pre-commit hook does not count", () => {
   });
 });
 
-test("AGENT_GATE_HOOKS_PATH overrides the sibling lookup", () => {
+test("WOLFPROOF_HOOKS_PATH overrides the sibling lookup, and AGENT_GATE_HOOKS_PATH still does", () => {
   scratch((root) => {
     const custom = path.join(root, "my-hooks");
     mkdirSync(custom, { recursive: true });
     writeFileSync(path.join(custom, "pre-commit"), "#!/bin/sh\n");
-    assert.equal(resolveHooksDir(path.join(root, "repo", "agent"), { env: { AGENT_GATE_HOOKS_PATH: custom } }), custom);
+    assert.equal(resolveHooksDir(path.join(root, "repo", "agent"), { env: { WOLFPROOF_HOOKS_PATH: custom } }), custom);
+    assert.equal(resolveHooksDir(path.join(root, "repo", "agent"), { env: { AGENT_GATE_HOOKS_PATH: custom } }), custom, "the name before v1.2.0");
   });
 });
 
