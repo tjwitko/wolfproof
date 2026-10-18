@@ -1,7 +1,10 @@
 #!/usr/bin/env node
-// agent-gate — run the full validator suite against a project directory.
+// wolfproof — run the full validator suite against a project directory.
 //
-//   agent-gate <project-dir> [task-file] [--json]
+//   wolfproof <project-dir> [task-file] [--json]
+//   wolfproof init ...            set a project up; see bin/init.mjs
+//
+// Called agent-gate until v1.2.0. That command name still works for one release.
 //
 // Exit codes are the contract and nothing may collapse them:
 //   0  nothing blocking
@@ -58,7 +61,7 @@ function checkInputs(projectDir, taskFile, baselineFile) {
 export function failClosed(err, { json, wroteResult }) {
   const reason = (err && err.message) || String(err);
   const stderr =
-    `agent-gate: the gate itself failed: ${(err && err.stack) || reason}\n` +
+    `wolfproof: the gate itself failed: ${(err && err.stack) || reason}\n` +
     `This is not a verdict on the project. Exit 3: the gate could not run.\n`;
   const stdout =
     json && !wroteResult
@@ -320,9 +323,10 @@ function machine(result) {
   );
 }
 
-const USAGE = `usage: agent-gate <project-dir> [task-file] [--baseline=<file>] [--json] [--pre-commit]
-       agent-gate --version     this release, its four controls, and the scanners on PATH
-       agent-gate --help
+const USAGE = `usage: wolfproof <project-dir> [task-file] [--baseline=<file>] [--json] [--pre-commit]
+       wolfproof init [project-dir] [--hook] [--task <file>] ...   set a project up (--upgrade refreshes it)
+       wolfproof --version     this release, its four controls, and the scanners on PATH
+       wolfproof --help
 
 exit 0 nothing blocking, 1 blocking findings, 2 usage, 3 part of the gate could not run.
 
@@ -341,7 +345,7 @@ async function main() {
   }
   if (args.includes("--version")) {
     const self = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-    console.log(`agent-gate ${self.version}`);
+    console.log(`wolfproof ${self.version}`);
     for (const c of resolveControls(process.cwd())) {
       const v = c.entry ? (c.version ? `v${c.version}` : "v?").padEnd(8) : "".padEnd(8);
       console.log(`  ${c.name.padEnd(16)} ${v}${c.entry ? c.source : `NOT RESOLVED — ${c.error}`}`);
@@ -356,7 +360,7 @@ async function main() {
     process.exit(EXIT.CLEAN);
   }
   const json = args.includes("--json");
-  // Set by the pre-commit hook agent-gate-init writes. It disables exactly one check, the one
+  // Set by the pre-commit hook `wolfproof init` writes. It disables exactly one check, the one
   // whose premise a commit satisfies by existing; everything else runs, and the skip is reported.
   const preCommit = args.includes("--pre-commit");
   const positional = args.filter((a) => !a.startsWith("--"));
@@ -364,7 +368,7 @@ async function main() {
   // separate value would be read as the task file.
   const baselineArg = args.find((a) => a.startsWith("--baseline"));
   if (baselineArg !== undefined && !/^--baseline=.+/.test(baselineArg)) {
-    console.error("agent-gate: --baseline takes a file: --baseline=<file>");
+    console.error("wolfproof: --baseline takes a file: --baseline=<file>");
     process.exit(EXIT.USAGE);
   }
   const baselineFile = baselineArg ? baselineArg.slice("--baseline=".length) : null;
@@ -389,8 +393,8 @@ async function main() {
   } catch (err) {
     if (!(err instanceof UsageError)) throw err;
     console.log = narrate;
-    console.error(`agent-gate: ${err.message}`);
-    console.error("usage: agent-gate <project-dir> [task-file] [--baseline=<file>] [--json] [--pre-commit]");
+    console.error(`wolfproof: ${err.message}`);
+    console.error("usage: wolfproof <project-dir> [task-file] [--baseline=<file>] [--json] [--pre-commit]");
     if (json) process.stdout.write(`${JSON.stringify({ exitCode: EXIT.USAGE, error: err.message })}\n`);
     process.exit(EXIT.USAGE);
   } finally {
@@ -423,7 +427,18 @@ function invokedDirectly() {
 
 // Anything that escapes main() -- a throw, a rejected promise, an 'error' event nobody listened for
 // -- would otherwise end the process with Node's exit 1, which is "blocked".
-if (invokedDirectly()) {
+//
+// `init` is handed over before any of that is installed. Setup has its own exit contract -- 70 for
+// "failed" -- and the gate's crash handler would turn a setup crash into 3, which means nothing there.
+if (invokedDirectly() && process.argv[2] === "init") {
+  const { runInit } = await import("./init.mjs");
+  await runInit(process.argv.slice(3));
+} else if (invokedDirectly()) {
+  // Run as `agent-gate`, the command's name until v1.2.0: it still works for one release, and says
+  // what to type instead. stderr only, so a --json document on stdout is unchanged.
+  if (path.basename(process.argv[1]) === "agent-gate") {
+    process.stderr.write("note: agent-gate is now `wolfproof`. The old name works until the next minor release.\n");
+  }
   const json = process.argv.includes("--json");
   const crash = (err) => {
     const r = failClosed(err, { json, wroteResult });

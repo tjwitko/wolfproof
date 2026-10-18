@@ -51,7 +51,7 @@ for (const [label, args] of [
       const r = cli(args(d));
       assert.equal(r.code, 2, `exit ${r.code}; stderr: ${r.stderr.slice(0, 300)}`);
       assert.ok(noStack(r.stderr), "a sentence, not a stack trace");
-      assert.match(r.stderr, /agent-gate:/);
+      assert.match(r.stderr, /wolfproof:/);
     } finally {
       rmSync(d, { recursive: true, force: true });
     }
@@ -123,7 +123,7 @@ test("a failure after the result was written does not write a second document", 
 test("--help is not a usage error, and lists --version", () => {
   const r = cli(["--help"]);
   assert.equal(r.code, 0);
-  assert.match(r.stdout, /agent-gate --version/);
+  assert.match(r.stdout, /wolfproof --version/);
   assert.match(r.stdout, /exit 0 nothing blocking, 1 blocking findings, 2 usage, 3/);
 });
 

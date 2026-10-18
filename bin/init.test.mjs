@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync, chmodSync } from "fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync, chmodSync, symlinkSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import path from "path";
@@ -132,7 +132,7 @@ test("writeHook leaves an existing hook alone unless forced", () => {
 
     const [, log2] = collect();
     writeHook(dir, { ...OPTS, force: ["hook"] }, log2);
-    assert.match(readFileSync(path.join(dir, ".git", "hooks", "pre-commit"), "utf8"), /agent-gate-init/);
+    assert.match(readFileSync(path.join(dir, ".git", "hooks", "pre-commit"), "utf8"), /wolfproof init/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -150,15 +150,15 @@ test("writeHook says so rather than writing into a directory that is not a repos
 test("the hook blocks on exit 3, not only on findings", () => {
   // Exit 3 means part of the gate could not run. A hook that treated it as success would let
   // through precisely the commits nothing checked.
-  const script = HOOK("agent-gate . --pre-commit");
+  const script = HOOK("wolfproof . --pre-commit");
   assert.match(script, /if \[ "\$status" -ne 0 \]/, "anything non-zero blocks");
   assert.ok(!/status" -eq 1/.test(script), "not keyed to exit 1 alone");
 });
 
 test("the hook fails closed when the gate is missing", () => {
-  const script = HOOK("./node_modules/.bin/agent-gate . --pre-commit");
+  const script = HOOK("./node_modules/.bin/wolfproof . --pre-commit");
   const guard = script.slice(script.indexOf("if [ ! -f"), script.indexOf("\nfi\n") + 3);
-  assert.match(guard, /-f "\.\/node_modules\/\.bin\/agent-gate"/, "tests the gate's own file");
+  assert.match(guard, /-f "\.\/node_modules\/\.bin\/wolfproof"/, "tests the gate's own file");
   assert.match(guard, /exit 3/, "no gate means no commit, and says it could not run");
   assert.ok(!/exit [01]\b/.test(guard), "neither waved through nor reported as findings");
 });
@@ -170,7 +170,7 @@ test("a hook in a clone without node_modules exits 3 and never reaches npx", () 
   const dir = project();
   try {
     mkdirSync(path.join(dir, "node_modules", ".bin"), { recursive: true });
-    writeFileSync(path.join(dir, "node_modules", ".bin", "agent-gate"), "#!/bin/sh\nexit 0\n");
+    writeFileSync(path.join(dir, "node_modules", ".bin", "wolfproof"), "#!/bin/sh\nexit 0\n");
     const [, log] = collect();
     writeHook(dir, { ...OPTS, task: "task.txt" }, log);
     rmSync(path.join(dir, "node_modules"), { recursive: true, force: true });
@@ -183,7 +183,7 @@ test("a hook in a clone without node_modules exits 3 and never reaches npx", () 
       env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
     rmSync(bin, { recursive: true, force: true });
     assert.equal(r.status, 3, `exit ${r.status}; stderr: ${r.stderr}`);
-    assert.match(r.stderr, /not installed at \.\/node_modules\/\.bin\/agent-gate/);
+    assert.match(r.stderr, /not installed at \.\/node_modules\/\.bin\/wolfproof/);
     assert.doesNotMatch(r.stderr, /NPX-WAS-CALLED/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -192,7 +192,7 @@ test("a hook with the gate installed runs it and passes its exit code through", 
   const dir = project();
   try {
     mkdirSync(path.join(dir, "node_modules", ".bin"), { recursive: true });
-    const gate = path.join(dir, "node_modules", ".bin", "agent-gate");
+    const gate = path.join(dir, "node_modules", ".bin", "wolfproof");
     writeFileSync(gate, "#!/bin/sh\necho \"ran with: $*\"\nexit 1\n");
     chmodSync(gate, 0o755);
     const [, log] = collect();
@@ -220,11 +220,11 @@ test("the installed command is what lands in a committed file", () => {
   try {
     mkdirSync(path.join(dir, "nested"), { recursive: true });
     mkdirSync(path.join(dir, "node_modules", ".bin"), { recursive: true });
-    writeFileSync(path.join(dir, "node_modules", ".bin", "agent-gate"), "#!/bin/sh\n");
-    assert.equal(validateCommand(dir, "t.txt"), "./node_modules/.bin/agent-gate . t.txt");
-    assert.equal(validateCommand(path.join(dir, "nested"), "t.txt"), "../node_modules/.bin/agent-gate . t.txt",
+    writeFileSync(path.join(dir, "node_modules", ".bin", "wolfproof"), "#!/bin/sh\n");
+    assert.equal(validateCommand(dir, "t.txt"), "./node_modules/.bin/wolfproof . t.txt");
+    assert.equal(validateCommand(path.join(dir, "nested"), "t.txt"), "../node_modules/.bin/wolfproof . t.txt",
       "found by walking up, as node would");
-    assert.equal(gateProgram(path.join(dir, "nested"), dir), "./node_modules/.bin/agent-gate",
+    assert.equal(gateProgram(path.join(dir, "nested"), dir), "./node_modules/.bin/wolfproof",
       "and written relative to where it will be run from");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -235,14 +235,14 @@ test("nothing setup writes runs npx or npm exec", () => {
   const dir = project();
   try {
     mkdirSync(path.join(dir, "node_modules", ".bin"), { recursive: true });
-    writeFileSync(path.join(dir, "node_modules", ".bin", "agent-gate"), "#!/bin/sh\n");
+    writeFileSync(path.join(dir, "node_modules", ".bin", "wolfproof"), "#!/bin/sh\n");
     const [, log] = collect();
     writeStanza(dir, { ...OPTS, task: "task.txt" }, log);
     writeHook(dir, { ...OPTS, task: "task.txt" }, log);
     for (const f of ["AGENTS.md", ".git/hooks/pre-commit"]) {
       const body = readFileSync(path.join(dir, f), "utf8");
       assert.doesNotMatch(body, /\bnpx\b|npm exec/, f);
-      assert.match(body, /\.\/node_modules\/\.bin\/agent-gate \. task\.txt/, f);
+      assert.match(body, /\.\/node_modules\/\.bin\/wolfproof \. task\.txt/, f);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -253,7 +253,7 @@ test("the stanza's command, where the gate is not installed, exits 127 rather th
   const dir = project();
   try {
     mkdirSync(path.join(dir, "node_modules", ".bin"), { recursive: true });
-    writeFileSync(path.join(dir, "node_modules", ".bin", "agent-gate"), "#!/bin/sh\n");
+    writeFileSync(path.join(dir, "node_modules", ".bin", "wolfproof"), "#!/bin/sh\n");
     const cmd = validateCommand(dir, "task.txt");
     rmSync(path.join(dir, "node_modules"), { recursive: true, force: true });
     const r = spawnSync("sh", ["-c", cmd], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -267,11 +267,11 @@ test("in a subdirectory of a repository, the hook names the gate relative to the
   try {
     const sub = path.join(dir, "services", "api");
     mkdirSync(path.join(sub, "node_modules", ".bin"), { recursive: true });
-    writeFileSync(path.join(sub, "node_modules", ".bin", "agent-gate"), "#!/bin/sh\n");
+    writeFileSync(path.join(sub, "node_modules", ".bin", "wolfproof"), "#!/bin/sh\n");
     const [, log] = collect();
     writeHook(sub, OPTS, log);
     const hook = readFileSync(path.join(dir, ".git", "hooks", "pre-commit"), "utf8");
-    assert.match(hook, /^\.\/services\/api\/node_modules\/\.bin\/agent-gate \. --pre-commit$/m);
+    assert.match(hook, /^\.\/services\/api\/node_modules\/\.bin\/wolfproof \. --pre-commit$/m);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -293,7 +293,7 @@ test("a stanza written by v1.1.3 is recognised, not duplicated", () => {
     const [seen, log] = collect();
     writeStanza(dir, OPTS, log);
     const body = readFileSync(path.join(dir, "AGENTS.md"), "utf8");
-    assert.equal((body.match(/agent-gate:start/g) || []).length, 1);
+    assert.equal((body.match(/(?:wolfproof|agent-gate):start/g) || []).length, 1);
     assert.match(seen.ok[0], /already carries/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -304,8 +304,8 @@ test("upgrade refreshes a v1.1.3 stanza and keeps its task file", () => {
     const [seen, log] = collect();
     upgradeStanza(dir, OPTS, log);
     const body = readFileSync(path.join(dir, "AGENTS.md"), "utf8");
-    assert.equal((body.match(/agent-gate:start/g) || []).length, 1, "replaced, not appended");
-    assert.ok(body.includes(`<!-- agent-gate:start v${VERSION} -->`));
+    assert.equal((body.match(/(?:wolfproof|agent-gate):start/g) || []).length, 1, "replaced, not appended");
+    assert.ok(body.includes(`<!-- wolfproof:start v${VERSION} -->`));
     assert.match(body, /task\.txt/, "the task file survives, or six checks go quiet");
     assert.doesNotMatch(body, /old words/);
     assert.match(body, /# House rules/, "what surrounds it is untouched");
@@ -346,7 +346,7 @@ test("upgrade refreshes a hook agent-gate-init wrote and keeps its task file", (
     const [seen, log] = collect();
     upgradeHook(dir, OPTS, log);
     const hook = readFileSync(path.join(dir, ".git", "hooks", "pre-commit"), "utf8");
-    assert.match(hook, new RegExp(`Installed by agent-gate-init v${VERSION.replace(/\./g, "\\.")}\\.`));
+    assert.match(hook, new RegExp(`Installed by wolfproof init v${VERSION.replace(/\./g, "\\.")}\\.`));
     assert.match(hook, /\. task\.txt --pre-commit/);
     assert.match(seen.updated[0], /an earlier version → v/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -362,7 +362,7 @@ test("upgrade never touches a hook someone else wrote", () => {
     const [seen, log] = collect();
     upgradeHook(dir, OPTS, log);
     assert.equal(readFileSync(path.join(dir, ".git", "hooks", "pre-commit"), "utf8"), "#!/bin/sh\necho mine\n");
-    assert.match(seen.warn[0], /not installed by agent-gate-init/);
+    assert.match(seen.warn[0], /not installed by wolfproof init/);
     assert.equal(seen.left.length, 0, "someone else's hook is not a failed upgrade");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -409,7 +409,7 @@ test("upgrade moves a v1.1.16 stanza and hook off npx, keeping the task file", (
   const dir = project({ "AGENTS.md": V116_STANZA });
   try {
     mkdirSync(path.join(dir, "node_modules", ".bin"), { recursive: true });
-    writeFileSync(path.join(dir, "node_modules", ".bin", "agent-gate"), "#!/bin/sh\n");
+    writeFileSync(path.join(dir, "node_modules", ".bin", "wolfproof"), "#!/bin/sh\n");
     mkdirSync(path.join(dir, ".git", "hooks"), { recursive: true });
     writeFileSync(path.join(dir, ".git", "hooks", "pre-commit"), V116_HOOK);
     const [seen, log] = collect();
@@ -417,9 +417,9 @@ test("upgrade moves a v1.1.16 stanza and hook off npx, keeping the task file", (
     upgradeHook(dir, OPTS, log);
     const stanza = readFileSync(path.join(dir, "AGENTS.md"), "utf8");
     const hook = readFileSync(path.join(dir, ".git", "hooks", "pre-commit"), "utf8");
-    assert.match(stanza, /^    \.\/node_modules\/\.bin\/agent-gate \. task\.txt$/m);
+    assert.match(stanza, /^    \.\/node_modules\/\.bin\/wolfproof \. task\.txt$/m);
     assert.match(stanza, /prints no `BLOCKING` line did not run the gate/);
-    assert.match(hook, /^\.\/node_modules\/\.bin\/agent-gate \. task\.txt --pre-commit$/m);
+    assert.match(hook, /^\.\/node_modules\/\.bin\/wolfproof \. task\.txt --pre-commit$/m);
     for (const body of [stanza, hook]) assert.doesNotMatch(body, /\bnpx\b/);
     assert.deepEqual(seen.updated.map((m) => m.replace(/ → .*/, "")), ["AGENTS.md: stanza v1.1.16", "pre-commit hook: v1.1.16"]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -445,11 +445,113 @@ test("an init that cannot write is exit 70, not 1, and says what to do", { skip:
     const r = spawnSync(process.execPath, [new URL("./init.mjs", import.meta.url).pathname, dir], { encoding: "utf8" });
     assert.equal(r.status, EXIT.FAILED, `exit ${r.status}; stderr: ${r.stderr.slice(0, 300)}`);
     assert.notEqual(EXIT.FAILED, EXIT.LEFT_ALONE);
-    assert.match(r.stderr, /agent-gate-init failed: .*EACCES|permission denied/i);
+    assert.match(r.stderr, /wolfproof init failed: .*EACCES|permission denied/i);
     assert.match(r.stderr, /rerun/);
     assert.ok(!/\n\s+at .+:\d+:\d+/.test(r.stderr), "a sentence, not a stack trace");
   } finally {
     chmodSync(dir, 0o755);
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// --- the rename: wolfproof, and `wolfproof init` ----------------------------------------------
+//
+// agent-gate became wolfproof in v1.2.0, and agent-gate-init became a subcommand: one command name
+// is one npm name to own, since `npx` fetches any command name it cannot find. Projects set up under
+// the old names must upgrade in place, and the old commands must keep working for a release.
+
+// What v1.1.17 and v1.1.18 wrote: the installed bin by path, under agent-gate's markers.
+const V118_STANZA = "<!-- agent-gate:start v1.1.18 -->\n## Security gate\n\n    ./node_modules/.bin/agent-gate . task.txt\n\nold words\n<!-- agent-gate:end -->\n";
+const V118_HOOK = [
+  "#!/usr/bin/env bash",
+  "# Installed by agent-gate-init v1.1.18. Blocks a commit whose tree does not pass the gate.",
+  'cd "$(git rev-parse --show-toplevel)" || exit 1',
+  "./node_modules/.bin/agent-gate . task.txt --pre-commit",
+  "",
+].join("\n");
+
+test("upgrade moves a v1.1.18 project from agent-gate to wolfproof, keeping the task file", () => {
+  const dir = project({ "AGENTS.md": "# House rules\n\n" + V118_STANZA + "\n## After\n" });
+  try {
+    mkdirSync(path.join(dir, "node_modules", ".bin"), { recursive: true });
+    writeFileSync(path.join(dir, "node_modules", ".bin", "wolfproof"), "#!/bin/sh\n");
+    mkdirSync(path.join(dir, ".git", "hooks"), { recursive: true });
+    writeFileSync(path.join(dir, ".git", "hooks", "pre-commit"), V118_HOOK);
+    const [seen, log] = collect();
+    upgradeStanza(dir, OPTS, log);
+    upgradeHook(dir, OPTS, log);
+    const stanza = readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+    const hook = readFileSync(path.join(dir, ".git", "hooks", "pre-commit"), "utf8");
+    assert.equal((stanza.match(/:start/g) || []).length, 1, "replaced, not a second stanza beside the first");
+    assert.ok(stanza.includes(`<!-- wolfproof:start v${VERSION} -->`) && stanza.includes("<!-- wolfproof:end -->"));
+    assert.match(stanza, /^    \.\/node_modules\/\.bin\/wolfproof \. task\.txt$/m);
+    assert.match(stanza, /# House rules[\s\S]*## After/, "what surrounds it is untouched");
+    assert.match(hook, new RegExp(`^# Installed by wolfproof init v${VERSION.replace(/\./g, "\\.")}\\.`, "m"));
+    assert.match(hook, /^\.\/node_modules\/\.bin\/wolfproof \. task\.txt --pre-commit$/m);
+    for (const body of [stanza, hook]) assert.doesNotMatch(body, /agent-gate/);
+    assert.deepEqual(seen.updated.map((m) => m.replace(/ → .*/, "")), ["AGENTS.md: stanza v1.1.18", "pre-commit hook: v1.1.18"]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("recoverTask reads the wolfproof command too", () => {
+  assert.equal(recoverTask("    ./node_modules/.bin/wolfproof . task.txt"), "task.txt");
+  assert.equal(recoverTask("../node_modules/.bin/wolfproof . specs/t.md --pre-commit"), "specs/t.md");
+});
+
+// Run as processes: which command answers, and with which exit code, is a property of a process.
+const VALIDATE = new URL("./validate.mjs", import.meta.url).pathname;
+const INIT = new URL("./init.mjs", import.meta.url).pathname;
+const run = (file, args, opts = {}) => spawnSync(process.execPath, [file, ...args], { encoding: "utf8", timeout: 120_000, ...opts });
+
+test("`wolfproof init` is the setup command: --version, --help and a real run", () => {
+  let r = run(VALIDATE, ["init", "--version"]);
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout.trim(), `wolfproof init ${VERSION}`);
+  r = run(VALIDATE, ["init", "--help"]);
+  assert.equal(r.status, 0, "--help is not a usage error");
+  assert.match(r.stdout, /usage: wolfproof init/);
+  const dir = project();
+  try {
+    r = run(VALIDATE, ["init", dir, "--no-mcp", "--task", "task.txt"]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(readFileSync(path.join(dir, "AGENTS.md"), "utf8"), /<!-- wolfproof:start v/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a setup that fails under `wolfproof init` exits 70, setup's code, not the gate's 3", { skip: process.getuid?.() === 0 && "root ignores file modes" }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "init-ro-"));
+  chmodSync(dir, 0o555);
+  try {
+    const r = run(VALIDATE, ["init", dir]);
+    assert.equal(r.status, EXIT.FAILED, `exit ${r.status}; stderr: ${r.stderr.slice(0, 300)}`);
+    assert.match(r.stderr, /wolfproof init failed/);
+  } finally {
+    chmodSync(dir, 0o755);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the old command names still work for a release, and say what to type instead", () => {
+  // Installed bins are symlinks named for the command, which is how each one knows its old name.
+  const bin = mkdtempSync(path.join(tmpdir(), "init-alias-"));
+  try {
+    symlinkSync(VALIDATE, path.join(bin, "agent-gate"));
+    symlinkSync(INIT, path.join(bin, "agent-gate-init"));
+    symlinkSync(VALIDATE, path.join(bin, "wolfproof"));
+
+    let r = run(path.join(bin, "agent-gate-init"), ["--version"]);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim(), `wolfproof init ${VERSION}`);
+    assert.match(r.stderr, /agent-gate-init is now `wolfproof init`/);
+
+    // A usage error in --json mode: the note goes to stderr, so stdout is still one JSON document.
+    r = run(path.join(bin, "agent-gate"), [path.join(bin, "missing"), "--json"]);
+    assert.equal(r.status, 2);
+    assert.equal(JSON.parse(r.stdout).exitCode, 2);
+    assert.match(r.stderr, /agent-gate is now `wolfproof`/);
+
+    r = run(path.join(bin, "wolfproof"), [path.join(bin, "missing"), "--json"]);
+    assert.equal(r.status, 2);
+    assert.doesNotMatch(r.stderr, /is now/, "the new name says nothing about names");
+  } finally { rmSync(bin, { recursive: true, force: true }); }
 });

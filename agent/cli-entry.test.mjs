@@ -25,7 +25,7 @@ function runCli(args, { viaSymlink }) {
   try {
     let entry = CLI;
     if (viaSymlink) {
-      entry = path.join(dir, "agent-gate");
+      entry = path.join(dir, "wolfproof");
       symlinkSync(CLI, entry);
     }
     return spawnSync(process.execPath, [entry, ...args], { encoding: "utf8" });
@@ -37,13 +37,13 @@ function runCli(args, { viaSymlink }) {
 test("run directly with no arguments, it reports usage and exits 2", () => {
   const r = runCli([], { viaSymlink: false });
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /usage: agent-gate/);
+  assert.match(r.stderr, /usage: wolfproof/);
 });
 
 test("run through a symlink, it still reports usage and exits 2", () => {
   const r = runCli([], { viaSymlink: true });
   assert.equal(r.status, 2, "the installed command must actually run");
-  assert.match(r.stderr, /usage: agent-gate/);
+  assert.match(r.stderr, /usage: wolfproof/);
 });
 
 // The specific shape of the bug: not a crash, not an error, just nothing.

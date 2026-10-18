@@ -1,9 +1,14 @@
 #!/usr/bin/env node
-// agent-gate-init — wire a project to the gate.
+// wolfproof init — wire a project to the gate.
 //
-//   agent-gate-init [project-dir] [--new] [--task <file>] [--agents <file>] [--hook] [--no-mcp]
-//   agent-gate-init [project-dir] --upgrade        refresh what an earlier version wrote
-//   agent-gate-init --version
+//   wolfproof init [project-dir] [--new] [--task <file>] [--agents <file>] [--hook] [--no-mcp]
+//   wolfproof init [project-dir] --upgrade        refresh what an earlier version wrote
+//   wolfproof init --version
+//
+// Reached as a subcommand of `wolfproof` (bin/validate.mjs hands `init` over before anything else),
+// and, for one release, as the `agent-gate-init` command it used to be. One command name rather
+// than two is one name on npm to own: every command name is also a package name `npx` will fetch
+// from the public registry when the tool is not installed.
 //
 // Two jobs, which are the same job: make a directory one the gate runs against. `--new` creates it
 // and `git init`s it first; without it, an existing project is updated in place.
@@ -37,14 +42,18 @@ const VERSION = JSON.parse(readFileSync(path.join(PKG_ROOT, "package.json"), "ut
 // wrote it, so an upgrade can say what it replaced -- and matched with or without the stamp, because
 // v1.1.3 wrote it without one, and a project set up then must be recognised rather than handed a
 // second stanza beneath the first.
-const STANZA_START = `<!-- agent-gate:start v${VERSION} -->`;
-const STANZA_START_RE = /<!-- agent-gate:start(?: v([^\s>]+))? -->/;
-const STANZA_END = "<!-- agent-gate:end -->";
-const STANZA_BLOCK_RE = new RegExp(`${STANZA_START_RE.source}[\\s\\S]*?${STANZA_END}\\n?`);
+//
+// The project was called agent-gate until v1.2.0, and its markers said so. Both names are matched,
+// so a project set up by any earlier version is recognised and its stanza replaced, not duplicated.
+const STANZA_START = `<!-- wolfproof:start v${VERSION} -->`;
+const STANZA_START_RE = /<!-- (?:wolfproof|agent-gate):start(?: v([^\s>]+))? -->/;
+const STANZA_END = "<!-- wolfproof:end -->";
+const STANZA_END_RE = /<!-- (?:wolfproof|agent-gate):end -->/;
+const STANZA_BLOCK_RE = new RegExp(`${STANZA_START_RE.source}[\\s\\S]*?${STANZA_END_RE.source}\\n?`);
 
 // The same for the hook. What identifies a hook as ours is this line; a hook without it belongs to
 // someone else and an upgrade never touches it.
-const HOOK_MARK_RE = /^# Installed by agent-gate-init(?: v([^\s.]+(?:\.[^\s.]+)*))?\./m;
+const HOOK_MARK_RE = /^# Installed by (?:wolfproof init|agent-gate-init)(?: v([^\s.]+(?:\.[^\s.]+)*))?\./m;
 
 function parseArgs(argv) {
   const opts = { dir: ".", task: null, agents: "AGENTS.md", hook: false, mcp: true, isNew: false, force: [], upgrade: false, version: false };
@@ -78,8 +87,8 @@ const forced = (opts, what) => opts.force.includes("all") || opts.force.includes
  * checkout is wrong on a teammate's, and the stanza is the file most likely to be read by someone
  * who did not run this tool.
  *
- * Not `npx agent-gate`, which v1.1.16 and earlier wrote. The package installs from GitHub as
- * @tjwitko/agent-gate, and the unscoped name is not on npm. Where agent-gate is not installed, npx
+ * Not `npx agent-gate`, which v1.1.16 and earlier wrote. The package installed from GitHub as
+ * @tjwitko/agent-gate, and the unscoped name was not ours on npm. Where agent-gate is not installed, npx
  * looks that name up on the public registry, and npm assumes --yes when stdin is not a TTY -- which
  * an agent's shell is not. Measured from a directory without it, stdin from /dev/null: `npx
  * agent-gate .` and `npm exec --no -- agent-gate .` both queried the registry and exited 1, the
@@ -89,11 +98,11 @@ const forced = (opts, what) => opts.force.includes("all") || opts.force.includes
  */
 function gateProgram(projectDir, fromDir = projectDir) {
   for (let d = path.resolve(projectDir); ; d = path.dirname(d)) {
-    const bin = path.join(d, "node_modules", ".bin", "agent-gate");
+    const bin = path.join(d, "node_modules", ".bin", "wolfproof");
     if (existsSync(bin)) {
       // Both through realpath: git reports the top of a repository with symlinks resolved, and on
       // macOS the temp directory alone is /var -> /private/var, which made this "../../../../../..".
-      const rel = path.relative(realpathSync(fromDir), path.join(realpathSync(d), "node_modules", ".bin", "agent-gate"))
+      const rel = path.relative(realpathSync(fromDir), path.join(realpathSync(d), "node_modules", ".bin", "wolfproof"))
         .split(path.sep).join("/");
       return rel.startsWith("../") ? rel : `./${rel}`;
     }
@@ -127,7 +136,7 @@ function writeMcpJson(projectDir, opts, log) {
     log.warn(
       `.mcp.json: ${unresolved.map((c) => c.name).join(", ")} could not be located, so ${
         unresolved.length === 1 ? "it is" : "they are"
-      } not in the config. Install @tjwitko/agent-gate's dependencies, or set ${unresolved
+      } not in the config. Install wolfproof's dependencies, or set ${unresolved
         .map((c) => c.envVar)
         .join(" / ")}.`
     );
@@ -212,7 +221,7 @@ function HOOK(command) {
   const words = command.split(" ");
   const program = words[0] === "node" ? words[1] : words[0];
   return `#!/usr/bin/env bash
-# Installed by agent-gate-init v${VERSION}. Blocks a commit whose tree does not pass the gate.
+# Installed by wolfproof init v${VERSION}. Blocks a commit whose tree does not pass the gate.
 #
 # MCP registration makes a validator available to an assistant; nothing makes it run. Measured
 # across four runs of one task with identical tooling, a model called the Terraform validator 3, 1,
@@ -225,7 +234,7 @@ set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
 if [ ! -f "${program}" ]; then
-  echo "pre-commit: agent-gate is not installed at ${program}, so nothing checked this commit." >&2
+  echo "pre-commit: wolfproof is not installed at ${program}, so nothing checked this commit." >&2
   echo "            Run npm install, or bypass deliberately with: git commit --no-verify" >&2
   exit 3
 fi
@@ -278,19 +287,20 @@ function writeHook(projectDir, opts, log) {
 
 // --- upgrading ---------------------------------------------------------------------------------
 //
-// Refresh what an earlier agent-gate-init wrote, and nothing else. Upgrading the package moves the
+// Refresh what an earlier `wolfproof init` (or `agent-gate-init`) wrote, and nothing else. Upgrading
+// the package moves the
 // gate and the controls; it does not touch what setup wrote into a project -- the stanza in
 // AGENTS.md, the hook in .git/hooks, the control entries in .mcp.json -- so without this a project
 // keeps whatever an older release put there, indefinitely and silently. `--force` would refresh
 // them too, and would also overwrite a hook someone wrote themselves. This only touches what carries
-// agent-gate-init's own mark.
+// the setup command's own mark, under either name.
 
 // The task file the project was set up with, read back from what setup wrote, so an upgrade does
 // not need it repeated -- and does not quietly drop it, which would switch six checks off.
 function recoverTask(text) {
-  // `npx agent-gate` is what v1.1.16 and earlier wrote; recognising it is how --upgrade moves a
-  // project off it.
-  const m = /(?:npx agent-gate|\.bin\/agent-gate|validate\.mjs) \.(?: (?!--)(\S+))?/.exec(text || "");
+  // `npx agent-gate` is what v1.1.16 and earlier wrote, and `.bin/agent-gate` what v1.1.17 and
+  // v1.1.18 wrote; recognising both is how --upgrade moves a project to wolfproof.
+  const m = /(?:npx agent-gate|\.bin\/(?:agent-gate|wolfproof)|validate\.mjs) \.(?: (?!--)(\S+))?/.exec(text || "");
   return m ? m[1] || null : null;
 }
 
@@ -301,7 +311,7 @@ function upgradeStanza(projectDir, opts, log) {
   const existing = existsSync(file) ? readFileSync(file, "utf8") : "";
   const start = STANZA_START_RE.exec(existing);
   if (!start) {
-    log.warn(`${opts.agents}: no stanza from agent-gate-init to upgrade — run without --upgrade to add one`);
+    log.warn(`${opts.agents}: no stanza from wolfproof init to upgrade — run without --upgrade to add one`);
     return;
   }
   const block = STANZA_BLOCK_RE.exec(existing);
@@ -332,7 +342,7 @@ function upgradeHook(projectDir, opts, log) {
   const text = readFileSync(file, "utf8");
   const mark = HOOK_MARK_RE.exec(text);
   if (!mark) {
-    log.warn("pre-commit hook: not installed by agent-gate-init, so an upgrade does not touch it");
+    log.warn("pre-commit hook: not installed by wolfproof init, so an upgrade does not touch it");
     return;
   }
   const hooksPath = (spawnSync("git", ["config", "--get", "core.hooksPath"], { cwd: projectDir, encoding: "utf8" }).stdout || "").trim();
@@ -400,32 +410,41 @@ function upgradeMcp(projectDir, opts, log) {
   if (custom.length) {
     log.left(
       `.mcp.json: kept ${custom.join(", ")} as defined — ${custom.length === 1 ? "it points" : "they point"} ` +
-        `somewhere agent-gate did not write, so ${custom.length === 1 ? "it does" : "they do"} not follow this upgrade`
+        `somewhere wolfproof did not write, so ${custom.length === 1 ? "it does" : "they do"} not follow this upgrade`
     );
   }
 }
 
-async function main() {
-  const { opts, error } = parseArgs(process.argv.slice(2));
+const USAGE =
+  "usage: wolfproof init [project-dir] [--new] [--task <file>] [--agents <file>] [--hook] [--no-mcp]\n" +
+  "       wolfproof init [project-dir] --upgrade\n" +
+  "       wolfproof init --version";
+
+async function main(argv) {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.log(USAGE);
+    process.exit(EXIT.OK);
+  }
+  const { opts, error } = parseArgs(argv);
   if (error) {
-    console.error(`agent-gate-init: ${error}`);
-    console.error("usage: agent-gate-init [project-dir] [--new] [--task <file>] [--agents <file>] [--hook] [--no-mcp]\n       agent-gate-init [project-dir] --upgrade\n       agent-gate-init --version");
+    console.error(`wolfproof init: ${error}`);
+    console.error(USAGE);
     process.exit(EXIT.USAGE);
   }
 
   if (opts.version) {
-    console.log(`agent-gate-init ${VERSION}`);
+    console.log(`wolfproof init ${VERSION}`);
     process.exit(EXIT.OK);
   }
   if (opts.upgrade && (opts.isNew || opts.hook || opts.force.length)) {
-    console.error("agent-gate-init: --upgrade refreshes what is already there; it does not take --new, --hook or --force");
+    console.error("wolfproof init: --upgrade refreshes what is already there; it does not take --new, --hook or --force");
     process.exit(EXIT.USAGE);
   }
 
   const projectDir = path.resolve(opts.dir);
   if (!existsSync(projectDir)) {
     if (!opts.isNew) {
-      console.error(`agent-gate-init: ${projectDir} does not exist. Pass --new to create it.`);
+      console.error(`wolfproof init: ${projectDir} does not exist. Pass --new to create it.`);
       process.exit(EXIT.USAGE);
     }
     mkdirSync(projectDir, { recursive: true });
@@ -444,7 +463,7 @@ async function main() {
   };
 
   if (opts.upgrade) {
-    console.log(`agent-gate-init ${VERSION}: upgrading ${projectDir}`);
+    console.log(`wolfproof init ${VERSION}: upgrading ${projectDir}`);
     if (opts.mcp) upgradeMcp(projectDir, opts, log);
     upgradeStanza(projectDir, opts, log);
     upgradeHook(projectDir, opts, log);
@@ -453,7 +472,7 @@ async function main() {
     process.exit(leftAlone ? EXIT.LEFT_ALONE : EXIT.OK);
   }
 
-  console.log(`agent-gate-init: ${projectDir}`);
+  console.log(`wolfproof init: ${projectDir}`);
   if (opts.mcp) writeMcpJson(projectDir, opts, log);
   writeStanza(projectDir, opts, log);
   if (opts.hook) writeHook(projectDir, opts, log);
@@ -468,7 +487,7 @@ async function main() {
 }
 
 // realpathSync, not path.resolve. npm installs a bin as a symlink, so `./node_modules/.bin/agent-gate-init`
-// has argv[1] pointing at the symlink while import.meta.url points at the real
+// (this file's old command name, kept for one release) has argv[1] pointing at the symlink while import.meta.url points at the real
 // file; path.resolve does not follow symlinks, the comparison is false, main() never runs, and the
 // command exits 0 having done nothing. bin/validate.mjs shipped exactly this bug once and carries
 // the same comment. Writing a second entry point reproduced it within the hour, which is the
@@ -486,13 +505,18 @@ function invokedDirectly() {
 // Nothing here overwrites, so a rerun after fixing the cause only writes what is still missing.
 function failed(err) {
   return (
-    `agent-gate-init failed: ${(err && err.message) || err}\n` +
+    `wolfproof init failed: ${(err && err.message) || err}\n` +
     `Files listed above as "wrote" or "updated" were written; nothing after them was. Fix the cause and\n` +
     `rerun -- files already in place are reported, not rewritten.\n`
   );
 }
 
-if (invokedDirectly()) {
+/**
+ * Run setup with its own exit contract. `wolfproof init` calls this before the gate installs its
+ * crash handling, because the two contracts differ: a crash here is 70, "failed", and the gate's
+ * crash handler would have made it 3, "could not run" -- a number with no meaning for setup.
+ */
+export async function runInit(argv) {
   const crash = (err) => {
     process.stderr.write(failed(err));
     process.exit(EXIT.FAILED);
@@ -500,10 +524,17 @@ if (invokedDirectly()) {
   process.on("uncaughtException", crash);
   process.on("unhandledRejection", crash);
   try {
-    await main();
+    await main(argv);
   } catch (err) {
     crash(err);
   }
+}
+
+// Invoked as `agent-gate-init`, the command's name until v1.2.0. It still works, for one release,
+// and says what to type instead -- on stderr, so nothing that reads stdout sees a difference.
+if (invokedDirectly()) {
+  process.stderr.write("note: agent-gate-init is now `wolfproof init`. The old name works until the next minor release.\n");
+  await runInit(process.argv.slice(2));
 }
 
 export {
