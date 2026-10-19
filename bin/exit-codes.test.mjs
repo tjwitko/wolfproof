@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import path from "path";
@@ -184,6 +184,35 @@ test("a project with only .agent-gate.json exits 3 and says to rename it", () =>
     assert.equal(doc.incomplete, true);
     const human = cli([path.join(d, "proj")]);
     assert.match(human.stdout, /!! \.agent-gate\.json is no longer read: agent-gate was renamed wolfproof/);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+// --- a scanner that is not installed is named --------------------------------------------------
+
+test("with gitleaks and osv-scanner missing, the run names each and exits 3", () => {
+  // Only node and git on PATH. semgrep's absence was always named with its install command; the
+  // credential and dependency scans said only "no parseable result" and dropped the controls' own
+  // "gitleaks is not installed" and "osv-scanner is not installed".
+  const d = scratch();
+  const bin = path.join(d, "bin");
+  mkdirSync(bin);
+  for (const tool of ["git"]) {
+    const where = spawnSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).stdout.trim();
+    if (where) symlinkSync(where, path.join(bin, tool));
+  }
+  symlinkSync(process.execPath, path.join(bin, "node"));
+  try {
+    writeFileSync(path.join(d, "proj", "app.js"), "console.log(1);\n");
+    // A dependency, so the dependency scan has something to do and asks for osv-scanner.
+    writeFileSync(path.join(d, "proj", "package.json"), JSON.stringify({ name: "p", dependencies: { "left-pad": "1.3.0" } }));
+    const r = cli([path.join(d, "proj"), "--json"], { PATH: `${bin}:/usr/bin:/bin` });
+    assert.equal(r.code, 3, `exit ${r.code}`);
+    const cnr = JSON.parse(r.stdout).couldNotRun;
+    assert.ok(cnr.some((c) => /^scan_path: secret-guard could not scan — gitleaks is not installed or not on PATH\. Install it with `brew install gitleaks`/.test(c)), JSON.stringify(cnr));
+    assert.ok(cnr.some((c) => /^check_dependencies: dep-audit could not scan — osv-scanner is not installed or not on PATH/.test(c)), JSON.stringify(cnr));
+    assert.ok(!cnr.some((c) => /no parseable result/.test(c)), "nothing falls back to the generic line here");
   } finally {
     rmSync(d, { recursive: true, force: true });
   }
