@@ -43,7 +43,26 @@ import { isDeclaredFixture } from "./fixture-markers.mjs";
 
 // Endpoints that are conventionally open, and should be: a liveness probe that requires a
 // credential is a liveness probe that fails.
-const OPEN_BY_CONVENTION = /^\/(health|healthz|readyz?|livez?|ping|metrics|favicon\.ico)\b/i;
+//
+// Terminal names only, like CREDENTIAL_ISSUING below. The first version ended in \b with no anchor,
+// so anything under a probe path was exempt: /health/purge-all, /metrics/export-users and
+// /ping/admin/reset were never checked, and renaming an unauthenticated admin route into one of
+// those took its finding away. Decided deliberately:
+//   - a trailing slash is allowed: /health/ is the same endpoint as /health in Express and Flask;
+//   - one more segment is allowed when it is itself a probe name -- /health/live, /health/ready,
+//     the Kubernetes-style split, exempt before and still exempt -- and nothing else under a probe;
+//   - no mount prefix. Routes are read as written, not resolved through their mounts, so a router
+//     mounted with app.use("/api", r) declares plain /health and is exempt. A path written out in
+//     full as /api/health was checked before this change and still is: allowing the prefix would
+//     exempt routes that were checked, which loosens the gate rather than fixing it.
+const PROBE_NAME = "health|healthz|readyz?|livez?|ping|metrics|favicon\\.ico";
+const PROBE_PART = "live|ready|liveness|readiness|startup";
+const OPEN_BY_CONVENTION = new RegExp(`^/(?:${PROBE_NAME})(?:/(?:${PROBE_PART}))?/?$`, "i");
+
+/** Whether a route is a conventionally open probe, exempt from the authentication check. */
+export function isProbeRoute(route) {
+  return OPEN_BY_CONVENTION.test(route);
+}
 
 // Endpoints whose job is to issue a credential cannot require one first. Terminal names only:
 // exempting the whole `/auth/**` prefix would hide `/auth/admin/users`, which is a real route with

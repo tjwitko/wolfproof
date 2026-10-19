@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 
-import { checkAuthentication, authenticationFailures, leakyCredentialCheck } from "./authentication.mjs";
+import { checkAuthentication, authenticationFailures, leakyCredentialCheck, isProbeRoute } from "./authentication.mjs";
 
 // These fixtures often carry more than one real defect -- a credential compared with `!=` against
 // an unset env var is BOTH vacuous and timing-unsafe. Asserting on totals would make every test
@@ -418,6 +418,47 @@ test("health probes are exempt in every language", () => {
     authenticationFailures
   );
   assert.deepEqual(failures, []);
+});
+
+// The probe exemption had no terminal anchor, so anything under a probe path was exempt. Renaming an
+// unauthenticated admin route to /health/purge-all took its finding away -- measured, 3 blocking to
+// 2, with the exemption reported only as an advisory nobody in an unattended pipeline reads.
+test("a probe is exempt by its name, not by being a prefix of the path", () => {
+  for (const route of ["/health", "/healthz", "/readyz", "/ready", "/livez", "/live", "/ping", "/metrics", "/favicon.ico"]) {
+    assert.ok(isProbeRoute(route), `${route} is a probe`);
+  }
+  for (const route of ["/health/purge-all", "/metrics/export-users", "/ping/admin/reset", "/health/:id", "/healthcheck-admin", "/metrics.json"]) {
+    assert.equal(isProbeRoute(route), false, `${route} is under or beside a probe name, not a probe`);
+  }
+});
+
+test("a trailing slash and a probe-named sub-path stay exempt; a written-out mount prefix is checked", () => {
+  // Decided, not defaulted. /health/ is the same endpoint as /health in Express and Flask.
+  // /health/live and /health/ready, the Kubernetes split, were exempt before and still are.
+  for (const route of ["/health/", "/health/live", "/health/ready", "/healthz/readiness/", "/HEALTH"]) {
+    assert.ok(isProbeRoute(route), route);
+  }
+  // Routes are read as written. A router mounted at /api declares plain /health and is exempt; a
+  // path written out as /api/health was checked before this change, and exempting it would loosen
+  // the gate rather than fix it.
+  for (const route of ["/api/health", "/api/v1/healthz", "/admin/health"]) {
+    assert.equal(isProbeRoute(route), false, route);
+  }
+});
+
+test("an unauthenticated route nested under a probe path is a finding, in every language", () => {
+  const { failures } = run(
+    {
+      "src/app.js": "app.post('/health/purge-all', purge);\n",
+      "main.go": 'r.Post("/metrics/export-users", exportUsers)\n',
+      "app.rb": "post '/ping/admin/reset' do\nend\n",
+    },
+    authenticationFailures
+  );
+  const said = failures.join("\n");
+  assert.match(said, /\/health\/purge-all/);
+  assert.match(said, /\/metrics\/export-users/);
+  assert.match(said, /\/ping\/admin\/reset/);
 });
 
 // An endpoint whose job is to issue a credential cannot require one first.
