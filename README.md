@@ -4,6 +4,8 @@
 [![release](https://img.shields.io/github/v/release/tjwitko/wolfproof)](https://github.com/tjwitko/wolfproof/releases/latest)
 [![license](https://img.shields.io/github/license/tjwitko/wolfproof)](LICENSE)
 
+*Formerly agent-gate — see [Coming from agent-gate](#coming-from-agent-gate).*
+
 Most application-security tools have two verdicts: pass or fail. That leaves a third case with
 nowhere to go. When a scanner is not installed, a control cannot be reached, or a test suite cannot
 run, nothing is found — and on a two-verdict tool, nothing found reads as a pass.
@@ -32,15 +34,22 @@ reliable. Nothing in it assumes an agent, and it is as useful on code people wro
 Like the third pig's house, it is the third verdict — could-not-run — that makes your code
 wolfproof.
 
-> **Formerly agent-gate.** The project was called agent-gate until v1.2.0, which still accepted the
-> old names. Since v1.3.0 it does not: the `agent-gate` and `agent-gate-init` commands are gone, a
-> project with only `.agent-gate.json` exits 3 until the file is renamed `.wolfproof.json`, and an
-> `AGENT_GATE_*` variable is reported as set and unread. `wolfproof init --upgrade` still moves a
-> project set up by any earlier version to the new names — see [Upgrading](#upgrading).
-> The repository moved from `tjwitko/agent-gate` to `tjwitko/wolfproof`. Git and install URLs under
-> the old name redirect, and every earlier tag is here; **workflows must say `tjwitko/wolfproof`**,
-> because GitHub does not redirect Actions — `uses: tjwitko/agent-gate@…` fails with "repository not
-> found".
+---
+
+## Quickstart
+
+```bash
+npm install --save-dev github:tjwitko/wolfproof#v1.3.0
+echo "Build an HTTP service. Ship tests someone else can run." > task.txt   # the requirements, in prose
+./node_modules/.bin/wolfproof init --hook --task task.txt                   # agent instructions + pre-commit hook
+./node_modules/.bin/wolfproof . task.txt                                    # the verdict
+```
+
+Exit **0** clean, **1** blocking findings, **2** usage error, **3** part of it could not run — a
+missing scanner, say, which the run names as a check that did not run. Work that is not committed is
+itself a blocking finding, so on a fresh project commit first and run again. Install the scanners your
+stack needs ([Requirements](#requirements)), then see [What goes in the task file](#what-goes-in-the-task-file)
+and [What you get](#what-you-get).
 
 ---
 
@@ -48,31 +57,29 @@ wolfproof.
 
 ### Requirements
 
-- **Node.js 20 or newer**
-- The scanners the controls drive. Install the ones matching your stack:
+**Node.js 20 or newer**, and the scanners for what your project contains. Every project needs the first
+row; add the rows for the languages and files you have:
 
-  ```bash
-  brew install terraform gitleaks osv-scanner semgrep   # macOS
-  pipx install checkov ruff
-  python3 -m pip install pytest      # only if your project has a Python test suite
-  ```
+| your project has | install | it runs |
+|---|---|---|
+| anything | `gitleaks`, `osv-scanner` | hardcoded-credential and dependency-CVE scans |
+| Python | `semgrep`, `ruff`; `pytest` if it has tests | injection checks, static checks, the test suite |
+| JavaScript / TypeScript | `semgrep` | injection checks; tests run with the project's own tooling |
+| Go | `semgrep`, `go`, `docker` | injection checks, the build and the tests |
+| Java, Ruby, C#, Rust, C, C++ | `semgrep` | injection checks |
+| Terraform | `terraform`; `checkov` optional | plan and policy checks; checkov adds advisories |
+| Dockerfile | nothing extra; `checkov` optional | the base-image end-of-life check; checkov adds advisories |
 
-  | tool | needed for | required? |
-  |---|---|---|
-  | `gitleaks` | credential scanning | yes |
-  | `osv-scanner` | dependency vulnerabilities | yes |
-  | `terraform` | Terraform plan and policy checks | if the project has `.tf` files |
-  | `semgrep` | injection checks (`sast`) | if the project has Python, JavaScript/TypeScript, Go, Java, Ruby, C#, Rust, C or C++ |
-  | `checkov` | extra Terraform and Dockerfile coverage | optional, advisory only |
-  | `ruff` | Python static checks | if the project has Python |
-  | `pytest` | running a Python test suite | if the project has Python tests |
-  | `docker`, `go` | Go build and test | if the project has Go |
+```bash
+brew install gitleaks osv-scanner semgrep terraform   # macOS — pick the ones your stack needs
+pipx install ruff checkov
+python3 -m pip install pytest                         # only if the project has a Python test suite
+```
 
-  A missing tool is **never** silently skipped. The run reports it and exits 3.
-
-`pytest` is installed with `pip` rather than `pipx` on purpose: the gate runs a Python suite
-with `python3 -m pytest`, so the module has to be importable by that interpreter. A console
-script on `PATH` is a different fact and will not satisfy it.
+**A missing scanner is never skipped silently.** The run says which check could not run and exits 3.
+`pytest` is installed with `pip` rather than `pipx` on purpose: the gate runs a Python suite with
+`python3 -m pytest`, so the module has to be importable by that interpreter. A console script on
+`PATH` is a different fact and will not satisfy it.
 
 ### Install
 
@@ -280,6 +287,8 @@ with work uncommitted has not finished.
 If `core.hooksPath` is set, the tool refuses rather than writing a hook into `.git/hooks` that would
 never run.
 
+---
+
 ## Use it with a coding agent
 
 This is what the project was built for, and how every graded run in it was produced. The pattern has
@@ -358,6 +367,8 @@ by the command above.
 Pass the task file. Six checks are gated on what the task asked for, and without it they report
 "not checked" — accurate, and much less useful. See [What goes in the task
 file](#what-goes-in-the-task-file).
+
+---
 
 ## Use it in CI
 
@@ -441,158 +452,6 @@ organisation ruleset requires, for instance:
 runner that has the missing scanner, which is never the right response to `blocked`.
 
 See [`docs/ci.md`](docs/ci.md) for a full worked example including a pinned toolchain.
-
----
-
-## Upgrading
-
-The four controls come **with** the gate — `wolfproof` pins them — so upgrading the gate
-upgrades them. You only upgrade a control separately if you wired it into an editor on its own.
-
-### 1. See what you are on
-
-```text
-$ ./node_modules/.bin/wolfproof --version
-wolfproof 1.3.0
-  terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
-  dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
-  secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
-  identity-guard   v1.0.2  node_modules @tjwitko/identity-guard-mcp
-tools on PATH
-  node             26.5.1
-  go               1.27.1
-  terraform        1.15.8
-  gitleaks         8.30.1
-  osv-scanner      2.4.0
-  checkov          3.3.10
-  python3          3.14.8
-  ruff             0.16.2
-  semgrep          1.180.0
-  pytest           9.1.1
-  docker           29.6.2
-```
-
-Run it again afterwards. **"The package moved" and "the controls that will run moved" are different
-answers**, and only the second one protects anything: v1.1.1 shipped with terraform-guard a release
-behind its own fixes, and nothing in the output said so. Every gate run now prints the version of
-each control beside where it was found, in the CLI and in the Action's log alike.
-
-The controls are not all that decides a verdict. The scanners they shell out to are the rest: a
-semgrep upgrade moves `sast` findings with no wolfproof change, and osv-scanner answers from a live
-database, so the same tree and pins can give different dependency findings on different days.
-`--version` lists each one on `PATH`, and `not found` for one that is not — a missing scanner switches its checks off.
-The `--json` report carries the same list as `toolchain`, and `scannedAt`, the time the run started.
-
-### 2. Move the pin
-
-**GitHub Action** — bump **both** references, which name one repository at one version:
-
-```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.3.0
-- uses: tjwitko/wolfproof@v1.3.0
-```
-
-A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
-miss: a search for `wolfproof@` does not match the first line.
-
-**npm:**
-
-```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.3.0
-```
-
-### 3. Refresh what setup wrote
-
-```bash
-./node_modules/.bin/wolfproof init --upgrade
-```
-
-Upgrading the package does not touch what `wolfproof init` wrote into your project, so without this
-a project keeps an older release's stanza and hook indefinitely. `--upgrade` refreshes exactly
-those, and nothing it did not write:
-
-| | refreshed when | left alone when |
-| --- | --- | --- |
-| `AGENTS.md` stanza | it sits between wolfproof's markers, or agent-gate's from an earlier version | there are no markers, or the end marker is missing |
-| pre-commit hook | it carries the `Installed by wolfproof init` header, or `Installed by agent-gate-init` | anyone else wrote it |
-| `.mcp.json` controls | the entry is one setup wrote, or the control is missing | you defined the control yourself |
-
-The task file is read back from what setup wrote, so you do not have to repeat it — and it is not
-quietly dropped, which would switch six checks off. Running it twice changes nothing the second
-time. It exits **1** if something of its own could not be refreshed, and says what.
-
-**Coming from agent-gate** (v1.1.18 or earlier): run the same command, straight after installing.
-It replaces the `agent-gate` markers, stanza command and hook with `wolfproof` ones and keeps the task
-file. Until you do, a stanza or hook that still says `./node_modules/.bin/agent-gate` finds no such
-command — the hook fails closed with exit 3, it does not let the commit through. Rename
-`.agent-gate.json` to `.wolfproof.json` (a project with only the old file exits 3 and says so) and
-`AGENT_GATE_*` variables to `WOLFPROOF_*` (an old one left set is reported, not read). In workflows,
-change both `uses: tjwitko/agent-gate…` lines to `tjwitko/wolfproof…`: GitHub does not redirect
-Actions, so the old path fails.
-
-`--force` would also refresh these, and would also overwrite a hook you wrote. Use `--upgrade`.
-
-### 4. Run the new version before you gate on it
-
-**An upgrade can turn a passing project red, deliberately.** When a release fixes a check that was
-passing something it should not have, projects relying on that gap start failing. v1.1.2 did this
-for S3 buckets with no public access block of their own; v1.1.4 does it for services whose only
-authentication was commented out. Release notes call these out under *expect this to fail*.
-
-So run the new version locally first, read what it finds, and move the CI pin once you have — not
-the other way round, where the first you hear of it is a red build on someone else's pull request.
-
-### Keeping current
-
-Dependabot's `github-actions` updater opens a pull request when a new tag is published:
-
-```yaml
-# .github/dependabot.yml
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-```
-
-Check that the pull request moves **both** references before merging it.
-
-### A control wired in on its own
-
-If you run one of the four servers directly from an editor rather than through the gate, upgrade it
-by its own tag — `npm install github:tjwitko/secret-guard-mcp#vX`, or `git pull && npm ci` in a
-checkout — and then **restart the editor's MCP client**. A client starts each server once per
-session, so a running editor keeps serving the old code until it is restarted, and nothing about
-the upgrade tells you that.
-
-### Rolling back
-
-Pin the previous tag and run `npm install`. The stanza and hook a newer release wrote keep working
-with an older gate, with one exception: **below v1.1.3, remove the pre-commit hook**. It passes
-`--pre-commit`, which older releases do not know, so they run the uncommitted-work check inside the
-hook — where a commit in progress always has uncommitted work — and block every commit.
-
-## Exit codes
-
-| code | meaning | what to do |
-|---|---|---|
-| `0` | nothing blocking | ship it |
-| `1` | blocking findings | fix them; they are real |
-| `2` | usage error | check the arguments |
-| `3` | **part of the gate could not run** | fix the environment, then re-run |
-
-**Exit 3 is the one that matters.** It means the project was not fully checked. It is not a pass,
-and it is not a normal failure. Treating it as either is the failure mode this project exists to
-remove — and it has bitten this codebase twice, which is why the distinction is enforced and tested.
-
-A gate that crashes exits 3 too, never Node's default 1, and in `--json` mode still writes one
-document: `{"exitCode": 3, "incomplete": true, "error": "..."}`. A usage error writes
-`{"exitCode": 2, "error": "..."}`.
-
-`wolfproof init` has its own codes: `0` done, `1` left an existing file alone (reported, and
-`--force` overrides), `2` usage error, `70` failed partway — rerun after fixing the cause, since
-nothing it writes overwrites.
 
 ---
 
@@ -705,6 +564,29 @@ Listed so that a clean verdict is read for what it is.
 
 ---
 
+## Exit codes
+
+| code | meaning | what to do |
+|---|---|---|
+| `0` | nothing blocking | ship it |
+| `1` | blocking findings | fix them; they are real |
+| `2` | usage error | check the arguments |
+| `3` | **part of the gate could not run** | fix the environment, then re-run |
+
+**Exit 3 is the one that matters.** It means the project was not fully checked. It is not a pass,
+and it is not a normal failure. Treating it as either is the failure mode this project exists to
+remove — and it has bitten this codebase twice, which is why the distinction is enforced and tested.
+
+A gate that crashes exits 3 too, never Node's default 1, and in `--json` mode still writes one
+document: `{"exitCode": 3, "incomplete": true, "error": "..."}`. A usage error writes
+`{"exitCode": 2, "error": "..."}`.
+
+`wolfproof init` has its own codes: `0` done, `1` left an existing file alone (reported, and
+`--force` overrides), `2` usage error, `70` failed partway — rerun after fixing the cause, since
+nothing it writes overwrites.
+
+---
+
 ## Configuration
 
 Controls resolve in this order, and the run reports which rule won:
@@ -726,6 +608,151 @@ Controls resolve in this order, and the run reports which rule won:
 An environment variable or config entry pointing at a file that does not exist is an **error**, not
 a reason to fall through to the next rule. Someone said where the control was and was wrong; quietly
 using a different one would hide that.
+
+---
+
+## Upgrading
+
+The four controls come **with** the gate — `wolfproof` pins them — so upgrading the gate
+upgrades them. You only upgrade a control separately if you wired it into an editor on its own.
+
+### 1. See what you are on
+
+```text
+$ ./node_modules/.bin/wolfproof --version
+wolfproof 1.3.0
+  terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
+  dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
+  secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
+  identity-guard   v1.0.2  node_modules @tjwitko/identity-guard-mcp
+tools on PATH
+  node             26.5.1
+  go               1.27.1
+  terraform        1.15.8
+  gitleaks         8.30.1
+  osv-scanner      2.4.0
+  checkov          3.3.10
+  python3          3.14.8
+  ruff             0.16.2
+  semgrep          1.180.0
+  pytest           9.1.1
+  docker           29.6.2
+```
+
+Run it again afterwards. **"The package moved" and "the controls that will run moved" are different
+answers**, and only the second one protects anything: v1.1.1 shipped with terraform-guard a release
+behind its own fixes, and nothing in the output said so. Every gate run now prints the version of
+each control beside where it was found, in the CLI and in the Action's log alike.
+
+The controls are not all that decides a verdict. The scanners they shell out to are the rest: a
+semgrep upgrade moves `sast` findings with no wolfproof change, and osv-scanner answers from a live
+database, so the same tree and pins can give different dependency findings on different days.
+`--version` lists each one on `PATH`, and `not found` for one that is not — a missing scanner switches its checks off.
+The `--json` report carries the same list as `toolchain`, and `scannedAt`, the time the run started.
+
+### 2. Move the pin
+
+**GitHub Action** — bump **both** references, which name one repository at one version:
+
+```yaml
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.3.0
+- uses: tjwitko/wolfproof@v1.3.0
+```
+
+A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
+miss: a search for `wolfproof@` does not match the first line.
+
+**npm:**
+
+```bash
+npm install --save-dev github:tjwitko/wolfproof#v1.3.0
+```
+
+### 3. Refresh what setup wrote
+
+```bash
+./node_modules/.bin/wolfproof init --upgrade
+```
+
+Upgrading the package does not touch what `wolfproof init` wrote into your project, so without this
+a project keeps an older release's stanza and hook indefinitely. `--upgrade` refreshes exactly
+those, and nothing it did not write:
+
+| | refreshed when | left alone when |
+| --- | --- | --- |
+| `AGENTS.md` stanza | it sits between wolfproof's markers, or agent-gate's from an earlier version | there are no markers, or the end marker is missing |
+| pre-commit hook | it carries the `Installed by wolfproof init` header, or `Installed by agent-gate-init` | anyone else wrote it |
+| `.mcp.json` controls | the entry is one setup wrote, or the control is missing | you defined the control yourself |
+
+The task file is read back from what setup wrote, so you do not have to repeat it — and it is not
+quietly dropped, which would switch six checks off. Running it twice changes nothing the second
+time. It exits **1** if something of its own could not be refreshed, and says what.
+
+
+`--force` would also refresh these, and would also overwrite a hook you wrote. Use `--upgrade`.
+
+### 4. Run the new version before you gate on it
+
+**An upgrade can turn a passing project red, deliberately.** When a release fixes a check that was
+passing something it should not have, projects relying on that gap start failing. v1.1.2 did this
+for S3 buckets with no public access block of their own; v1.1.4 does it for services whose only
+authentication was commented out. Release notes call these out under *expect this to fail*.
+
+So run the new version locally first, read what it finds, and move the CI pin once you have — not
+the other way round, where the first you hear of it is a red build on someone else's pull request.
+
+### Coming from agent-gate
+
+The project was called agent-gate until v1.2.0, which still accepted the old names. Since v1.3.0
+it does not: the `agent-gate` and `agent-gate-init` commands are gone, a project with only
+`.agent-gate.json` exits 3 until the file is renamed `.wolfproof.json`, and an `AGENT_GATE_*`
+variable is reported as set and unread. `wolfproof init --upgrade` still moves a project set up by
+any earlier version to the new names.
+
+The repository moved from `tjwitko/agent-gate` to `tjwitko/wolfproof`. Git and install URLs under
+the old name redirect, and every earlier tag is here; **workflows must say `tjwitko/wolfproof`**,
+because GitHub does not redirect Actions — `uses: tjwitko/agent-gate@…` fails with "repository not
+found".
+
+From agent-gate (v1.1.18 or earlier), run `wolfproof init --upgrade` straight after installing.
+It replaces the `agent-gate` markers, stanza command and hook with `wolfproof` ones and keeps the task
+file. Until you do, a stanza or hook that still says `./node_modules/.bin/agent-gate` finds no such
+command — the hook fails closed with exit 3, it does not let the commit through. Rename
+`.agent-gate.json` to `.wolfproof.json` (a project with only the old file exits 3 and says so) and
+`AGENT_GATE_*` variables to `WOLFPROOF_*` (an old one left set is reported, not read). In workflows,
+change both `uses: tjwitko/agent-gate…` lines to `tjwitko/wolfproof…`: GitHub does not redirect
+Actions, so the old path fails.
+
+### Keeping current
+
+Dependabot's `github-actions` updater opens a pull request when a new tag is published:
+
+```yaml
+# .github/dependabot.yml
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+```
+
+Check that the pull request moves **both** references before merging it.
+
+### A control wired in on its own
+
+If you run one of the four servers directly from an editor rather than through the gate, upgrade it
+by its own tag — `npm install github:tjwitko/secret-guard-mcp#vX`, or `git pull && npm ci` in a
+checkout — and then **restart the editor's MCP client**. A client starts each server once per
+session, so a running editor keeps serving the old code until it is restarted, and nothing about
+the upgrade tells you that.
+
+### Rolling back
+
+Pin the previous tag and run `npm install`. The stanza and hook a newer release wrote keep working
+with an older gate, with one exception: **below v1.1.3, remove the pre-commit hook**. It passes
+`--pre-commit`, which older releases do not know, so they run the uncommitted-work check inside the
+hook — where a commit in progress always has uncommitted work — and block every commit.
 
 ---
 
@@ -852,6 +879,8 @@ Full write-up: [`docs/haiku-experiment.md`](docs/haiku-experiment.md).
 
 An MCP server for delegating mechanical subtasks to a locally-hosted model, which this project grew
 out of. It is independent of the gate and documented in [`CLAUDE.md`](CLAUDE.md).
+
+---
 
 ## License
 
