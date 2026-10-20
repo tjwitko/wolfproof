@@ -504,7 +504,7 @@ repository, fetching the base commit itself at depth 1 is all it takes, with no 
 | edits the task file, or a baseline inside the project | checked against the edited text (the pre-commit hook blocks the edit) | checked against the base's text, and the edit **blocks** |
 | adds the task file | read | **blocks**: in a factory the requirements predate the change |
 | leaves an advisory meaning "nothing was checked" | an advisory | **blocks** (see below) |
-| adds a route exempt by name, such as `/health` | exempt | still exempt — probe names are conventional — and **named** in the report |
+| adds a probe route that reads, such as `GET /health` | exempt | still exempt — probe names are conventional — and **named** in the report; a write method on a probe path (`POST /health`) is not a probe, and is checked in both modes |
 
 The exemptions, opt-outs and ignore entries factory mode judges, each confirmed to loosen a check:
 
@@ -514,7 +514,10 @@ The exemptions, opt-outs and ignore entries factory mode judges, each confirmed 
 - `osv-scanner.toml` beside a lockfile — an `[[IgnoredVulns]]` or `[[PackageOverrides]]` entry
   (one with `ignore = true` took four blocking CVEs to exit 0)
 - `# noqa`, and `ruff.toml`, `.ruff.toml` or a `pyproject.toml` `[tool.ruff]` section
-- `checkov:skip=` and `.checkov.yaml` (checkov's findings are advisories either way)
+- `checkov:skip=` and `.checkov.yaml` — these block only when the pipeline's policy blocks the
+  checkov findings they hide (`checkov`, `iac-checkov` or `dockerfile-checkov`, by file type).
+  checkov's findings are advisories, and hiding one that cannot block is not itself blocking:
+  under the default policy an added skip is listed in the factory notes instead
 
 Not judged, because nothing honours them: a project `.gitleaks.toml`, `nosemgrep`, `.semgrepignore`
 and `.gitignore`.

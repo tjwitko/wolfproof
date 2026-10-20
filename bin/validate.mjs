@@ -295,6 +295,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
           baseDir: base.dir,
           allowlist: allowlist.entries,
           secretGuardEntry: controls.find((c) => c.name === "secret-guard")?.entry || null,
+          policy,
         });
         r.failures.push(...judged.failures);
       }
