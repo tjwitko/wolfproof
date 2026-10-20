@@ -117,13 +117,14 @@ test("factory mode: every escape blocks, and the last state names each one", { s
     assert.equal(r.exit, 1);
     assert.deepEqual(r.blockedBy, ["authentication", "sast", "scan_path"], "nothing added yet, so the same three findings");
 
-    // A purge endpoint renamed to exactly /health is exempt by name in either mode. Probe exemptions
-    // are conventional, so factory mode keeps them -- and names a route the base did not have.
+    // A purge endpoint renamed to exactly /health is not a probe: a probe reads, and POST /health is
+    // checked like any route in either mode. It blocks on authentication, and there is no exemption
+    // for factory mode to name.
     writeServer(s.dir, { purgeRoute: "/health" });
     s.commit("purge renamed to /health");
     r = gate(s.dir, factory);
-    assert.deepEqual(r.j.factory.newProbeRoutes.map((x) => `${x.method} ${x.route}`), ["POST /health"]);
-    assert.ok(r.j.factory.notes.some((n) => n.includes("POST /health")), JSON.stringify(r.j.factory.notes));
+    assert.ok(r.blockedBy.includes("authentication"), JSON.stringify(r.blockedBy));
+    assert.deepEqual(r.j.factory.newProbeRoutes, []);
 
     escapes.marker(s);
     s.commit("marker");
@@ -139,9 +140,8 @@ test("factory mode: every escape blocks, and the last state names each one", { s
     assert.ok(r.findings.some((f) => /^factory: 1 fixture-marker grant\(s\) this change added/.test(f)), r.findings.join("\n"));
     assert.ok(r.findings.some((f) => /^scan_path: 2 hardcoded credential\(s\)/.test(f)), "the installed secret-guard ran, and found both");
     assert.match(r.j.controls.find((c) => c.name === "secret-guard").resolvedFrom, /^node_modules /);
-    // POST /health is not named here, and that is the marker's doing: it takes src/ out of the
-    // authentication check, which is where exempt routes are found. The marker blocks on its own,
-    // and with it removed the route is named again, as in the step above.
+    // The marker takes src/ out of the authentication check, so POST /health is not judged there;
+    // the marker blocks on its own.
   } finally {
     s.done();
   }

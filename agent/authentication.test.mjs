@@ -461,6 +461,43 @@ test("an unauthenticated route nested under a probe path is a finding, in every 
   assert.match(said, /\/ping\/admin\/reset/);
 });
 
+// A probe reads. The exemption covered a probe path whatever the method, so POST /health running a
+// DELETE passed the authentication check -- in both modes.
+test("a write method on a probe path is checked, in every language", () => {
+  const { failures } = run(
+    {
+      "src/app.js": "app.post('/health', purgeUsers);\n",
+      "main.go": 'r.Delete("/healthz", dropAll)\n',
+      "app.rb": "put '/ping' do\nend\n",
+      "app/main.py": "from flask import Flask\napp = Flask(__name__)\n\n@app.route('/metrics', methods=['POST'])\ndef reset():\n    pass\n",
+      "src/main/java/Probe.java":
+        '@RestController\nclass Probe {\n  @RequestMapping(value = "/readyz", method = RequestMethod.DELETE)\n  void wipe() {}\n}\n',
+    },
+    authenticationFailures
+  );
+  const said = failures.join("\n");
+  for (const route of ["POST /health", "DELETE /healthz", "PUT /ping", "/metrics", "/readyz"]) {
+    assert.match(said, new RegExp(route.replace(/\//g, "\\/")), route);
+  }
+});
+
+test("a read method, or a registration that names no method, is still exempt on a probe path", () => {
+  // GET and HEAD, and the method-agnostic forms -- Go's HandleFunc, a bare Flask @app.route,
+  // Express's app.all, Spring's @RequestMapping with no method -- which were exempt before: from the
+  // source alone nothing says the handler writes.
+  const { failures, advisories } = run(
+    {
+      "src/app.js": "app.get('/health', ok);\napp.all('/livez', ok);\n",
+      "main.go": 'mux.HandleFunc("/healthz", ok)\n',
+      "app/main.py": "from flask import Flask\napp = Flask(__name__)\n\n@app.route('/ping')\ndef ping():\n    pass\n",
+      "src/main/java/Probe.java": '@RestController\nclass Probe {\n  @RequestMapping("/readyz")\n  String ready() { return "ok"; }\n  @GetMapping("/metrics")\n  String m() { return ""; }\n}\n',
+    },
+    authenticationFailures
+  );
+  assert.deepEqual(failures, []);
+  assert.match(advisories.join("\n"), /exempt by name/);
+});
+
 // An endpoint whose job is to issue a credential cannot require one first.
 test("credential-issuing endpoints are exempt, but paths beneath them are not", () => {
   const exempt = run({ "src/app.js": "app.post('/login', doLogin);\n" }, authenticationFailures);

@@ -59,9 +59,27 @@ const PROBE_NAME = "health|healthz|readyz?|livez?|ping|metrics|favicon\\.ico";
 const PROBE_PART = "live|ready|liveness|readiness|startup";
 const OPEN_BY_CONVENTION = new RegExp(`^/(?:${PROBE_NAME})(?:/(?:${PROBE_PART}))?/?$`, "i");
 
-/** Whether a route is a conventionally open probe, exempt from the authentication check. */
+/** Whether a route's path is a conventionally open probe's. See probeExempt for the method. */
 export function isProbeRoute(route) {
   return OPEN_BY_CONVENTION.test(route);
+}
+
+// A probe reads. The exemption covered a probe path whatever the method, so POST /health running
+// DELETE FROM users passed the authentication check, in both modes -- found evaluating wolfproof for
+// an unattended pipeline. Exempt now: GET and HEAD, and a registration that names no method (Go's
+// HandleFunc, Express's app.all, a bare Flask @app.route, Spring's @RequestMapping), because from
+// the source alone nothing says such a handler writes, and those were exempt before. Checked: a
+// named write method, and a method-agnostic registration whose arguments name one --
+// methods=["POST"], RequestMethod.DELETE.
+const READ_METHODS = new Set(["GET", "HEAD"]);
+const ANY_METHOD = new Set(["ANY", "ROUTE", "ALL"]);
+const DECLARED_WRITE = /\bmethods\s*=\s*[[(][^\])]*\b(?:POST|PUT|PATCH|DELETE)\b|RequestMethod\.(?:POST|PUT|PATCH|DELETE)\b/i;
+
+/** Whether a route is exempt as a probe: a probe path, read by a read method. */
+export function probeExempt(r) {
+  if (!OPEN_BY_CONVENTION.test(r.route)) return false;
+  if (READ_METHODS.has(r.method)) return true;
+  return ANY_METHOD.has(r.method) && !DECLARED_WRITE.test(r.methodSpec || r.declaration || "");
 }
 
 // Endpoints whose job is to issue a credential cannot require one first. Terminal names only:
@@ -970,7 +988,10 @@ const javaAdapter = {
       // Spring's authorization annotations sit next to the mapping, either side of it.
       const around = lines.slice(Math.max(0, line - 4), line + 3).join("\n");
       const verb = m[1] === "Request" ? "ANY" : m[1].toUpperCase();
-      out.push({ method: verb, route: m[2], declaration: m[0], context: around, line });
+      // The annotation's own arguments, where @RequestMapping names its method -- the match stops at
+      // the path, and `around` takes in neighbouring annotations, which would not be this route's.
+      const methodSpec = text.slice(m.index, m.index + 300).split(")")[0];
+      out.push({ method: verb, route: m[2], declaration: m[0], context: around, line, methodSpec });
     }
     return out;
   },
@@ -1128,13 +1149,14 @@ export function checkAuthentication(projectDir) {
         // `/ping` that took a request parameter and passed it to a shell went unmentioned, and the
         // finding counted "1 of 1 endpoint(s)" in a file declaring two. The path is chosen by
         // whoever writes the code; the reader is owed the list of what was not looked at.
-        if (OPEN_BY_CONVENTION.test(r.route) || CREDENTIAL_ISSUING.test(r.route)) {
+        const probe = probeExempt(r);
+        if (probe || CREDENTIAL_ISSUING.test(r.route)) {
           exempt.push({
             file: file.rel,
             method: r.method,
             route: r.route,
             line: r.line,
-            why: OPEN_BY_CONVENTION.test(r.route) ? "probe" : "issues a credential",
+            why: probe ? "probe" : "issues a credential",
           });
           continue;
         }
