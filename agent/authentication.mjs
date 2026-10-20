@@ -84,9 +84,9 @@ const MAX_FILE_BYTES = 512 * 1024;
 // A phantom route has no middleware, so it is reported unprotected, so it would block a correct
 // project -- rule 3's exact failure mode. Matched on the filename rather than the directory,
 // because `test/` and `tests/` sometimes hold real application code, while these suffixes do not.
-const TEST_FILE =
+export const TEST_FILE =
   /(\.(test|spec)\.[mc]?[jt]sx?|_test\.go|_test\.py|_spec\.rb|_test\.rb|Test\.java|Tests\.java)$|^test_[^/]*\.py$|^conftest\.py$/i;
-const TEST_DIRS = new Set(["__tests__", "__mocks__", "fixtures", "testdata"]);
+export const TEST_DIRS = new Set(["__tests__", "__mocks__", "fixtures", "testdata"]);
 
 // Comments are not code, and this check used to read them as code in both directions. Running
 // the gate over its own source blocked on two credential findings, both from comments here that

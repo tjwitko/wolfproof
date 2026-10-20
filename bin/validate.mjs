@@ -28,6 +28,17 @@ import { validateProject, localTools, McpClient } from "../lib/gate-core.mjs";
 import { resolveControls, readConfig, CONFIG_FILE } from "../lib/resolve-controls.mjs";
 import { toolchain } from "../lib/toolchain.mjs";
 import { setting, legacySettingsInUse } from "../lib/settings.mjs";
+import {
+  resolveBase,
+  materializeBase,
+  judgeChange,
+  declaredOverrides,
+  servesHttp,
+  readPipelineInput,
+  parseAllowlist,
+  requirementAtBase,
+} from "../lib/factory.mjs";
+import { classifyAdvisory, actionFor, ACTIONS, COULD_NOT_RUN, NOT_CHECKED } from "../lib/advisory-classes.mjs";
 
 const EXIT = { CLEAN: 0, BLOCKED: 1, USAGE: 2, INCOMPLETE: 3 };
 
@@ -92,121 +103,278 @@ export function requirementsRead(text, project = {}) {
   return { sentences, read: sentences - covered.length - unread.length, covered, unread };
 }
 
-export async function runGate(projectDirArg, taskFile, { env = process.env, preCommit = false, baselineFile = null } = {}) {
+/**
+ * The pipeline's own factory inputs, checked before anything runs. A missing, unparseable or
+ * in-project allowlist or policy is a usage error: the pipeline is misconfigured, and no verdict on
+ * the project should come out of it.
+ */
+function checkFactoryInputs(projectDir, factory) {
+  if (!factory) return { allowlist: { entries: [], ignored: [] }, policy: {} };
+  let allowlist = { entries: [], ignored: [] };
+  let policy = {};
+  if (factory.allowlistFile) {
+    const r = readPipelineInput(factory.allowlistFile, "allowlist", projectDir);
+    if (r.error) throw new UsageError(r.error);
+    allowlist = parseAllowlist(r.value);
+  }
+  if (factory.policyFile) {
+    const r = readPipelineInput(factory.policyFile, "policy", projectDir);
+    if (r.error) throw new UsageError(r.error);
+    for (const [k, v] of Object.entries((r.value && r.value.advisories) || {})) {
+      if (!ACTIONS.has(v)) throw new UsageError(`the policy file says "${k}": "${v}"; each advisory class is "block", "drop" or "incomplete"`);
+    }
+    policy = r.value || {};
+  }
+  return { allowlist, policy };
+}
+
+export async function runGate(projectDirArg, taskFile, { env = process.env, preCommit = false, baselineFile = null, factory = null } = {}) {
   const projectDir = path.resolve(projectDirArg);
   checkInputs(projectDir, taskFile, baselineFile);
-  // Several checks are gated on what the task asked for -- immutability, retention, secret rotation
-  // and both quality checks stay silent unless the requirement is stated. Without the task text
-  // they report "not checked", which is correct and much less useful. The baseline, when there is
-  // one, is requirement text from outside the project; see lib/requirements.mjs for why both exist.
-  const requirements = loadRequirements(projectDir, taskFile, { preCommit, baselineFile });
-  // When, and with what. osv-scanner answers from a live database, so the same tree and the same
-  // pins can give different dependency findings on different days; a report that does not say when it
-  // was made cannot be compared with another. The probe runs beside the checks rather than before.
-  const scannedAt = new Date().toISOString();
-  const tools = toolchain({ env });
-  const taskText = requirements.text;
+  const { allowlist, policy } = checkFactoryInputs(projectDir, factory);
 
-  const { config, error: configError, file: configFile, note: configNote } = readConfig(projectDir);
-  const controls = resolveControls(projectDir, { config, env, configFile });
-
-  const registry = new Map();
-  const clients = [];
-  const unreachable = [];
-
-  // build_check is a local tool rather than an MCP one. It was once omitted for the same reason the
-  // MCP tools were: the registry handed to validateProject was empty.
-  for (const [name, def] of Object.entries(localTools(projectDir, null))) {
-    registry.set(name, { kind: "local", run: def.run });
+  // Factory mode needs to know what existed before the change. Resolved first, because the
+  // requirements are read as they were there. A base that cannot be established leaves nothing to
+  // compare with, which makes the run incomplete -- not blocked, and certainly not clean.
+  const factoryFailures = [];
+  const factoryCouldNotRun = [];
+  const factoryAdvisories = [];
+  let base = null;
+  if (factory) {
+    const b = resolveBase(projectDir, factory.base);
+    if (b.error) {
+      factoryCouldNotRun.push(
+        `factory: ${b.error}, so what predates this change cannot be told apart from what it added. No self-granted exemption was judged, and the requirements were read as they are now.`
+      );
+    } else {
+      const m = materializeBase(projectDir, b.sha);
+      if (m.error) factoryCouldNotRun.push(`factory: the base ${b.sha.slice(0, 12)} could not be read — ${m.error}`);
+      else base = { ref: factory.base, sha: b.sha, dir: m.dir, empty: m.empty, cleanup: m.cleanup };
+    }
   }
 
-  for (const c of controls) {
-    if (!c.entry) {
-      unreachable.push({ name: c.name, provides: c.provides, why: c.error });
-      continue;
-    }
-    try {
-      // cwd as well as env: every one of these servers falls back to its startup cwd when its root
-      // variable is unset, and callers pass relative targets like ".".
-      const client = new McpClient(c.name, "node", [c.entry], { [c.rootVar]: projectDir }, projectDir);
-      const tools = await client.init();
-      clients.push(client);
-      for (const t of tools) {
-        if (t.name === "terraform_apply") continue; // never reachable from a validation pass
-        registry.set(t.name, { kind: "mcp", server: client, toolName: t.name });
+  try {
+    return await runChecks();
+  } finally {
+    base?.cleanup();
+  }
+
+  async function runChecks() {
+    // Several checks are gated on what the task asked for -- immutability, retention, secret rotation
+    // and both quality checks stay silent unless the requirement is stated. Without the task text
+    // they report "not checked", which is correct and much less useful. The baseline, when there is
+    // one, is requirement text from outside the project; see lib/requirements.mjs for why both exist.
+    const requirements = loadRequirements(projectDir, taskFile, { preCommit, baselineFile });
+    // In factory mode the requirements are the ones that predate the change. A task file the change
+    // edited is checked as it was, and the edit blocks: an agent blocked by a requirement can otherwise
+    // delete it. One the change added is blocking too -- in a factory, people write the requirements,
+    // and a task file that arrived with the code was written by whoever wrote the code.
+    if (base) {
+      for (const [label, file, key] of [["task file", taskFile, "taskText"], ["baseline", baselineFile, "baselineText"]]) {
+        if (!file) continue;
+        const at = requirementAtBase(projectDir, base.sha, file);
+        if (at.outside) continue;
+        if (at.added) {
+          factoryFailures.push(
+            `factory: the ${label} ${at.rel} was added by this change — it did not exist at the base (${base.sha.slice(0, 12)}). ` +
+              `In factory mode the requirements predate the change: they are what the change is judged against, so the change does not get to write them.`
+          );
+        } else if (at.changed) {
+          factoryFailures.push(
+            `factory: this change edits the ${label} ${at.rel}, the requirements it is checked against. The code was checked against them as they were at the base ` +
+              `(${base.sha.slice(0, 12)}). A requirement is a person's decision; change it on its own, not in the change it would let through.`
+          );
+          requirements[key] = at.text;
+        }
       }
-    } catch (err) {
-      unreachable.push({ name: c.name, provides: c.provides, why: `${c.source}: ${err && err.message}` });
+      requirements.text = [requirements.taskText, requirements.baselineText].filter((t) => t.trim()).join("\n\n");
     }
+    // When, and with what. osv-scanner answers from a live database, so the same tree and the same
+    // pins can give different dependency findings on different days; a report that does not say when it
+    // was made cannot be compared with another. The probe runs beside the checks rather than before.
+    const scannedAt = new Date().toISOString();
+    const tools = toolchain({ env });
+    const taskText = requirements.text;
+
+    const { config, error: rawConfigError, file: configFile, note: configNote } = readConfig(projectDir);
+    // Factory mode does not read the project's config at all, so a config that cannot be read changes
+    // nothing about the run. It is still said.
+    const configError = factory ? null : rawConfigError;
+    if (factory && rawConfigError) factoryAdvisories.push(`config: ${rawConfigError} Factory mode does not read it.`);
+    const controls = resolveControls(projectDir, { config, env, configFile, factory: Boolean(factory) });
+    // A control the project tried to choose for itself. The pinned one runs instead, and the attempt
+    // blocks: an agent that points secret-guard at an empty directory has not fixed a credential.
+    if (factory) {
+      for (const o of declaredOverrides(projectDir)) {
+        const ran = controls.find((c) => c.name === o.control);
+        factoryFailures.push(
+          `factory: ${o.file} overrides the ${o.control} control with ${JSON.stringify(o.value)}. In factory mode the pipeline decides what gates ` +
+            `the project, so ${ran?.entry ? `the installed control ran instead (${ran.source})` : "the override was not used"}. Remove the override.`
+        );
+      }
+    }
+
+    const registry = new Map();
+    const clients = [];
+    const unreachable = [];
+
+    // build_check is a local tool rather than an MCP one. It was once omitted for the same reason the
+    // MCP tools were: the registry handed to validateProject was empty.
+    for (const [name, def] of Object.entries(localTools(projectDir, null))) {
+      registry.set(name, { kind: "local", run: def.run });
+    }
+
+    for (const c of controls) {
+      if (!c.entry) {
+        unreachable.push({ name: c.name, provides: c.provides, why: c.error });
+        continue;
+      }
+      try {
+        // cwd as well as env: every one of these servers falls back to its startup cwd when its root
+        // variable is unset, and callers pass relative targets like ".".
+        const client = new McpClient(c.name, "node", [c.entry], { [c.rootVar]: projectDir }, projectDir);
+        const tools = await client.init();
+        clients.push(client);
+        for (const t of tools) {
+          if (t.name === "terraform_apply") continue; // never reachable from a validation pass
+          registry.set(t.name, { kind: "mcp", server: client, toolName: t.name });
+        }
+      } catch (err) {
+        unreachable.push({ name: c.name, provides: c.provides, why: `${c.source}: ${err && err.message}` });
+      }
+    }
+
+    const r = await validateProject(projectDir, registry, taskText, { preCommit });
+    r.failures.unshift(...requirements.failures);
+    r.advisories.unshift(...requirements.advisories);
+    if (configNote) r.advisories.unshift(`config: ${configNote}`);
+    // Since v1.3.0 only WOLFPROOF_* is read. An AGENT_GATE_* variable left in a pipeline -- a pinned
+    // end-of-life date, a hooks path -- has stopped applying, and says so rather than going quiet.
+    for (const { name, use } of legacySettingsInUse(env)) {
+      r.advisories.unshift(`settings: ${name} is set and no longer read since v1.3.0; set ${use} instead.`);
+    }
+    for (const c of clients) c.proc?.kill();
+
+    // A server that connected but whose tool the gate never invoked. Not the same as one that could
+    // not be reached, and harder to see: identity-guard was spawned by nothing for ten graded runs
+    // while every report printed a line called `authentication` -- the in-process route check, a
+    // different thing. `provides` is an assertion, not documentation.
+    // A tool with nothing to examine did not fail to run. terraform_plan on a project with no
+    // Terraform is the common case, and counting it as silent made every such project INCOMPLETE.
+    const inapplicable = r.inapplicable || [];
+    const outOfScope = new Set(inapplicable.map((i) => i.tool));
+
+    const silent = [];
+    for (const c of controls) {
+      if (!c.entry || unreachable.some((u) => u.name === c.name)) continue;
+      const missing = c.provides.filter(
+        (tool) => !outOfScope.has(tool) && !r.ran.some((x) => x === tool || x.startsWith(`${tool}(`))
+      );
+      if (missing.length) silent.push({ name: c.name, provides: missing });
+    }
+
+    // A checker that could not run counts exactly as an unreachable control does. An in-process
+    // check is not more trustworthy than an MCP one for being in-process: `build_check` reported
+    // blocking "STATIC ERRORS" on any machine without ruff, and read a missing Go toolchain as a
+    // pass, and neither showed up here at all.
+    const couldNotRun = r.couldNotRun || [];
+    const coverage = sourceCoverage(projectDir);
+    const alwaysOnContext = { languages: coverage.languages, ran: r.ran, couldNotRun };
+
+    // Factory mode's judgement, after the checks: what the change granted itself, and what every
+    // advisory means when nobody reads it. See lib/factory.mjs and lib/advisory-classes.mjs.
+    let factoryReport = null;
+    if (factory) {
+      r.failures.push(...factoryFailures);
+      r.advisories.push(...factoryAdvisories);
+      couldNotRun.push(...factoryCouldNotRun);
+      let judged = { failures: [], notes: [], grants: [], changed: [], newProbeRoutes: [] };
+      if (base) {
+        judged = judgeChange(projectDir, {
+          sha: base.sha,
+          baseDir: base.dir,
+          allowlist: allowlist.entries,
+          secretGuardEntry: controls.find((c) => c.name === "secret-guard")?.entry || null,
+        });
+        r.failures.push(...judged.failures);
+      }
+      const ctx = { servesHttp: servesHttp(projectDir), couldNotRun: [...couldNotRun] };
+      const kept = [];
+      const classified = [];
+      for (const a of r.advisories) {
+        const c = classifyAdvisory(a, ctx);
+        const action = actionFor(c, policy);
+        classified.push({ id: c.id, class: c.class, action });
+        if (action === "block") {
+          r.failures.push(
+            c.unclassified
+              ? `factory: an advisory factory mode cannot classify, so it cannot tell whether it means nothing was checked — ${a}`
+              : c.class === NOT_CHECKED
+                ? `factory: nothing was checked — ${a}`
+                : `factory: blocked by the pipeline's policy (${c.id}) — ${a}`
+          );
+        } else if (action === "incomplete") {
+          couldNotRun.push(`factory: ${a}`);
+        } else {
+          kept.push(a);
+        }
+      }
+      r.advisories = kept;
+      // Code in a language nothing reads. The default mode prints this above the verdict for a reader;
+      // here it is a check that could not run against that code, unless the policy accepts it.
+      if (coverage.unreadFiles > 0) {
+        const action = actionFor({ id: "unread-code", class: COULD_NOT_RUN }, policy);
+        classified.push({ id: "unread-code", class: COULD_NOT_RUN, action });
+        const line = coverageLine(coverage);
+        if (action === "incomplete") couldNotRun.push(`factory: ${line}`);
+        else if (action === "block") r.failures.push(`factory: blocked by the pipeline's policy (unread-code) — ${line}`);
+      }
+      const count = (k) => classified.filter((c) => c.action === k).length;
+      factoryReport = {
+        base: base ? { ref: base.ref, sha: base.sha, projectExisted: !base.empty } : { ref: factory.base, sha: null },
+        allowlist: factory.allowlistFile ? { file: path.resolve(factory.allowlistFile), entries: allowlist.entries.length, ignored: allowlist.ignored } : null,
+        policy: factory.policyFile ? path.resolve(factory.policyFile) : null,
+        grants: judged.grants.map(({ key, ...g }) => g),
+        changedFiles: judged.changed.length,
+        newProbeRoutes: judged.newProbeRoutes,
+        notes: judged.notes,
+        advisories: { classified, blocked: count("block"), incomplete: count("incomplete"), dropped: count("drop") },
+      };
+    }
+
+    const incomplete =
+      unreachable.length > 0 || silent.length > 0 || couldNotRun.length > 0 || Boolean(configError);
+    return {
+      factory: factoryReport,
+      projectDir,
+      taskFile: taskFile || null,
+      baseline: requirements.baseline,
+      scannedAt,
+      // End-of-life dates are judged as of this day instead of the clock when it is set, as the corpus
+      // does to keep a frozen verdict from ageing. Recorded so a pinned run does not pass for a live one.
+      judgedAsOf: setting(env, "TODAY") || null,
+      toolchain: await tools,
+      // Which sentences of the requirements switched no check on. A gated-off check says only "not
+      // checked", so a requirement nothing recognised was otherwise visible nowhere.
+      requirementsRead: {
+        task: requirementsRead(requirements.taskText, alwaysOnContext),
+        baseline: requirementsRead(requirements.baselineText, alwaysOnContext),
+      },
+      coverage,
+      configError,
+      controls,
+      ran: r.ran,
+      failures: r.failures,
+      advisories: r.advisories,
+      unreachable,
+      silent,
+      couldNotRun,
+      inapplicable,
+      exempt: r.exempt || [],
+      incomplete,
+      exitCode: incomplete ? EXIT.INCOMPLETE : r.failures.length ? EXIT.BLOCKED : EXIT.CLEAN,
+    };
   }
-
-  const r = await validateProject(projectDir, registry, taskText, { preCommit });
-  r.failures.unshift(...requirements.failures);
-  r.advisories.unshift(...requirements.advisories);
-  if (configNote) r.advisories.unshift(`config: ${configNote}`);
-  // Since v1.3.0 only WOLFPROOF_* is read. An AGENT_GATE_* variable left in a pipeline -- a pinned
-  // end-of-life date, a hooks path -- has stopped applying, and says so rather than going quiet.
-  for (const { name, use } of legacySettingsInUse(env)) {
-    r.advisories.unshift(`settings: ${name} is set and no longer read since v1.3.0; set ${use} instead.`);
-  }
-  for (const c of clients) c.proc?.kill();
-
-  // A server that connected but whose tool the gate never invoked. Not the same as one that could
-  // not be reached, and harder to see: identity-guard was spawned by nothing for ten graded runs
-  // while every report printed a line called `authentication` -- the in-process route check, a
-  // different thing. `provides` is an assertion, not documentation.
-  // A tool with nothing to examine did not fail to run. terraform_plan on a project with no
-  // Terraform is the common case, and counting it as silent made every such project INCOMPLETE.
-  const inapplicable = r.inapplicable || [];
-  const outOfScope = new Set(inapplicable.map((i) => i.tool));
-
-  const silent = [];
-  for (const c of controls) {
-    if (!c.entry || unreachable.some((u) => u.name === c.name)) continue;
-    const missing = c.provides.filter(
-      (tool) => !outOfScope.has(tool) && !r.ran.some((x) => x === tool || x.startsWith(`${tool}(`))
-    );
-    if (missing.length) silent.push({ name: c.name, provides: missing });
-  }
-
-  // A checker that could not run counts exactly as an unreachable control does. An in-process
-  // check is not more trustworthy than an MCP one for being in-process: `build_check` reported
-  // blocking "STATIC ERRORS" on any machine without ruff, and read a missing Go toolchain as a
-  // pass, and neither showed up here at all.
-  const couldNotRun = r.couldNotRun || [];
-  const coverage = sourceCoverage(projectDir);
-  const alwaysOnContext = { languages: coverage.languages, ran: r.ran, couldNotRun };
-  const incomplete =
-    unreachable.length > 0 || silent.length > 0 || couldNotRun.length > 0 || Boolean(configError);
-  return {
-    projectDir,
-    taskFile: taskFile || null,
-    baseline: requirements.baseline,
-    scannedAt,
-    // End-of-life dates are judged as of this day instead of the clock when it is set, as the corpus
-    // does to keep a frozen verdict from ageing. Recorded so a pinned run does not pass for a live one.
-    judgedAsOf: setting(env, "TODAY") || null,
-    toolchain: await tools,
-    // Which sentences of the requirements switched no check on. A gated-off check says only "not
-    // checked", so a requirement nothing recognised was otherwise visible nowhere.
-    requirementsRead: {
-      task: requirementsRead(requirements.taskText, alwaysOnContext),
-      baseline: requirementsRead(requirements.baselineText, alwaysOnContext),
-    },
-    coverage,
-    configError,
-    controls,
-    ran: r.ran,
-    failures: r.failures,
-    advisories: r.advisories,
-    unreachable,
-    silent,
-    couldNotRun,
-    inapplicable,
-    exempt: r.exempt || [],
-    incomplete,
-    exitCode: incomplete ? EXIT.INCOMPLETE : r.failures.length ? EXIT.BLOCKED : EXIT.CLEAN,
-  };
 }
 
 function human(result) {
@@ -280,6 +448,27 @@ function human(result) {
   }
   if ((result.inapplicable || []).length || (result.exempt || []).length) out.push("");
 
+  // What factory mode compared against and what it decided, above the verdict for the same reason as
+  // everything else here. The decisions themselves are in BLOCKING and in the could-not-run list.
+  if (result.factory) {
+    const f = result.factory;
+    const n = (s) => f.grants.filter((g) => g.status === s).length;
+    out.push(
+      `factory        : base ${f.base.ref}${f.base.sha ? ` (${f.base.sha.slice(0, 12)})` : " — NOT RESOLVED"}; ` +
+        `allowlist ${f.allowlist ? f.allowlist.file : "none"}; policy ${f.policy || "none, the defaults"}`
+    );
+    if (f.grants.length) {
+      out.push(`factory grants : ${n("pre-existing")} predate the change, ${n("allowlisted")} allowlisted, ${n("added")} added by it`);
+    }
+    for (const note of f.notes) out.push(`factory note   : ${note}`);
+    for (const i of f.allowlist?.ignored || []) out.push(`factory note   : allowlist entry ignored — it ${i.why}: ${JSON.stringify(i.entry)}`);
+    out.push(
+      `factory advisories: ${f.advisories.blocked} blocked, ${f.advisories.incomplete} made the run incomplete, ` +
+        `${f.advisories.dropped} counted and not blocking (--json lists each with its class)`
+    );
+    out.push("");
+  }
+
   const qualifier = result.incomplete ? " FROM THE CHECKS THAT RAN (see above)" : "";
   out.push(`BLOCKING        : ${result.failures.length ? result.failures.length : `none${qualifier}`}\n`);
   for (const f of result.failures) out.push(`  - ${f}\n`);
@@ -294,6 +483,9 @@ function machine(result) {
       project: result.projectDir,
       taskFile: result.taskFile,
       baseline: result.baseline,
+      // Null unless --factory: the base compared against, every self-granted loosening with whether
+      // it predates the change, and each advisory's class and what factory mode did with it.
+      factory: result.factory,
       scannedAt: result.scannedAt,
       judgedAsOf: result.judgedAsOf,
       // Per requirement text: sentences, how many a check read, and the ones none did.
@@ -331,6 +523,7 @@ function machine(result) {
 }
 
 const USAGE = `usage: wolfproof <project-dir> [task-file] [--baseline=<file>] [--json] [--pre-commit]
+       wolfproof <project-dir> [task-file] --factory --base=<ref> [--allowlist=<file>] [--policy=<file>] ...
        wolfproof init [project-dir] [--hook] [--task <file>] ...   set a project up (--upgrade refreshes it)
        wolfproof --version     this release, its four controls, and the scanners on PATH
        wolfproof --help
@@ -338,7 +531,23 @@ const USAGE = `usage: wolfproof <project-dir> [task-file] [--baseline=<file>] [-
 exit 0 nothing blocking, 1 blocking findings, 2 usage, 3 part of the gate could not run.
 
 controls resolve from, in order: an env var, ${CONFIG_FILE} in the project,
-node_modules, then a sibling checkout. A control that resolves from nowhere exits 3.`;
+node_modules, then a sibling checkout. A control that resolves from nowhere exits 3.
+
+--factory is for pipelines where no person reviews the change. Nothing the change grants itself
+loosens the gate: controls come only from an env var or node_modules, an exemption or opt-out is
+honoured only if it existed at --base or the --allowlist approves it, and an advisory that means
+"nothing was checked" blocks. --allowlist and --policy are JSON files outside the project.`;
+
+/**
+ * A factory option's value: undefined when absent, null when given without "=value". `--base` is
+ * matched whole, so it is never confused with `--baseline`.
+ */
+function optionValue(args, name) {
+  const a = args.find((x) => x === `--${name}` || x.startsWith(`--${name}=`));
+  if (a === undefined) return undefined;
+  const v = a.slice(`--${name}=`.length);
+  return a.startsWith(`--${name}=`) && v ? v : null;
+}
 
 async function main() {
   const args = process.argv.slice(2);
@@ -383,6 +592,25 @@ async function main() {
     console.error(USAGE);
     process.exit(EXIT.USAGE);
   }
+  // Factory mode. Its options are refused without it rather than ignored: a pipeline that passes an
+  // allowlist and forgets --factory believes it is in a mode it is not in.
+  const factoryFlag = args.includes("--factory");
+  const factoryOptions = { base: optionValue(args, "base"), allowlist: optionValue(args, "allowlist"), policy: optionValue(args, "policy") };
+  const usageExit = (message) => {
+    console.error(`wolfproof: ${message}`);
+    if (json) process.stdout.write(`${JSON.stringify({ exitCode: EXIT.USAGE, error: message })}\n`);
+    process.exit(EXIT.USAGE);
+  };
+  for (const [name, v] of Object.entries(factoryOptions)) {
+    if (v === null) usageExit(`--${name} takes a value: --${name}=<${name === "base" ? "ref" : "file"}>`);
+    if (v !== undefined && !factoryFlag) usageExit(`--${name} is a factory-mode option and means nothing without --factory`);
+  }
+  if (factoryFlag && !factoryOptions.base) {
+    usageExit("--factory needs --base=<ref>, the commit the change under test is compared with: a pull request's base, or the commit before a push");
+  }
+  const factory = factoryFlag
+    ? { base: factoryOptions.base, allowlistFile: factoryOptions.allowlist || null, policyFile: factoryOptions.policy || null }
+    : null;
   // In --json mode stdout carries exactly one thing: the result document. The validators share
   // their code with the agent loop, which narrates progress to console.log, so a single narration
   // line lands in front of the JSON and makes it unparseable. That is how the corpus first failed
@@ -396,7 +624,7 @@ async function main() {
   if (json) console.log = (...a) => console.error(...a);
   let result;
   try {
-    result = await runGate(positional[0], positional[1], { preCommit, baselineFile });
+    result = await runGate(positional[0], positional[1], { preCommit, baselineFile, factory });
   } catch (err) {
     if (!(err instanceof UsageError)) throw err;
     console.log = narrate;

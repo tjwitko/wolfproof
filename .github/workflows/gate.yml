@@ -60,7 +60,27 @@ jobs:
       # control-tooling pins. The same variable makes its absence a failure rather than a skip.
       - name: semgrep
         run: pipx install semgrep==1.180.0 && semgrep --version
+      # test/factory-scenario.e2e.mjs runs the real gate over the Dark Factory measurement, and the
+      # scenario's hardcoded credentials are found by secret-guard, which runs gitleaks. Same pin as
+      # control-tooling.
+      - name: gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          sudo tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
+          sudo chmod +x /usr/local/bin/gitleaks
+          gitleaks version
       - run: npm test
+        env:
+          WOLFPROOF_REQUIRE_SCANNERS: "1"
+      # Its own step, not part of `npm test`: these runs take about a minute, and `npm test`'s files
+      # are what the gate's tests check executes, inside a 120-second budget, when the self job below
+      # gates this repository.
+      - name: factory mode, end to end
+        run: npm run test:factory
         env:
           WOLFPROOF_REQUIRE_SCANNERS: "1"
 

@@ -427,6 +427,10 @@ Then make it a required check in **Settings → Branches → Branch protection**
 | `dep-audit` | *(auto)* | " |
 | `secret-guard` | *(auto)* | " |
 | `identity-guard` | *(auto)* | " |
+| `factory` | `false` | `true` for [factory mode](#factory-mode) |
+| `base` | *(the PR's base, or the commit before a push)* | Factory mode: the commit the change is compared with; fetched if missing |
+| `allowlist` | *(none)* | Factory mode: JSON approving specific exemptions |
+| `policy` | *(none)* | Factory mode: JSON choosing what each advisory class does |
 
 A `baseline` set in a workflow in the same repository is only as protected as that workflow file. For
 a requirement every project must meet, set it in a workflow the project cannot edit — one an
@@ -452,6 +456,126 @@ organisation ruleset requires, for instance:
 runner that has the missing scanner, which is never the right response to `blocked`.
 
 See [`docs/ci.md`](docs/ci.md) for a full worked example including a pinned toolchain.
+
+---
+
+## Factory mode
+
+For a pipeline where agents write the change and no person reviews it. New in v1.4.0.
+
+In the default mode every escape hatch is printed for a reader: a fixture marker and its reason, an
+opt-out and its reason, the control a project config pointed at. That is the right design where a
+person reviews the change, and no protection where nobody does. Measured on v1.3.1, a project with an
+unauthenticated purge endpoint, SQL injection and two hardcoded AWS credentials reached exit 0 through
+two files an agent can write: a one-line `src/.tfguard-fixture`, and a `.wolfproof.json` pointing
+secret-guard at an empty directory. Both were in the report. In a factory, nothing reads the report.
+
+`--factory` compares the change with a base — the commit before it — and refuses what the change
+granted itself:
+
+```bash
+wolfproof . task.txt --factory --base=origin/main
+```
+
+```yaml
+      - uses: tjwitko/wolfproof@v1.4.0
+        with:
+          task-file: task.txt
+          factory: true
+```
+
+In the Action the base defaults to the pull request's base, or for a push to the commit before it,
+and the Action fetches it: the default `fetch-depth: 1` is enough. Measured on a depth-1 clone of this
+repository, fetching the base commit itself at depth 1 is all it takes, with no history in between.
+
+### What it refuses
+
+| the change | default mode | factory mode |
+|---|---|---|
+| overrides a control in `.wolfproof.json` | the project's control runs, and the report says where it came from | the installed control runs, and the override **blocks** |
+| adds an exemption, opt-out or ignore entry (below) | honoured, and listed | **blocks**, unless it existed at the base or the allowlist approves it |
+| writes code under an exemption that predates it | not checked | **blocks**, unless the allowlist approves the exemption |
+| writes code where the checks do not look — `dist/`, `build/`, `venv/`, `node_modules/`, or `vendor/` and the rest of secret-guard's gitleaks allowlist | not checked | **blocks**, unless the allowlist approves the directory |
+| moves code to a test name or test directory, which the authentication check skips | not checked | **blocks** |
+| edits the task file, or a baseline inside the project | checked against the edited text (the pre-commit hook blocks the edit) | checked against the base's text, and the edit **blocks** |
+| adds the task file | read | **blocks**: in a factory the requirements predate the change |
+| leaves an advisory meaning "nothing was checked" | an advisory | **blocks** (see below) |
+| adds a route exempt by name, such as `/health` | exempt | still exempt — probe names are conventional — and **named** in the report |
+
+The exemptions, opt-outs and ignore entries factory mode judges, each confirmed to loosen a check:
+
+- `.tfguard-fixture` and `.identity-exception` — a whole directory out of every source check
+- `# identity-guard:allow <rule> <reason>`
+- `gitleaks:allow` on a line, and `.gitleaksignore` at the project root
+- `osv-scanner.toml` beside a lockfile — an `[[IgnoredVulns]]` or `[[PackageOverrides]]` entry
+  (one with `ignore = true` took four blocking CVEs to exit 0)
+- `# noqa`, and `ruff.toml`, `.ruff.toml` or a `pyproject.toml` `[tool.ruff]` section
+- `checkov:skip=` and `.checkov.yaml` (checkov's findings are advisories either way)
+
+Not judged, because nothing honours them: a project `.gitleaks.toml`, `nosemgrep`, `.semgrepignore`
+and `.gitignore`.
+
+Each one is compared line by line, so the same `gitleaks:allow` on a line whose credential changed is
+a new grant. A base that cannot be resolved — a ref the checkout does not have — is **exit 3**: with
+nothing to compare with, nothing self-granted can be told apart. Everything else factory mode refuses
+is **exit 1**, because the change made it and can undo it; exit 3 means "fix the environment", which
+would send it to the wrong owner.
+
+### Advisories
+
+Every advisory is classified, and none may leave the verdict clean by meaning nothing was checked:
+
+| class | for example | factory mode |
+|---|---|---|
+| not-checked | "no HTTP routes were identified" in a project that starts an HTTP server; a retention period the task states and nothing here describes | blocks |
+| could-not-run | a Terraform plan that could not authenticate; checkov killed; code in a language no check reads | exit 3 |
+| finding | SQL built from a value of unknown origin; a heuristic workload-identity hit | counted, and dropped |
+| info | tests ran and passed; no Kubernetes manifests to read | dropped |
+
+Findings are dropped by default because blocking them is what gets a gate switched off: Gitea, a
+clean application in the calibration corpus, draws 100 Go SQL advisories. An advisory factory mode
+cannot classify blocks, whatever the policy says. `--json` lists each advisory's id, class and
+action under `factory.advisories`.
+
+### The allowlist and the policy
+
+Both are JSON files the pipeline supplies, and both must live outside the project — one the change
+can edit approves whatever the change likes, so the gate refuses it (exit 2). In the Action they are
+inputs, written outside the workspace.
+
+```json
+{ "exemptions": [
+  { "kind": "fixture-marker", "path": "test/fixtures", "reason": "deliberately insecure samples for the rule tests" },
+  { "kind": "skipped-location", "path": "dist", "reason": "the published build, generated by CI" }
+] }
+```
+
+An entry approves its `kind` at its `path` or anywhere under it, and needs a `reason`; one without
+is ignored and reported. The kinds are the ones above plus `changed-under-exemption`,
+`skipped-location` and `moved-to-unchecked`.
+
+```json
+{ "advisories": { "sast:sql-string-built": "block", "retention-shorter": "block", "unread-code": "drop" } }
+```
+
+The policy maps an advisory id, an id family (`sast` for every `sast:<category>`), or a class name to
+`block`, `drop` or `incomplete`, most specific first.
+
+### What it does not do
+
+- **Measure behaviour.** Whether the software does what its user needs is scenario validation —
+  end-to-end checks kept where the agents cannot read them — and wolfproof sits beside it, not in
+  place of it. Factory mode answers a narrower question: did the change narrow its own checks?
+- **Block a route renamed to a probe name.** `POST /health` running `DELETE FROM users` is exempt by
+  name in either mode; factory mode names it. Probe names are exempt whatever the method.
+- **See code written directly into a test file or test directory.** A move there blocks; a server
+  written as `server.test.js` from the start is skipped by the authentication check and not flagged.
+- **Protect its own invocation.** The workflow that runs the gate is a file in the repository too. Run
+  it from a workflow the change cannot edit — an organisation ruleset's required workflow — or the
+  change can remove `factory: true`.
+- **Hide its rules.** Every rule is open source and documented, blind spots included, so an agent
+  iterating against the gate can read what it does not see. A rule pack the agents cannot read would
+  be the scenario-style holdout equivalent; it is not built.
 
 ---
 

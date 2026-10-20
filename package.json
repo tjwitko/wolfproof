@@ -32,7 +32,8 @@
     "corpus": "node corpus/run.mjs",
     "calibration": "node calibration/run.mjs",
     "corpus:vendor": "node corpus/vendor.mjs",
-    "corpus:check": "node corpus/vendor.mjs --check"
+    "corpus:check": "node corpus/vendor.mjs --check",
+    "test:factory": "node --test test/*.e2e.mjs"
   },
   "license": "Apache-2.0",
   "dependencies": {

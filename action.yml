@@ -39,6 +39,35 @@ inputs:
     description: "Path to identity-guard-mcp/index.mjs."
     required: false
     default: ""
+  factory:
+    description: >-
+      "true" for a pipeline where no person reviews the change. Nothing the change grants itself
+      loosens the gate: controls come only from the pinned packages or the inputs above, never from
+      the project's .wolfproof.json; an exemption, opt-out or ignore entry is honoured only if it
+      existed at the base or the allowlist approves it; and an advisory that means "nothing was
+      checked" blocks. See "Factory mode" in the README.
+    required: false
+    default: "false"
+  base:
+    description: >-
+      Factory mode: the commit the change is compared with. Defaults to the pull request's base,
+      or for a push to the commit before it. The action fetches it if the checkout does not have it,
+      so the default `fetch-depth: 1` is enough.
+    required: false
+    default: ""
+  allowlist:
+    description: >-
+      Factory mode: JSON approving specific exemptions, as {"exemptions": [{"kind", "path",
+      "reason"}]}. Written outside the workspace, so the change cannot edit it.
+    required: false
+    default: ""
+  policy:
+    description: >-
+      Factory mode: JSON choosing what each advisory class does, as {"advisories": {"<id or class>":
+      "block" | "drop" | "incomplete"}}. By default "nothing was checked" blocks and lower-confidence
+      findings are counted and dropped.
+    required: false
+    default: ""
 
 outputs:
   outcome:
@@ -74,6 +103,14 @@ runs:
         IDENTITYGUARD_SERVER: ${{ inputs.identity-guard }}
         # Through the environment, never interpolated into the script: it is free text.
         WOLFPROOF_BASELINE: ${{ inputs.baseline }}
+        # Factory mode's inputs and the event's two candidate bases, through the environment for the
+        # same reason. These are read by this script only; the gate reads none of them.
+        FACTORY: ${{ inputs.factory }}
+        FACTORY_BASE: ${{ inputs.base }}
+        FACTORY_ALLOWLIST: ${{ inputs.allowlist }}
+        FACTORY_POLICY: ${{ inputs.policy }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PUSH_BEFORE: ${{ github.event.before }}
       run: |
         # GitHub runs composite `run:` steps as `bash --noprofile --norc -e -o pipefail`, and
         # `set -uo pipefail` does NOT clear that inherited -e. The gate's exit code is this action's
@@ -105,6 +142,50 @@ runs:
           BASELINE_FILE="${RUNNER_TEMP:-/tmp}/wolfproof-baseline.txt"
           printf '%s\n' "$WOLFPROOF_BASELINE" > "$BASELINE_FILE"
           ARGS+=("--baseline=$BASELINE_FILE")
+        fi
+
+        # Factory mode compares the change with its base, so the base has to be in the checkout --
+        # and actions/checkout fetches depth 1 by default, which holds the head commit only. Fetching
+        # the base commit itself at depth 1 is enough: the gate reads its tree and diffs two trees,
+        # and needs no history between them. A push with no previous commit (a new branch) falls back
+        # to the head's parent, fetched by deepening one level. If the fetch fails anyway the gate
+        # says the base is not in the checkout and exits 3, which is the right answer.
+        if [ "$FACTORY" = "true" ]; then
+          BASE="$FACTORY_BASE"
+          if [ -z "$BASE" ]; then
+            if [ -n "$PR_BASE_SHA" ]; then
+              BASE="$PR_BASE_SHA"
+            elif [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+              BASE="$PUSH_BEFORE"
+            else
+              BASE="HEAD~1"
+            fi
+          fi
+          if ! git -C "${{ inputs.project }}" rev-parse --verify --quiet "${BASE}^{commit}" > /dev/null; then
+            if [ "$BASE" = "HEAD~1" ]; then
+              git -C "${{ inputs.project }}" fetch --no-tags --quiet --deepen=1 origin || true
+            else
+              git -C "${{ inputs.project }}" fetch --no-tags --quiet --depth=1 origin "$BASE" || true
+            fi
+          fi
+          echo "factory: comparing with base $BASE"
+          ARGS+=("--factory" "--base=$BASE")
+          # Outside the workspace, like the baseline: an allowlist the change can edit approves
+          # whatever the change likes, and the gate refuses one inside the project.
+          if [ -n "$FACTORY_ALLOWLIST" ]; then
+            printf '%s\n' "$FACTORY_ALLOWLIST" > "${RUNNER_TEMP:-/tmp}/wolfproof-allowlist.json"
+            ARGS+=("--allowlist=${RUNNER_TEMP:-/tmp}/wolfproof-allowlist.json")
+          fi
+          if [ -n "$FACTORY_POLICY" ]; then
+            printf '%s\n' "$FACTORY_POLICY" > "${RUNNER_TEMP:-/tmp}/wolfproof-policy.json"
+            ARGS+=("--policy=${RUNNER_TEMP:-/tmp}/wolfproof-policy.json")
+          fi
+        elif [ -n "$FACTORY_BASE$FACTORY_ALLOWLIST$FACTORY_POLICY" ]; then
+          # Refused, not ignored: a workflow that sets an allowlist and forgets factory: true believes
+          # it is in a mode it is not in.
+          echo "outcome=incomplete" >> "$GITHUB_OUTPUT"
+          echo "::error title=wolfproof: usage error::base, allowlist and policy are factory-mode inputs; set factory: true or remove them. This is not a verdict on the project."
+          exit 1
         fi
 
         # Once, not twice. terraform plan and checkov dominate the runtime here, and running the
@@ -142,6 +223,17 @@ runs:
           if (r.coverage) console.log(`NOT READ      : ${r.coverage}`);
           for (const i of r.notApplicable || []) console.log(`not applicable: ${i.tool} — ${i.why}`);
           for (const e of r.exempt || []) console.log(`exempt        : ${e.path} — ${e.reason} (${e.marker})`);
+          // The same factory lines the CLI prints, so the two renderers agree about what factory
+          // mode compared with and decided. The decisions are in the findings and could-not-run lines.
+          if (r.factory) {
+            const f = r.factory;
+            const n = (s) => f.grants.filter((g) => g.status === s).length;
+            console.log(`factory       : base ${f.base.ref}${f.base.sha ? ` (${f.base.sha.slice(0, 12)})` : " — NOT RESOLVED"}; allowlist ${f.allowlist ? "set" : "none"}; policy ${f.policy ? "set" : "none, the defaults"}`);
+            if (f.grants.length) console.log(`factory grants: ${n("pre-existing")} predate the change, ${n("allowlisted")} allowlisted, ${n("added")} added by it`);
+            for (const note of f.notes || []) console.log(`factory note  : ${note}`);
+            for (const i of (f.allowlist && f.allowlist.ignored) || []) console.log(`factory note  : allowlist entry ignored — it ${i.why}: ${JSON.stringify(i.entry)}`);
+            console.log(`factory advisories: ${f.advisories.blocked} blocked, ${f.advisories.incomplete} made the run incomplete, ${f.advisories.dropped} counted and not blocking`);
+          }
           console.log(`\nBLOCKING : ${r.blocking}${r.incomplete ? " FROM THE CHECKS THAT RAN" : ""}\n`);
           for (const f of r.findings) console.log(`  - ${f.message}\n`);
           for (const a of r.advisories) console.log(`  . ${a.message}\n`);
