@@ -147,6 +147,10 @@ jobs:
       - run: npm ci --ignore-scripts
       - uses: ./.github/actions/control-tooling
       - uses: ./
+        # This repository's suite takes 63-100s on a 4-vCPU runner, CPU-bound, and was killed at the
+        # default 120s on 21863d3, a README-only commit: exit 3 from a limit, not from the project.
+        env:
+          WOLFPROOF_TEST_TIMEOUT: "300"
         with:
           project: .
           task-file: .github/gate-task.txt

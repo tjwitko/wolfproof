@@ -25,8 +25,23 @@ import path from "path";
 import { spawnSync } from "child_process";
 
 import { walk } from "./source-files.mjs";
+import { setting } from "../lib/settings.mjs";
 
-const TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_S = 120;
+
+/**
+ * How long the suite may run: WOLFPROOF_TEST_TIMEOUT seconds, or 120. A suite that needs longer was
+ * exit 3 on every run, with nothing the project could change but its tests. A value that is not a
+ * whole number of seconds is an error, not the default: a limit someone set and the gate quietly
+ * ignored would read as a suite that is slow rather than a setting that is wrong.
+ */
+export function testTimeout(env = process.env) {
+  const v = setting(env, "TEST_TIMEOUT");
+  if (v === undefined) return { ms: DEFAULT_TIMEOUT_S * 1000, seconds: DEFAULT_TIMEOUT_S, set: false };
+  if (!/^\s*[1-9]\d*\s*$/.test(v)) return { error: `WOLFPROOF_TEST_TIMEOUT is "${v}", which is not a whole number of seconds` };
+  const seconds = Number(v);
+  return { ms: seconds * 1000, seconds, set: true };
+}
 const TEST_FILE = /(^|\/|\.)(test|tests|spec|__tests__)(\/|\.|_|$)|_test\.(py|go|js|mjs|ts)$/i;
 
 /**
@@ -185,7 +200,14 @@ export const parseCountsForTest = parseCounts;
 export const failingNamesForTest = failingNames;
 
 /** Runs the suite. Returns { ran, unavailable, timedOut, counts, failing, exitCode }. */
-export function runTests(projectDir, { timeoutMs = TIMEOUT_MS } = {}) {
+export function runTests(projectDir, { timeoutMs, env = process.env } = {}) {
+  let limitNote = "";
+  if (timeoutMs === undefined) {
+    const t = testTimeout(env);
+    if (t.error) return { ran: false, environmental: true, unavailable: `${t.error}, so the suite was not run` };
+    timeoutMs = t.ms;
+    limitNote = t.set ? ", the limit WOLFPROOF_TEST_TIMEOUT sets" : "; WOLFPROOF_TEST_TIMEOUT raises the limit, in seconds";
+  }
   const suite = detectSuite(projectDir);
   if (suite.unavailable) {
     return {
@@ -219,7 +241,7 @@ export function runTests(projectDir, { timeoutMs = TIMEOUT_MS } = {}) {
     return { ran: false, environmental: true, unavailable: `${suite.label} could not be started (${r.error.message})` };
   }
   if (r.signal || (r.error && /timed? ?out/i.test(r.error.message || ""))) {
-    return { ran: false, timedOut: true, environmental: true, label: suite.label, unavailable: `${suite.label} did not finish within ${timeoutMs / 1000}s and was killed` };
+    return { ran: false, timedOut: true, environmental: true, label: suite.label, unavailable: `${suite.label} did not finish within ${timeoutMs / 1000}s and was killed${limitNote}` };
   }
 
   return {

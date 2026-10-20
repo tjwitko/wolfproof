@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import path from "path";
 import { existsSync } from "fs";
 
-import { detectSuite, runTests, testExecutionReport, verdictFor, parseCountsForTest, failingNamesForTest } from "./test-execution.mjs";
+import { detectSuite, runTests, testExecutionReport, testTimeout, verdictFor, parseCountsForTest, failingNamesForTest } from "./test-execution.mjs";
 
 function run(files, fn) {
   const dir = mkdtempSync(path.join(tmpdir(), "testexec-"));
@@ -150,6 +150,61 @@ test("a suite that hangs is killed and reported, not treated as passing", () => 
       assert.match(r.unavailable, /did not finish/);
     }
   );
+});
+
+const HANGS = {
+  "package.json": "{}",
+  "src/a.test.mjs": `
+    import test from "node:test";
+    test("hangs", async () => {
+      await new Promise(() => { setInterval(() => {}, 1000); });
+    });
+  `,
+};
+
+test("the suite's limit is 120 seconds, or WOLFPROOF_TEST_TIMEOUT seconds", () => {
+  assert.deepEqual(testTimeout({}), { ms: 120_000, seconds: 120, set: false });
+  assert.deepEqual(testTimeout({ WOLFPROOF_TEST_TIMEOUT: "" }), { ms: 120_000, seconds: 120, set: false }, "empty is unset, as for every setting");
+  assert.deepEqual(testTimeout({ WOLFPROOF_TEST_TIMEOUT: "300" }), { ms: 300_000, seconds: 300, set: true });
+  assert.deepEqual(testTimeout({ WOLFPROOF_TEST_TIMEOUT: " 45 " }), { ms: 45_000, seconds: 45, set: true });
+  for (const bad of ["0", "-5", "1.5", "120s", "2m", "abc", "0x10"]) {
+    assert.match(testTimeout({ WOLFPROOF_TEST_TIMEOUT: bad }).error, /^WOLFPROOF_TEST_TIMEOUT is ".*", which is not a whole number of seconds$/, bad);
+  }
+  assert.equal(testTimeout({ AGENT_GATE_TEST_TIMEOUT: "300" }).seconds, 120, "only the WOLFPROOF_ name is read");
+});
+
+test("WOLFPROOF_TEST_TIMEOUT sets the limit a suite is killed at, and the report names it", () => {
+  run(HANGS, (dir) => {
+    const t0 = Date.now();
+    const r = runTests(dir, { env: { ...process.env, WOLFPROOF_TEST_TIMEOUT: "2" } });
+    assert.ok(Date.now() - t0 < 60_000, "killed at the setting's 2s, not the default 120s");
+    assert.equal(r.timedOut, true);
+    assert.match(r.unavailable, /did not finish within 2s and was killed, the limit WOLFPROOF_TEST_TIMEOUT sets$/);
+  });
+});
+
+test("a WOLFPROOF_TEST_TIMEOUT that is not a number of seconds runs nothing and says why, rather than using the default", () => {
+  run({ "package.json": "{}", "src/a.test.mjs": 'import test from "node:test"; test("ok", () => {});' }, (dir) => {
+    const r = runTests(dir, { env: { ...process.env, WOLFPROOF_TEST_TIMEOUT: "5m" } });
+    assert.equal(r.ran, false);
+    assert.equal(r.environmental, true, "a setting of this machine, so could-not-run and not a finding against the project");
+    assert.equal(r.unavailable, 'WOLFPROOF_TEST_TIMEOUT is "5m", which is not a whole number of seconds, so the suite was not run');
+    const v = verdictFor(r);
+    assert.deepEqual(v.failures, []);
+    assert.deepEqual(v.couldNotRun, [r.unavailable]);
+  });
+});
+
+test("without the setting a quick suite runs, and a caller's own limit is reported without naming the setting", () => {
+  run({ "package.json": "{}", "src/a.test.mjs": 'import test from "node:test"; test("ok", () => {});' }, (dir) => {
+    const env = { ...process.env };
+    delete env.WOLFPROOF_TEST_TIMEOUT;
+    assert.equal(runTests(dir, { env }).ran, true, "the default limit runs a quick suite");
+  });
+  run(HANGS, (dir) => {
+    const r = runTests(dir, { timeoutMs: 2000 });
+    assert.doesNotMatch(r.unavailable, /WOLFPROOF_TEST_TIMEOUT/, "an explicit limit from a caller is not the setting's to explain");
+  });
 });
 
 // --- counter parsing, against each runner's real summary ------------------

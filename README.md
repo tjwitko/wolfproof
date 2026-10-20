@@ -751,6 +751,17 @@ An environment variable or config entry pointing at a file that does not exist i
 a reason to fall through to the next rule. Someone said where the control was and was wrong; quietly
 using a different one would hide that.
 
+`WOLFPROOF_TEST_TIMEOUT` sets how long the `tests` check lets the suite run, in whole seconds; the
+default is 120. A suite killed at the limit is exit 3, so a suite that needs longer was exit 3 on every
+run until this was set. A value that is not a whole number of seconds is exit 3 too, naming the value,
+rather than the default used quietly. In the Action, set it on the step:
+
+```yaml
+      - uses: tjwitko/wolfproof@v1.4.1
+        env:
+          WOLFPROOF_TEST_TIMEOUT: "300"
+```
+
 ---
 
 ## Upgrading
@@ -906,6 +917,10 @@ somewhere stale.
 
 **`exit 3` and "COULD NOT RUN"** — a scanner is missing from `PATH`. The message names the binary.
 Install it and re-run; the verdict before it was installed proves nothing about your code.
+
+**`exit 3` and "did not finish within 120s and was killed"** — the `tests` check stopped your suite
+at its limit. If the suite is simply slow, set `WOLFPROOF_TEST_TIMEOUT` to a number of seconds it
+finishes in; if it hangs, a longer limit only makes the wait longer.
 
 **"builds on a base image past end of life"** — the release in a `FROM` line no longer gets security
 fixes. The finding names the line, the date it ended and the supported releases. Every stage counts:
