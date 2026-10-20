@@ -55,20 +55,27 @@ def user():
 // directory. As .py, .go and .js files in the repository, deliberately vulnerable code is source to
 // every tool that reads source: this gate's own Go build and authentication check flagged them, and
 // so did the pre-commit hook, before a fixture marker could help.
+//
+// One semgrep run for all of them, not one per rule file: semgrep's test runner pairs each sample with
+// the rule file of the same name (c.cpp with c.yaml), and its start-up was most of each run's cost --
+// eleven runs took 63s, and pushed the gate's own 120-second test budget over on CI.
 scanner("every rule matches its annotated samples, and nothing else", () => {
   const tmp = mkdtempSync(path.join(tmpdir(), "sast-samples-"));
   try {
-    for (const [rules, sample] of [["python.yaml", "python.py"], ["python-errors.yaml", "python-errors.py"], ["javascript.yaml", "javascript.js"], ["javascript.yaml", "javascript.ts"], ["go.yaml", "go.go"], ["java.yaml", "java.java"], ["ruby.yaml", "ruby.rb"], ["csharp.yaml", "csharp.cs"], ["rust.yaml", "rust.rs"], ["c.yaml", "c.c"], ["c.yaml", "c.cpp"]]) {
-      const target = path.join(tmp, sample);
-      writeFileSync(target, readFileSync(path.join(HERE, "sast-samples", `${sample}.sample`)));
-      const r = spawnSync(
-        "semgrep",
-        ["--test", "--config", path.join(HERE, "sast-rules", rules), target, "--metrics=off", "--disable-version-check"],
-        { encoding: "utf8", env: { ...process.env, SEMGREP_ENABLE_VERSION_CHECK: "0" } }
-      );
-      assert.equal(r.status, 0, `${sample}:\n${(r.stdout + r.stderr).slice(-1200)}`);
-      assert.match(r.stdout + r.stderr, /All tests passed/, sample);
-    }
+    const rules = readdirSync(path.join(HERE, "sast-rules")).filter((f) => f.endsWith(".yaml"));
+    const samples = readdirSync(path.join(HERE, "sast-samples")).filter((f) => f.endsWith(".sample"));
+    for (const f of rules) writeFileSync(path.join(tmp, f), readFileSync(path.join(HERE, "sast-rules", f)));
+    for (const f of samples) writeFileSync(path.join(tmp, f.replace(/\.sample$/, "")), readFileSync(path.join(HERE, "sast-samples", f)));
+    const stem = (f) => f.split(".")[0];
+    assert.deepEqual([...new Set(samples.map(stem))].sort(), rules.map(stem).sort(), "every rule file has a sample, and every sample a rule file");
+    const r = spawnSync("semgrep", ["--test", "--metrics=off", "--disable-version-check", tmp], {
+      encoding: "utf8",
+      env: { ...process.env, SEMGREP_ENABLE_VERSION_CHECK: "0" },
+    });
+    const out = r.stdout + r.stderr;
+    assert.equal(r.status, 0, out.slice(-2400));
+    const passed = out.match(/(\d+)\/\1: ✓ All tests passed/);
+    assert.ok(passed && Number(passed[1]) >= 74, `the samples' annotations all ran: ${out.slice(-600)}`);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
