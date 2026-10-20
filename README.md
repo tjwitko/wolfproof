@@ -503,6 +503,7 @@ repository, fetching the base commit itself at depth 1 is all it takes, with no 
 | moves code to a test name or test directory, which the authentication check skips | not checked | **blocks** |
 | edits the task file, or a baseline inside the project | checked against the edited text (the pre-commit hook blocks the edit) | checked against the base's text, and the edit **blocks** |
 | adds the task file | read | **blocks**: in a factory the requirements predate the change |
+| adds, edits, renames or deletes a file under `.github/workflows/` | not checked | **blocks**, unless the allowlist approves it — a workflow decides what checks the change and what a passing run then does |
 | leaves an advisory meaning "nothing was checked" | an advisory | **blocks** (see below) |
 | adds a probe route that reads, such as `GET /health` | exempt | still exempt — probe names are conventional — and **named** in the report; a write method on a probe path (`POST /health`) is not a probe, and is checked in both modes |
 
@@ -559,7 +560,14 @@ inputs, written outside the workspace.
 
 An entry approves its `kind` at its `path` or anywhere under it, and needs a `reason`; one without
 is ignored and reported. The kinds are the ones above plus `changed-under-exemption`,
-`skipped-location` and `moved-to-unchecked`.
+`skipped-location`, `moved-to-unchecked` and `workflow-change`. A `workflow-change` path is from the
+repository root, where GitHub reads workflows, even when the project is a subdirectory:
+
+```json
+{ "exemptions": [
+  { "kind": "workflow-change", "path": ".github/workflows/release.yml", "reason": "release job maintained by the platform team" }
+] }
+```
 
 ```json
 { "advisories": { "sast:sql-string-built": "block", "retention-shorter": "block", "unread-code": "drop" } }
@@ -577,9 +585,11 @@ The policy maps an advisory id, an id family (`sast` for every `sast:<category>`
   name in either mode; factory mode names it. Probe names are exempt whatever the method.
 - **See code written directly into a test file or test directory.** A move there blocks; a server
   written as `server.test.js` from the start is skipped by the authentication check and not flagged.
-- **Protect its own invocation.** The workflow that runs the gate is a file in the repository too. Run
-  it from a workflow the change cannot edit — an organisation ruleset's required workflow — or the
-  change can remove `factory: true`.
+- **Protect its own invocation.** A change that edits `.github/workflows/` blocks, but only in a run
+  that is in factory mode — and a pull request's workflows run as the pull request wrote them, so a
+  change that removes `factory: true` is judged in the default mode, which does not check workflows.
+  Run the gate from a workflow the change cannot edit — an organisation ruleset's required workflow —
+  and the block covers every other workflow, its own invocation included.
 - **Hide its rules.** Every rule is open source and documented, blind spots included, so an agent
   iterating against the gate can read what it does not see. A rule pack the agents cannot read would
   be the scenario-style holdout equivalent; it is not built.

@@ -288,7 +288,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       r.failures.push(...factoryFailures);
       r.advisories.push(...factoryAdvisories);
       couldNotRun.push(...factoryCouldNotRun);
-      let judged = { failures: [], notes: [], grants: [], changed: [], newProbeRoutes: [] };
+      let judged = { failures: [], notes: [], grants: [], changed: [], newProbeRoutes: [], workflows: [] };
       if (base) {
         judged = judgeChange(projectDir, {
           sha: base.sha,
@@ -338,6 +338,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         grants: judged.grants.map(({ key, ...g }) => g),
         changedFiles: judged.changed.length,
         newProbeRoutes: judged.newProbeRoutes,
+        workflowChanges: judged.workflows,
         notes: judged.notes,
         advisories: { classified, blocked: count("block"), incomplete: count("incomplete"), dropped: count("drop") },
       };
