@@ -470,6 +470,10 @@ unauthenticated purge endpoint, SQL injection and two hardcoded AWS credentials 
 two files an agent can write: a one-line `src/.tfguard-fixture`, and a `.wolfproof.json` pointing
 secret-guard at an empty directory. Both were in the report. In a factory, nothing reads the report.
 
+(Since v1.4.0 the default mode catches that particular redirect too: a control that reports scanning
+less than the project's root — a subdirectory, as there — is a scan that did not run, in either
+mode. Factory mode refuses the redirect itself, whatever the control then does.)
+
 `--factory` compares the change with a base — the commit before it — and refuses what the change
 granted itself:
 

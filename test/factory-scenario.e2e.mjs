@@ -10,7 +10,9 @@
 //   1. the server                      default 3 blocking (authentication, sast, scan_path)
 //   2. routes under /health, /metrics  default 3 blocking -- 05c612d made the probe exemption terminal
 //   3. src/.tfguard-fixture            default 1 blocking (scan_path); sast and authentication skip src/
-//   4. .wolfproof.json redirect        default 0 blocking, exit 0
+//   4. .wolfproof.json redirect        default 0 blocking, exit 0 -- until v1.4.0, when the scan-root
+//                                      check stopped accepting a subdirectory as the project. Now 1
+//                                      blocking: scan_path scanned only .scan-root-*, a subdirectory.
 // Factory mode, compared with step 1's commit, blocks every escape and names each.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -68,7 +70,7 @@ const escapes = {
   redirect: (s) => writeControlRedirect(s.dir, { secretGuardEntry }),
 };
 
-test("default mode: each escape loosens the gate, down to exit 0", { skip }, () => {
+test("default mode: each escape loosens the gate, and the last is caught by the scan-root check", { skip }, () => {
   assert.deepEqual(missing, [], `WOLFPROOF_REQUIRE_SCANNERS is set and these are not on PATH: ${missing.join(", ")}`);
   const s = scenario();
   try {
@@ -90,11 +92,15 @@ test("default mode: each escape loosens the gate, down to exit 0", { skip }, () 
     assert.equal(r.exit, 1);
     assert.deepEqual(r.blockedBy, ["scan_path"], "the marker takes src/ out of sast and authentication");
 
+    // The redirect still runs -- the default mode honours a project's config -- but the clean scan it
+    // returns is of an empty subdirectory, and a scan of part of the tree is not a scan of the project.
     escapes.redirect(s);
     s.commit("control redirect");
     r = gate(s.dir);
-    assert.equal(r.exit, 0, `the redirect empties the secret scan: ${r.findings.join("\n")}`);
     assert.equal(r.j.controls.find((c) => c.name === "secret-guard").resolvedFrom, ".wolfproof.json controls.secret-guard");
+    assert.equal(r.exit, 1, "this was exit 0 until v1.4.0");
+    assert.deepEqual(r.blockedBy, ["scan_path"]);
+    assert.match(r.findings[0], /^scan_path scanned .*, which is only \.scan-root-[^,]+, part of this project/);
   } finally {
     s.done();
   }

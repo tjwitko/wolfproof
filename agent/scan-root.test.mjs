@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 
 import { validateProject } from "./agent-loop.mjs";
+import { scanRootProblem } from "../lib/gate-core.mjs";
 
 // A scan pointed at the wrong tree is the failure this covers. It happened for real: the runner set
 // SECRETGUARD_WORKING_ROOT, secret-guard reads SCAN_ROOT, an unrecognised variable is not an error,
@@ -17,11 +18,14 @@ function registryReturning(payload) {
   ]);
 }
 
-function inEmptyProject(fn) {
+// Awaited. It returned fn's promise from inside try/finally, so the directory was deleted before any
+// test body ran and every test here judged a project that no longer existed -- which went unnoticed
+// until a test needed the project to be there.
+async function inEmptyProject(fn) {
   const dir = mkdtempSync(path.join(tmpdir(), "scanroot-"));
   writeFileSync(path.join(dir, "index.mjs"), "export const x = 1;\n");
   try {
-    return fn(dir);
+    return await fn(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -54,15 +58,64 @@ test("a CLEAN scan of a different directory is not accepted as a pass", async ()
   });
 });
 
-test("a scan of a subdirectory of the project is accepted", async () => {
+// This was accepted until v1.4.0, and that is how test/fixtures/factory-scenario.mjs reached exit 0: a
+// .wolfproof.json pointed secret-guard at an empty subdirectory, and its clean scan passed as the
+// project's. The gate asks for the root; part of the tree says nothing about the rest of it.
+test("a CLEAN scan of a subdirectory of the project is not accepted as a scan of the project", async () => {
   await inEmptyProject(async (dir) => {
     const r = await validateProject(
       dir,
-      registryReturning({ clean: true, target: path.join(dir, "src"), summary: { total: 0 } }),
+      registryReturning({ clean: true, target: path.join(dir, "tools", ".scan-root-x"), summary: { total: 0 } }),
       ""
     );
-    assert.equal(scanFailures(r).length, 0);
+    const hit = scanFailures(r);
+    assert.equal(hit.length, 1);
+    assert.match(hit[0], /which is only tools\/\.scan-root-x, part of this project/);
+    assert.match(hit[0], /did NOT run against this project/);
   });
+});
+
+// Compared as strings, a project in macOS's temp directory is /var/... to the gate and /private/var/...
+// to anything that resolved it: the same scan was foreign on macOS and accepted on Linux. Here the
+// project is reached through a symlink and the control reports the real path, which is the root.
+test("the root reached through a symlink is the root", async () => {
+  await inEmptyProject(async (dir) => {
+    const link = path.join(mkdtempSync(path.join(tmpdir(), "scanroot-link-")), "project");
+    symlinkSync(dir, link);
+    try {
+      const r = await validateProject(link, registryReturning({ clean: true, target: realpathSync(dir), summary: { total: 0 } }), "");
+      assert.equal(scanFailures(r).length, 0, JSON.stringify(scanFailures(r)));
+      // The other spellings through the same helper the gate calls, without another full run each.
+      assert.equal(scanRootProblem(link, realpathSync(dir)), null);
+      assert.match(scanRootProblem(path.join(realpathSync(dir), "src"), link).what, /^only src, part of this project/);
+    } finally {
+      rmSync(path.dirname(link), { recursive: true, force: true });
+    }
+  });
+});
+
+test("check_auth_posture is held to the same rule: the root, and nothing narrower", async () => {
+  await inEmptyProject(async (dir) => {
+    const posture = (root) =>
+      new Map([["check_auth_posture", { kind: "mcp", server: { call: async () => JSON.stringify({ root, findings: [] }) } }]]);
+    const hits = (r) => r.failures.filter((f) => f.startsWith("check_auth_posture"));
+    const sub = hits(await validateProject(dir, posture(path.join(dir, "k8s")), ""));
+    assert.equal(sub.length, 1);
+    assert.match(sub[0], /which is only k8s, part of this project .* did NOT run against this project/);
+  });
+});
+
+test("scanRootProblem: the root itself, and nothing else", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "scanroot-unit-"));
+  try {
+    assert.equal(scanRootProblem(dir, dir), null);
+    assert.equal(scanRootProblem(null, dir), null, "a control that reports no root is judged elsewhere");
+    assert.match(scanRootProblem(path.join(dir, "a", "b"), dir).what, /^only a\/b, part of this project/);
+    assert.match(scanRootProblem(path.dirname(dir), dir).what, /^not this project/);
+    assert.match(scanRootProblem(`${dir}-sibling`, dir).what, /^not this project/, "a sibling sharing the prefix is not inside");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("real findings in the project itself still block", async () => {
