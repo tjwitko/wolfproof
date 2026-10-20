@@ -503,7 +503,7 @@ repository, fetching the base commit itself at depth 1 is all it takes, with no 
 | moves code to a test name or test directory, which the authentication check skips | not checked | **blocks** |
 | edits the task file, or a baseline inside the project | checked against the edited text (the pre-commit hook blocks the edit) | checked against the base's text, and the edit **blocks** |
 | adds the task file | read | **blocks**: in a factory the requirements predate the change |
-| adds, edits, renames or deletes a file under `.github/workflows/` | not checked | **blocks**, unless the allowlist approves it — a workflow decides what checks the change and what a passing run then does |
+| adds, edits, renames or deletes a file under `.github/workflows/`, or under `.github/actions/` where local actions live | not checked | **blocks**, unless the allowlist approves it — a workflow, and a local action it calls, decides what checks the change and what a passing run then does. A local action kept anywhere else (`uses: ./tools/deploy`) is not covered |
 | leaves an advisory meaning "nothing was checked" | an advisory | **blocks** (see below) |
 | adds a probe route that reads, such as `GET /health` | exempt | still exempt — probe names are conventional — and **named** in the report; a write method on a probe path (`POST /health`) is not a probe, and is checked in both modes |
 
@@ -560,8 +560,9 @@ inputs, written outside the workspace.
 
 An entry approves its `kind` at its `path` or anywhere under it, and needs a `reason`; one without
 is ignored and reported. The kinds are the ones above plus `changed-under-exemption`,
-`skipped-location`, `moved-to-unchecked` and `workflow-change`. A `workflow-change` path is from the
-repository root, where GitHub reads workflows, even when the project is a subdirectory:
+`skipped-location`, `moved-to-unchecked` and `workflow-change`, which covers both `.github/workflows/`
+and `.github/actions/`. A `workflow-change` path is from the repository root, where GitHub reads
+workflows, even when the project is a subdirectory:
 
 ```json
 { "exemptions": [
