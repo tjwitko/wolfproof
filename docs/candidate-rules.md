@@ -1114,6 +1114,36 @@ Trivy for the packages inside a built image, and CodeQL for taint that crosses f
 as optional Action steps. Neither belongs in the core gate: one needs a build, the other a database and,
 for private code, a licence.
 
+### 18. The unit suite is CPU-bound near the gate's own test limit — open
+
+`npm test` takes 63–100s on a 4-vCPU GitHub runner, and the self job's `tests` check killed it at the
+then-fixed 120s on `21863d3`, a README-only commit. `edef716` added `WOLFPROOF_TEST_TIMEOUT` and the
+self job sets 300, which stops the flake without explaining it.
+
+What is known (2026-10-20, on a many-core Mac):
+
+- 390s of CPU for 122s of wall time. Wall time was the slowest file, `agent/sast.test.mjs` at 105s;
+  `aaf2489` ran its eleven serial `semgrep --test` calls as one (63s to 11s), and wall time fell to
+  73s. CPU fell only to 365s, and CI did not move: a 4-vCPU runner is bound by total CPU, roughly
+  365 / 4 ≈ 90s.
+- After `sast.test.mjs` (52s, about seven semgrep runs of ~5s each), the slowest files are
+  `scan-root.test.mjs` 31s, `build-check.test.mjs` 26s, `requirement-sentences.test.mjs` 24s,
+  `lib/requirements.test.mjs` 19s, `unscanned-manifests.test.mjs` 15s, `applicability.test.mjs` 14s
+  and `bin/exit-codes.test.mjs` 12s.
+
+To find out:
+
+1. Which tests spend the CPU, not the wall time: per-test CPU on a 4-vCPU Linux box, or a runner
+   with `--test-concurrency=1` and per-test timing.
+2. How much is process start-up — semgrep (~5s each), MCP control servers spawned per test, the
+   whole gate spawned per test — and whether those can be shared across a file's tests, as the rule
+   samples now are.
+3. Whether `requirement-sentences` and `requirements` spend their time in the gate or in fixtures
+   they rebuild per test.
+
+Done when the suite fits under 120s on the runner with margin, or the self job's 300 is a measured
+choice rather than a guess.
+
 ### 12. Considered and deferred
 
 - **Split-string secrets** (`"abc" + "def"`). Missed, as the review says. The rest of its claim did not
