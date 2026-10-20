@@ -581,8 +581,9 @@ The policy maps an advisory id, an id family (`sast` for every `sast:<category>`
 - **Measure behaviour.** Whether the software does what its user needs is scenario validation —
   end-to-end checks kept where the agents cannot read them — and wolfproof sits beside it, not in
   place of it. Factory mode answers a narrower question: did the change narrow its own checks?
-- **Block a route renamed to a probe name.** `POST /health` running `DELETE FROM users` is exempt by
-  name in either mode; factory mode names it. Probe names are exempt whatever the method.
+- **Block a reading route renamed to a probe name.** A `GET /health` is exempt by name in either mode,
+  whatever it returns; factory mode names one the change added. A write method on a probe path is not
+  a probe: since v1.4.1, `POST /health` running `DELETE FROM users` is checked, and blocks, in both modes.
 - **See code written directly into a test file or test directory.** A move there blocks; a server
   written as `server.test.js` from the start is skipped by the authentication check and not flagged.
 - **Protect its own invocation.** A change that edits `.github/workflows/` blocks, but only in a run
