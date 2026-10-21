@@ -130,3 +130,62 @@ test("real findings in the project itself still block", async () => {
     assert.match(hit[0], /2 hardcoded credential/);
   });
 });
+
+// The dependency scan, held to the same rule. dep-audit has reported its root as `directory` since its
+// first release; the gate did not read it, so a scan of an empty directory passed as the project's.
+function depAuditReturning(payload) {
+  return new Map([
+    ["check_dependencies", { kind: "mcp", server: { call: async () => JSON.stringify(payload) } }],
+  ]);
+}
+
+async function inNodeProject(fn) {
+  return inEmptyProject(async (dir) => {
+    writeFileSync(path.join(dir, "package.json"), '{"name":"p","version":"1.0.0","dependencies":{"lodash":"4.17.4"}}\n');
+    writeFileSync(path.join(dir, "package-lock.json"), '{"name":"p","lockfileVersion":3,"packages":{}}\n');
+    return fn(dir);
+  });
+}
+
+const depFailures = (r) => r.failures.filter((f) => f.startsWith("check_dependencies"));
+const FINDING = { package: "lodash", version: "4.17.4", severity: "CRITICAL", id: "GHSA-x" };
+
+test("a dependency scan of a different directory or a subdirectory is unperformed, findings or not", async () => {
+  await inNodeProject(async (dir) => {
+    for (const [scanned, what] of [
+      [path.dirname(dir), /which is not this project/],
+      [path.join(dir, ".scan-root-x"), /which is only \.scan-root-x, part of this project/],
+    ]) {
+      for (const findings of [[], [FINDING]]) {
+        const r = await validateProject(dir, depAuditReturning({ directory: scanned, scanned: true, findings }), "");
+        const hit = depFailures(r);
+        assert.equal(hit.length, 1, JSON.stringify(r.failures));
+        assert.match(hit[0], what);
+        assert.match(hit[0], /The dependency scan did NOT run against this project/);
+        assert.doesNotMatch(hit[0], /finding\(s\) at or above/, "its findings are not this project's to answer for");
+      }
+    }
+  });
+});
+
+test("a dependency scan that does not say where it looked could not be judged", async () => {
+  await inNodeProject(async (dir) => {
+    const r = await validateProject(dir, depAuditReturning({ scanned: true, findings: [] }), "");
+    assert.deepEqual(depFailures(r), []);
+    assert.ok(
+      r.couldNotRun.some((c) => /^check_dependencies: dep-audit's result does not say which directory it scanned/.test(c)),
+      JSON.stringify(r.couldNotRun)
+    );
+  });
+});
+
+test("a dependency scan of the root is judged as before: clean passes, findings block", async () => {
+  await inNodeProject(async (dir) => {
+    const clean = await validateProject(dir, depAuditReturning({ directory: realpathSync(dir), scanned: true, findings: [] }), "");
+    assert.deepEqual(depFailures(clean), []);
+    assert.ok(!clean.couldNotRun.some((c) => c.startsWith("check_dependencies")), JSON.stringify(clean.couldNotRun));
+    const found = await validateProject(dir, depAuditReturning({ directory: dir, scanned: true, findings: [FINDING] }), "");
+    assert.equal(depFailures(found).length, 1);
+    assert.match(depFailures(found)[0], /^check_dependencies: 1 finding\(s\) at or above high severity/);
+  });
+});
