@@ -79,6 +79,10 @@ runs:
       shell: bash
       run: |
         fail=0
+        # semgrep asks semgrep.dev whether it is current, and when it is not -- a release newer than the
+        # pin, as on 2026-10-21 -- `--version` prints a blank line and an upgrade notice before the
+        # version, and the first line read as ''. The gate's own calls set this too.
+        export SEMGREP_ENABLE_VERSION_CHECK=0
         check() {
           local name="$1" want="$2" out got
           if ! command -v "$name" >/dev/null 2>&1; then
