@@ -4,35 +4,40 @@
 [![release](https://img.shields.io/github/v/release/tjwitko/wolfproof)](https://github.com/tjwitko/wolfproof/releases/latest)
 [![license](https://img.shields.io/github/license/tjwitko/wolfproof)](LICENSE)
 
-*Formerly agent-gate — see [Coming from agent-gate](#coming-from-agent-gate).*
+*Formerly agent-gate — see [Coming from agent-gate](docs/upgrading.md#coming-from-agent-gate).*
 
-Most application-security tools have two verdicts: pass or fail. That leaves a third case with
-nowhere to go. When a scanner is not installed, a control cannot be reached, or a test suite cannot
-run, nothing is found — and on a two-verdict tool, nothing found reads as a pass.
+Security scanners find known-bad things: a vulnerable package, a leaked key, request data in a SQL
+string. They do not find security that looks done and isn't:
 
-In the story of the three little pigs, all three houses looked like houses until the wolf came. The
-straw and the sticks fell at the first huff; only the third pig's house of brick was wolfproof. A
-check that never ran is a straw wall with a green tick on it.
+- an API-key check that passes when the key is unset, because `None != None` is false
+- a webhook that reads the signature header and never verifies it
+- a Deployment that never sets the variable the auth check compares against
+- a secret fetched from Secrets Manager and cached forever, so rotating it drops real traffic and
+  the revoked key keeps working
+- an "immutable" audit log whose only protection is that the API has no delete endpoint
 
-**wolfproof adds the third verdict: clean, blocked, or could-not-run.** If any part of it could not
-run, it says which part and exits 3 — never "clean". "I could not check this" and "I checked this
-and it is fine" are different facts, and a tool that collapses them stops protecting anything
-without anyone noticing.
+Every file reads as careful, and every scanner passes it. These defects live between files, or
+between the code and what it was asked to do. That is where wolfproof looks:
 
-What it checks is the work that looks finished and is not: infrastructure that plans clean but is
-open to the world; dependencies with high or critical CVEs — or with no lockfile, so nothing scanned
-them; credentials hardcoded in source; request data reaching a shell, a SQL query, an outbound
-request or a file path; endpoints with no authentication; container base images past end of life;
-and test suites that do not run. Where the task states a requirement — tests, secret rotation, a
-retention period — the code is held to it, and the code's author cannot quietly edit the requirement
-away.
+- **Authentication, route by route** — fail-open comparisons, unverified signatures,
+  non-constant-time checks, and middleware that looks like auth and isn't.
+- **The code against its own deployment** — environment variables the manifests never set, IAM and
+  Kubernetes configuration that plans clean and cannot work, workloads that authenticate with a
+  credential they hold instead of an identity they have.
+- **The code against the task** — when the requirements say records are immutable, retained for
+  three years, tokens rotatable, or tests someone else can run, the code is held to it, and its
+  author cannot quietly delete the sentence.
 
-It was built for code that AI agents write, because agents produce plausible work quickly and the
-usual signals — it builds, there are tests, the summary says "production-ready" — stop being
-reliable. Nothing in it assumes an agent, and it is as useful on code people wrote.
+It also runs the checks you would expect — injection, dependency CVEs, Terraform policy, hardcoded
+secrets — because that floor still matters.
 
-Like the third pig's house, it is the third verdict — could-not-run — that makes your code
-wolfproof.
+And it never mistakes silence for success. Every run ends **clean**, **blocked**, or
+**could-not-run**: a missing scanner, an unreachable control or a test suite that will not start
+is exit 3, never a pass.
+
+It was built for code AI agents write. The checks above came out of graded agent runs — work that
+passed the usual scanners while its own summary said "production-ready". Nothing in it assumes an
+agent, and it works the same on code people wrote.
 
 ---
 
@@ -46,173 +51,21 @@ echo "Build an HTTP service. Ship tests someone else can run." > task.txt   # th
 ```
 
 Exit **0** clean, **1** blocking findings, **2** usage error, **3** part of it could not run — a
-missing scanner, say, which the run names as a check that did not run. Work that is not committed is
-itself a blocking finding, so on a fresh project commit first and run again. Install the scanners your
-stack needs ([Requirements](#requirements)), then see [What goes in the task file](#what-goes-in-the-task-file)
-and [What you get](#what-you-get).
+missing scanner, say, which the run names. Work that is not committed is itself a blocking finding,
+so on a fresh project commit first and run again.
+
+You will also need the scanners your stack uses — see [Requirements](#requirements).
+
+**Run it by path, not through `npx`.** The path runs the version your project pinned and makes no
+network request. `npx` looks up a missing command on the public registry and, in an agent's
+non-interactive shell, installs whatever it finds without asking.
+[Why this matters](docs/upgrading.md#notes-from-earlier-versions).
+
+To track `main` instead of a release, drop the `#v1.5.1`. `main` moves.
 
 ---
 
-## Getting started
-
-### Requirements
-
-**Node.js 20 or newer**, and the scanners for what your project contains. Every project needs the first
-row; add the rows for the languages and files you have:
-
-| your project has | install | it runs |
-|---|---|---|
-| anything | `gitleaks`, `osv-scanner` | hardcoded-credential and dependency-CVE scans |
-| Python | `semgrep`, `ruff`; `pytest` if it has tests | injection checks, static checks, the test suite |
-| JavaScript / TypeScript | `semgrep` | injection checks; tests run with the project's own tooling |
-| Go | `semgrep`, `go`, `docker` | injection checks, the build and the tests |
-| Java, Ruby, C#, Rust, C, C++ | `semgrep` | injection checks |
-| Terraform | `terraform`; `checkov` optional | plan and policy checks; checkov adds advisories |
-| Dockerfile | nothing extra; `checkov` optional | the base-image end-of-life check; checkov adds advisories |
-
-```bash
-brew install gitleaks osv-scanner semgrep terraform   # macOS — pick the ones your stack needs
-pipx install ruff checkov
-python3 -m pip install pytest                         # only if the project has a Python test suite
-```
-
-**A missing scanner is never skipped silently.** The run says which check could not run and exits 3.
-`pytest` is installed with `pip` rather than `pipx` on purpose: the gate runs a Python suite with
-`python3 -m pytest`, so the module has to be importable by that interpreter. A console script on
-`PATH` is a different fact and will not satisfy it.
-
-### Install
-
-Latest release: **[v1.5.1](https://github.com/tjwitko/wolfproof/releases/latest)**
-
-```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.5.1
-```
-
-The four control servers come with it as dependencies — there is nothing else to clone or wire up.
-They are pinned to specific release tags, so this installs the same five components every time;
-`./node_modules/.bin/wolfproof --version` shows which.
-Drop the `#v1.5.1` to track `main` instead, which moves.
-
-### Run it
-
-```bash
-./node_modules/.bin/wolfproof .
-```
-
-Point it at any directory. To get the most out of it, pass the task the code was written to satisfy:
-
-```bash
-./node_modules/.bin/wolfproof . task.txt
-```
-
-**Run it by path, not through npx.** Where a command is not installed, npx looks its name up on the
-public registry, and when stdin is not a terminal — as in an agent's shell — npm answers its own
-install prompt with yes. Up to v1.1.16 this README recommended `npx agent-gate`, a name that was not
-ours on npm: measured from a directory without it, `npx agent-gate .` and `npm exec --no --
-agent-gate .` queried the registry and exited 1, the gate's code for blocking findings, and
-`npx --no agent-gate --version` printed npm's version and exited 0. The name `wolfproof` is ours,
-held on npm by a placeholder until the first release there — `npx wolfproof` prints how to install
-it and exits 3 — but the path is still the command to use: it runs the version the project pinned,
-makes no request, and exits 127 when nothing is installed. `wolfproof init --upgrade` moves a
-project set up by an earlier version onto it.
-
-Six checks are gated on what the task asked for — immutability, retention, secret rotation, tests,
-error distinction, and required artifacts. Without a task file they report "not checked", which is
-honest and much less useful.
-
-### What goes in the task file
-
-Prose, not configuration. It is the requirements as you would write them for a person, and the
-checks read ordinary English — there are no keys, fields or front matter to fill in.
-
-```text
-Build and deploy a service that receives our Slack workspace's message events.
-
-WHAT IT NEEDS TO DO
-- Receive message events from Slack as they happen, and keep receiving them across a working week.
-- Keep every message event received, so that a question raised weeks later can be settled.
-
-REQUIREMENTS
-- Once a message event has been recorded, its contents must stay exactly as received.
-- Records are retained for three years.
-- Both Slack tokens must be rotatable without redeploying the application.
-
-HOW WE WILL JUDGE IT
-- Automated tests that someone else can run, covering an event being acknowledged.
-- Errors distinguished from faults: Slack refusing our token is not our service failing.
-
-DEPLOYMENT
-- AWS, single region. Terraform for all infrastructure. Kubernetes manifests. A Dockerfile.
-```
-
-Each gated check is looking for the shape of a requirement, not a topic:
-
-| check | switched on by | stays off for |
-| --- | --- | --- |
-| immutability | "must not change once written", "an immutable audit log" | "store the events" |
-| retention | "retained for three years", "keep every event for 90 days" | a period with no number |
-| secret rotation | "the API key must be rotated every 90 days", "tokens must be rotatable" | "use an API key" |
-| tests | "automated tests that someone else can run", "include unit tests" | "make it work" |
-| error distinction | "a client error must not be reported as a 500" | "handle errors" |
-| required artifacts | naming them: "Terraform", "Kubernetes manifests", "a Dockerfile" | "deploy it somehow" |
-
-Two rules follow from that:
-
-**State the requirement, don't gesture at the topic.** The retention check compares a configured
-period against the one the task states, so it needs a number to compare against; "keep the records"
-gives it nothing and the check stays off.
-
-**Never write a requirement you don't have.** A fabricated one switches a check on and then reports
-against a standard nobody asked for, which is worse than the check being off. The parsers are built
-to resist it from their side too: "Keep the log short; rotate it every 7 days" once produced a
-seven-day retention requirement, and the span a phrase may cross now stops at a semicolon so it no
-longer does. That is the direction of the whole design — a check that stays quiet costs you a
-finding, and a check that fires on a requirement nobody stated costs you working code.
-
-**The gate says which sentences it read.** Every run counts the task's sentences and how many
-switched a check on — `task sentences : 18, 9 read by a check, 9 by none` for the webhook task — and
-`--json` lists the unread ones with their line numbers, under `requirementsRead`. Most are
-requirements no check could hold code to ("accept HTTP callbacks at a public endpoint"); one you
-expected a check to read is a phrasing to fix.
-
-**Put each requirement in one sentence.** The checks read a sentence at a time, so "The signing
-secret is kept in Secrets Manager. It must be rotated every 90 days." does not switch rotation on:
-"it" is in a different sentence from the secret. "The signing secret must be rotated every 90
-days." does. A line indented under a list item continues that item, so hard-wrapping is safe; any
-other line break ends a thought.
-
-If a check reports "not checked" and you expected it to run, the task text is where to look. The
-four control repositories each keep one of these at `.github/gate-task.txt` if you want a smaller
-worked example: they state tests and error distinction, and deliberately state nothing about
-retention or immutability, because they store no records.
-
-#### Requirements the code's author cannot remove
-
-The task file usually lives in the repository it describes, so whoever writes the code can edit the
-requirement the code is checked against. An agent blocked by "tokens must be rotatable" could delete
-the sentence and commit. Two things stop that from being quiet:
-
-- **At commit time**, a commit that changes or deletes a tracked task file is blocked, and the code is
-  checked against the requirements as they were. The gate reads the version being committed, not the
-  file on disk, so an unstaged edit does not loosen it either. Adding a task file is not changing
-  one, so a project's first commit is unaffected. To change a requirement on purpose, commit it on its
-  own: `git commit --no-verify -- task.txt`.
-- **A baseline**, for requirements no project gets to opt out of: `--baseline=<file>` on the command
-  line, or the Action's `baseline` input. Its sentences are added to the task text, so they switch on
-  the same checks. It only does its job if it lives somewhere the code's author cannot edit — a
-  baseline inside the project is reported as such. A baseline sentence that no check reads is printed
-  with `!!` above the verdict, in the CLI and the Action's log alike: it is a requirement the project
-  is not being held to, and whoever wrote the baseline is not the person reading the task file.
-  A sentence asking for what a check that runs on every project blocks on — parameterised queries
-  (`sast`), no hardcoded credentials (`scan_path`), authentication on every route
-  (`authentication`), no high or critical CVEs (`check_dependencies`) — is listed separately as
-  covered by that check, and only when the check ran and reads every language in the project: with
-  PHP in it, "use parameterized queries" is unread, and says that `sast` reads no PHP. Covered means
-  the check blocks on what the sentence asks, not that it is on the same topic, so "passwords are
-  hashed with argon2id" and "authorization enforces least privilege" stay unread.
-
-### What you get
+## What you get
 
 ```
 project        : /home/you/webhook-receiver
@@ -232,148 +85,127 @@ advisory        : 3
   ...
 ```
 
-Every control line says **how it resolved**, so you can see at a glance that all four actually ran.
+How to read it:
+
+- **The gate** is what you just ran: `wolfproof <dir> [task-file]`. It produces the verdict.
+- **Controls** are four MCP servers, installed with wolfproof, that wrap the scanners: terraform-guard
+  (Terraform and checkov), dep-audit (osv-scanner), secret-guard (gitleaks) and identity-guard. Each
+  `control` line says where that control was found, so you can see at a glance that all four ran.
+- **Validators** are the gate's own in-process checks — tests, authentication, injection, and the
+  rest.
+- A **blocking** finding fails the run (exit 1). An **advisory** is reported and does not.
+- A check that **could not run** is neither: the run exits 3 and names it.
 
 ---
 
-## Set it up
+## Requirements
+
+**Node.js 20 or newer**, and the scanners for what your project contains. Every project needs the
+first row; add the rows for the languages and files you have:
+
+| your project has | install | it runs |
+|---|---|---|
+| anything | `gitleaks`, `osv-scanner` | hardcoded-credential and dependency-CVE scans |
+| Python | `semgrep`, `ruff`; `pytest` if it has tests | injection checks, static checks, the test suite |
+| JavaScript / TypeScript | `semgrep` | injection checks; tests run with the project's own tooling |
+| Go | `semgrep`, `go`, `docker` | injection checks, the build and the tests |
+| Java, Ruby, C#, Rust, C, C++ | `semgrep` | injection checks |
+| Terraform | `terraform`; `checkov` optional | plan and policy checks; checkov adds advisories |
+| Dockerfile | nothing extra; `checkov` optional | the base-image end-of-life check; checkov adds advisories |
 
 ```bash
-./node_modules/.bin/wolfproof init --new my-project --hook --task task.txt   # a new project
-./node_modules/.bin/wolfproof init --hook --task task.txt                    # an existing one
+brew install gitleaks osv-scanner semgrep terraform   # macOS — pick the ones your stack needs
+pipx install ruff checkov
+python3 -m pip install pytest                         # only if the project has a Python test suite
 ```
 
-Both do the same three things, and the second is the first without `--new`:
+**A missing scanner is never skipped silently.** The run says which check could not run and exits 3.
 
-| | |
-| --- | --- |
-| `.mcp.json` | the four controls, with absolute entry points and the project as their scan root |
-| `AGENTS.md` | the gate stanza, with `{{VALIDATE_COMMAND}}` filled in |
-| `.git/hooks/pre-commit` | with `--hook`: runs the gate and blocks the commit unless it exits 0 |
+Install `pytest` with `pip`, not `pipx`: the gate runs `python3 -m pytest`, so the module must be
+importable by that interpreter. A `pytest` command on `PATH` is not enough.
 
-**Nothing is overwritten.** An existing `.mcp.json` is merged into, not replaced — your own servers
-survive, and a control you have already defined yourself is left as you defined it. An `AGENTS.md`
-is appended to between markers, so a second run changes nothing. An existing pre-commit hook is
-reported and left alone. `--force mcp|agents|hook` says otherwise, per file.
+---
 
-It exits **1** when it left something alone, so a script can tell "set up" from "already had one".
+## The task file
 
-After upgrading the package, `wolfproof init --upgrade` refreshes what it wrote — see [Upgrading](#upgrading).
+Pass the gate the task the code was written to satisfy. Six checks — immutability, retention, secret
+rotation, tests, error distinction, and required artifacts — run only when the task asks for them.
+Without a task file they report "not checked".
 
-### The pre-commit hook
+The task file is prose, not configuration: the requirements as you would write them for a person.
+
+```text
+REQUIREMENTS
+- Once a message event has been recorded, its contents must stay exactly as received.
+- Records are retained for three years.
+- Both Slack tokens must be rotatable without redeploying the application.
+- Automated tests that someone else can run, covering an event being acknowledged.
+```
+
+Each check looks for the shape of a requirement, not a topic. "Records are retained for three years"
+switches the retention check on; "keep the records" does not, because there is no period to compare
+against. Put each requirement in one sentence, and never write one you don't have — a made-up
+requirement holds the code to a standard nobody asked for.
+
+Every run reports how many of the task's sentences a check read, and `--json` lists the ones none
+did.
+
+A commit that edits a tracked task file is blocked, so a blocked agent cannot simply delete the
+requirement. For requirements every project must meet, there is also a **baseline** kept outside the
+project.
+
+→ [The task file](docs/task-file.md): a full example, what switches each check on, baselines.
+
+---
+
+## Where to run it
+
+The gate is a command, so it can run anywhere. There are three places worth running it, and they
+build on each other.
+
+### With a coding agent
+
+`wolfproof init` sets up two things for the agent:
+
+- **`.mcp.json`**, so the agent can call the four controls as tools while it works, for quick
+  feedback on what it just wrote.
+- **A stanza in `AGENTS.md`** that tells it to run the gate, and how to report what it finds.
+
+The agent can choose whether to call a tool, so the tools are only there for its own benefit. Across
+four runs of one task, a model called `terraform_plan` 3, 1, 4 and 0 times, and never called
+`check_dependencies`. The gate does not depend on those calls: it starts the four controls itself.
+
+The stanza exists because "run the gate" is not enough. Each of its rules was added after a run
+broke it — most importantly, **a check that could not run is not a pass**, and **exit 0 means
+nothing is blocking, not that everything was checked**.
+
+→ [Using wolfproof with a coding agent](docs/coding-agents.md): the stanza, the MCP configuration, the loop.
+
+### As a pre-commit hook
+
+`wolfproof init --hook` installs a hook that runs the gate on every commit:
 
 ```
-git commit  ->  wolfproof . task.txt --pre-commit   ->  0 commit proceeds
-                                                        1 findings                                                              2 usage          > blocked
-                                                        3 could not run  /
+git commit  ->  wolfproof . task.txt --pre-commit  ->  0  commit proceeds
+                                                       1  findings        \
+                                                       2  usage error      > commit blocked
+                                                       3  could not run   /
 ```
 
 **Exit 3 blocks.** A commit that nothing checked must not be easier to land than one that failed a
-check. For the same reason the hook fails closed: if `wolfproof` is not installed it blocks with
-exit 3 rather than waving the commit through, because a hook that passes when it could not run
-leaves a repository that looks protected and is not. (Up to v1.1.16 the hook's check for this tested
-for `npx`, which is always there, so in a clone without `node_modules` it went on to the public
-registry and exited 1 — blocked, but reported as findings. `--upgrade` replaces it.)
+check. For the same reason the hook fails closed: if wolfproof is not installed, it blocks.
 
-`git commit --no-verify` is the deliberate way past, and unlike quietly deleting the hook it is
-visible afterwards.
+`git commit --no-verify` is the deliberate way past, and unlike deleting the hook it leaves a trace.
+`--pre-commit` turns off one check, `uncommitted_work` — work being committed is uncommitted by
+definition — and says so in the output.
 
-`--pre-commit` turns off exactly one check, `uncommitted_work`, and says so in the output. In a hook
-its premise is satisfied by the act that invoked it — the work is uncommitted because it is being
-committed. Left on, it fails every commit forever, which teaches people to bypass the hook and costs
-you the whole thing. The stanza's command keeps that check, because an agent reporting it is done
-with work uncommitted has not finished.
+`init` overwrites nothing: it merges into an existing `.mcp.json`, appends to `AGENTS.md` between
+markers, and leaves an existing hook alone. → [Configuration](docs/configuration.md#wolfproof-init)
 
-If `core.hooksPath` is set, the tool refuses rather than writing a hook into `.git/hooks` that would
-never run.
+### In CI
 
----
-
-## Use it with a coding agent
-
-This is what the project was built for, and how every graded run in it was produced. The pattern has
-two halves, and the split between them is deliberate.
-
-**The four controls are MCP tools.** The agent calls them while it works, for cheap feedback on the
-thing it just wrote. Point your client at them:
-
-```json
-{
-  "mcpServers": {
-    "terraform-guard": {
-      "command": "node",
-      "args": ["node_modules/@tjwitko/terraform-guard-mcp/index.mjs"],
-      "env": { "TF_WORKING_ROOT": "/abs/path/to/project" }
-    },
-    "dep-audit": {
-      "command": "node",
-      "args": ["node_modules/@tjwitko/dep-audit-mcp/index.mjs"],
-      "env": { "SCAN_ROOT": "/abs/path/to/project" }
-    },
-    "secret-guard": {
-      "command": "node",
-      "args": ["node_modules/@tjwitko/secret-guard-mcp/index.mjs"],
-      "env": { "SCAN_ROOT": "/abs/path/to/project" }
-    },
-    "identity-guard": {
-      "command": "node",
-      "args": ["node_modules/@tjwitko/identity-guard-mcp/index.mjs"],
-      "env": { "SCAN_ROOT": "/abs/path/to/project" }
-    }
-  }
-}
-```
-
-**The gate is a command, not a tool.** The agent runs it and reads the exit code:
-
-```bash
-./node_modules/.bin/wolfproof . task.txt
-```
-
-**That asymmetry is the whole design.** Across four runs of one task with identical tooling, the
-model called `terraform_plan` 3, 1, 4 and 0 times, and never called `check_dependencies` at all. A
-tool the model may or may not invoke is not a guardrail. So the controls are available for the
-agent's benefit, and the gate runs where the agent cannot route around it — a command in the
-transcript, a pre-commit hook, a required check in CI. It spawns the four servers itself, so its
-verdict does not depend on which tools the agent chose to call.
-
-### What to put in the agent's instructions
-
-Telling an agent to "run the gate" is not enough; a model that runs it and then describes a refusal
-as a pass has satisfied the letter of that. [`templates/AGENTS.md.tmpl`](templates/AGENTS.md.tmpl)
-is the stanza these runs used, and each paragraph in it exists because a run did the thing it
-forbids. The four that earn their place:
-
-- **A refusal is not a pass.** If a check refuses, errors, or reports that it did not run, it
-  produced no evidence. Say so plainly rather than counting it toward "all checks green".
-- **Tests are evidence only when they run and reach the code.** A suite that is never executed, or
-  that imports nothing from the project, is not evidence — however many assertions it contains.
-- **End the summary with what the gate did not establish.** Exit 0 means nothing is blocking. It
-  does not mean everything was checked.
-- **An opt-out goes where the gate will record it**, as an `identity-guard:allow <rule> <reason>`
-  comment on the line, not as prose in a document the gate never reads.
-
-Drop it into your `AGENTS.md`, `CLAUDE.md`, or system prompt, with `{{VALIDATE_COMMAND}}` replaced
-by the command above.
-
-### The loop that results
-
-1. The agent builds, calling the MCP tools for feedback as it goes.
-2. It runs `./node_modules/.bin/wolfproof . task.txt`.
-3. **Exit 1** — blocking findings, each with a remediation. It fixes and repeats.
-4. **Exit 3** — part of the gate could not run. Not a pass, and the output names which part.
-5. **Exit 0** — nothing is blocking. The agent reports what was *not* established alongside that.
-
-Pass the task file. Six checks are gated on what the task asked for, and without it they report
-"not checked" — accurate, and much less useful. See [What goes in the task
-file](#what-goes-in-the-task-file).
-
----
-
-## Use it in CI
-
-The gate is most valuable where the agent has no vote — a required status check that runs after the
-work is finished, on a machine the agent never touched.
+This is where the gate actually enforces: a required check, run after the work is finished, on a
+machine the agent never touched.
 
 ```yaml
 name: gate
@@ -388,12 +220,10 @@ jobs:
         with:
           node-version: "22"
 
-      # Your project's own dependencies. The `tests` check runs your suite, and without these it
-      # cannot load its imports and every test file fails.
+      # Your project's own dependencies, so the `tests` check can run your suite.
       - run: npm ci --ignore-scripts
 
-      # Everything the controls drive, at the versions this release was tested with: Terraform,
-      # gitleaks, osv-scanner, checkov, ruff and pytest, each checked after install.
+      # The scanners, at the versions this release was tested with, each checked after install.
       - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.5.1
 
       - uses: tjwitko/wolfproof@v1.5.1
@@ -402,314 +232,82 @@ jobs:
           task-file: task.txt
 ```
 
-Two things in there are easy to leave out, and both fail quietly rather than loudly:
+Two of those steps are easy to leave out, and both fail quietly:
 
-- **`npm ci`** — or your language's equivalent. Without it the gate's `tests` check runs your suite
-  against no dependencies and reports every file failing, which reads like broken tests.
-- **`control-tooling`**, rather than installing the scanners yourself. It pins them to the versions
-  the release was tested with and verifies each one, and it moves when you upgrade the gate. A
-  hand-written install stays at whatever you wrote, and a scanner that is missing reports its check
-  as not run.
+- **`npm ci`** (or your language's equivalent). Without it the suite runs with no dependencies and
+  every test file fails, which looks like broken tests.
+- **`control-tooling`**. It installs the scanner versions this release was tested with and moves
+  when you upgrade. A scanner you install yourself stays at whatever version you wrote down.
 
-Both `uses:` lines name one repository and should always carry the same tag — see
-[Upgrading](#upgrading).
+Keep both `uses:` lines on the same tag. Then make the job a required check in
+**Settings → Branches → Branch protection**.
 
-Then make it a required check in **Settings → Branches → Branch protection**.
+The Action's `outcome` output is `clean`, `blocked` or `incomplete`. Both `blocked` and `incomplete`
+fail the build, and they are reported separately so a pipeline can treat them differently.
 
-### Action reference
+→ [Action reference](docs/action-reference.md) · [Why CI is the layer that enforces](docs/ci.md)
 
-| input | default | description |
-|---|---|---|
-| `project` | `.` | Directory to validate |
-| `task-file` | *(none)* | The task the code was written to satisfy |
-| `baseline` | *(none)* | Requirement sentences the project is held to whatever its task file says — see [Requirements the code's author cannot remove](#requirements-the-codes-author-cannot-remove) |
-| `terraform-guard` | *(auto)* | Override path to a control server |
-| `dep-audit` | *(auto)* | " |
-| `secret-guard` | *(auto)* | " |
-| `identity-guard` | *(auto)* | " |
-| `factory` | `false` | `true` for [factory mode](#factory-mode) |
-| `base` | *(the PR's base, or the commit before a push)* | Factory mode: the commit the change is compared with; fetched if missing |
-| `allowlist` | *(none)* | Factory mode: JSON approving specific exemptions |
-| `policy` | *(none)* | Factory mode: JSON choosing what each advisory class does |
+#### When no person reviews the change
 
-A `baseline` set in a workflow in the same repository is only as protected as that workflow file. For
-a requirement every project must meet, set it in a workflow the project cannot edit — one an
-organisation ruleset requires, for instance:
+In the default mode, every exemption and opt-out is printed for a reviewer to see. In a pipeline
+where agents write the change and nobody reads the report, that protects nothing. **Factory mode**
+(`--factory`, or `factory: true` in the Action) compares the change with its base and blocks what
+the change granted itself: new exemptions, overridden controls, edits to the task file or workflows,
+code moved where the checks do not look.
 
-```yaml
-      - uses: tjwitko/wolfproof@v1.5.1
-        with:
-          task-file: task.txt
-          baseline: |
-            Include automated tests that someone else can run.
-            A client error must not be reported as a 500.
-```
-
-| output | values |
-|---|---|
-| `outcome` | `clean` \| `blocked` \| `incomplete` |
-| `blocking` | number of blocking findings |
-| `result` | path to the machine-readable JSON |
-
-`blocked` and `incomplete` both fail the build, and they are reported distinctly on purpose. Use
-`outcome` if you want to treat them differently — for example, retrying an `incomplete` run on a
-runner that has the missing scanner, which is never the right response to `blocked`.
-
-See [`docs/ci.md`](docs/ci.md) for a full worked example including a pinned toolchain.
-
----
-
-## Factory mode
-
-For a pipeline where agents write the change and no person reviews it. New in v1.4.0.
-
-In the default mode every escape hatch is printed for a reader: a fixture marker and its reason, an
-opt-out and its reason, the control a project config pointed at. That is the right design where a
-person reviews the change, and no protection where nobody does. Measured on v1.3.1, a project with an
-unauthenticated purge endpoint, SQL injection and two hardcoded AWS credentials reached exit 0 through
-two files an agent can write: a one-line `src/.tfguard-fixture`, and a `.wolfproof.json` pointing
-secret-guard at an empty directory. Both were in the report. In a factory, nothing reads the report.
-
-(Since v1.4.0 the default mode catches that particular redirect too: a control that reports scanning
-less than the project's root — a subdirectory, as there — is a scan that did not run, in either
-mode. The dependency scan is held to the same rule: dep-audit always reported the directory it
-scanned, and until v1.4.1 the gate did not read it, so the same redirect aimed at dep-audit hid four
-high or critical lodash advisories at exit 0. A result from secret-guard, identity-guard or
-dep-audit that names no scan root could not be judged (exit 3): every release of each reports one.
-Factory mode refuses the redirect itself, whatever the control then does.)
-
-`--factory` compares the change with a base — the commit before it — and refuses what the change
-granted itself:
-
-```bash
-wolfproof . task.txt --factory --base=origin/main
-```
-
-```yaml
-      - uses: tjwitko/wolfproof@v1.5.1
-        with:
-          task-file: task.txt
-          factory: true
-```
-
-In the Action the base defaults to the pull request's base, or for a push to the commit before it,
-and the Action fetches it: the default `fetch-depth: 1` is enough. Measured on a depth-1 clone of this
-repository, fetching the base commit itself at depth 1 is all it takes, with no history in between.
-
-### What it refuses
-
-| the change | default mode | factory mode |
-|---|---|---|
-| overrides a control in `.wolfproof.json` | the project's control runs, and the report says where it came from | the installed control runs, and the override **blocks** |
-| adds an exemption, opt-out or ignore entry (below) | honoured, and listed | **blocks**, unless it existed at the base or the allowlist approves it |
-| writes code under an exemption that predates it | not checked | **blocks**, unless the allowlist approves the exemption |
-| writes code where the checks do not look — `dist/`, `build/`, `venv/`, `node_modules/`, or `vendor/` and the rest of secret-guard's gitleaks allowlist | not checked | **blocks**, unless the allowlist approves the directory |
-| moves code to a test name or test directory, which the authentication check skips | not checked | **blocks** |
-| writes an HTTP server into a test name or test directory, and code outside the tests runs it — a start script, a Dockerfile `CMD`, a Procfile, an import | not checked | **blocks**, unless the allowlist approves it. A server only the tests use is an ordinary test |
-| edits the task file, or a baseline inside the project | checked against the edited text (the pre-commit hook blocks the edit) | checked against the base's text, and the edit **blocks** |
-| adds the task file | read | **blocks**: in a factory the requirements predate the change |
-| adds, edits, renames or deletes a file under `.github/workflows/`, or under `.github/actions/` where local actions live | not checked | **blocks**, unless the allowlist approves it — a workflow, and a local action it calls, decides what checks the change and what a passing run then does. A local action kept anywhere else (`uses: ./tools/deploy`) is not covered |
-| leaves an advisory meaning "nothing was checked" | an advisory | **blocks** (see below) |
-| adds a probe route that reads, such as `GET /health` | exempt | still exempt — probe names are conventional — and **named** in the report; a write method on a probe path (`POST /health`) is not a probe, and is checked in both modes |
-
-The exemptions, opt-outs and ignore entries factory mode judges, each confirmed to loosen a check:
-
-- `.tfguard-fixture` and `.identity-exception` — a whole directory out of every source check
-- `# identity-guard:allow <rule> <reason>`
-- `gitleaks:allow` on a line, and `.gitleaksignore` at the project root
-- `osv-scanner.toml` beside a lockfile — an `[[IgnoredVulns]]` or `[[PackageOverrides]]` entry
-  (one with `ignore = true` took four blocking CVEs to exit 0)
-- `# noqa`, and `ruff.toml`, `.ruff.toml` or a `pyproject.toml` `[tool.ruff]` section
-- `checkov:skip=` and `.checkov.yaml` — these block only when the pipeline's policy blocks the
-  checkov findings they hide (`checkov`, `iac-checkov` or `dockerfile-checkov`, by file type).
-  checkov's findings are advisories, and hiding one that cannot block is not itself blocking:
-  under the default policy an added skip is listed in the factory notes instead
-
-Not judged, because nothing honours them: a project `.gitleaks.toml`, `nosemgrep`, `.semgrepignore`
-and `.gitignore`.
-
-Each one is compared line by line, so the same `gitleaks:allow` on a line whose credential changed is
-a new grant. A base that cannot be resolved — a ref the checkout does not have — is **exit 3**: with
-nothing to compare with, nothing self-granted can be told apart. Everything else factory mode refuses
-is **exit 1**, because the change made it and can undo it; exit 3 means "fix the environment", which
-would send it to the wrong owner.
-
-### Advisories
-
-Every advisory is classified, and none may leave the verdict clean by meaning nothing was checked:
-
-| class | for example | factory mode |
-|---|---|---|
-| not-checked | "no HTTP routes were identified" in a project that starts an HTTP server; a retention period the task states and nothing here describes | blocks |
-| could-not-run | a Terraform plan that could not authenticate; checkov killed; code in a language no check reads | exit 3 |
-| finding | SQL built from a value of unknown origin; a heuristic workload-identity hit | counted, and dropped |
-| info | tests ran and passed; no Kubernetes manifests to read | dropped |
-
-Findings are dropped by default because blocking them is what gets a gate switched off: Gitea, a
-clean application in the calibration corpus, draws 100 Go SQL advisories. An advisory factory mode
-cannot classify blocks, whatever the policy says. `--json` lists each advisory's id, class and
-action under `factory.advisories`.
-
-### The allowlist and the policy
-
-Both are JSON files the pipeline supplies, and both must live outside the project — one the change
-can edit approves whatever the change likes, so the gate refuses it (exit 2). In the Action they are
-inputs, written outside the workspace.
-
-```json
-{ "exemptions": [
-  { "kind": "fixture-marker", "path": "test/fixtures", "reason": "deliberately insecure samples for the rule tests" },
-  { "kind": "skipped-location", "path": "dist", "reason": "the published build, generated by CI" }
-] }
-```
-
-An entry approves its `kind` at its `path` or anywhere under it, and needs a `reason`; one without
-is ignored and reported. The kinds are the ones above plus `changed-under-exemption`,
-`skipped-location`, `moved-to-unchecked`, `server-in-test` and `workflow-change`, which covers both `.github/workflows/`
-and `.github/actions/`. A `workflow-change` path is from the repository root, where GitHub reads
-workflows, even when the project is a subdirectory:
-
-```json
-{ "exemptions": [
-  { "kind": "workflow-change", "path": ".github/workflows/release.yml", "reason": "release job maintained by the platform team" }
-] }
-```
-
-```json
-{ "advisories": { "sast:sql-string-built": "block", "retention-shorter": "block", "unread-code": "drop" } }
-```
-
-The policy maps an advisory id, an id family (`sast` for every `sast:<category>`), or a class name to
-`block`, `drop` or `incomplete`, most specific first.
-
-### What it does not do
-
-- **Measure behaviour.** Whether the software does what its user needs is scenario validation —
-  end-to-end checks kept where the agents cannot read them — and wolfproof sits beside it, not in
-  place of it. Factory mode answers a narrower question: did the change narrow its own checks?
-- **Block a reading route renamed to a probe name.** A `GET /health` is exempt by name in either mode,
-  whatever it returns; factory mode names one the change added. A write method on a probe path is not
-  a probe: since v1.4.1, `POST /health` running `DELETE FROM users` is checked, and blocks, in both modes.
-- **Judge a server in a test file that nothing in the project runs.** A server written as
-  `server.test.js` blocks once a start script, a Dockerfile, a Procfile or application code refers to
-  it; one that is run only by something outside the repository looks like any other test.
-- **Protect its own invocation.** A change that edits `.github/workflows/` blocks, but only in a run
-  that is in factory mode — and a pull request's workflows run as the pull request wrote them, so a
-  change that removes `factory: true` is judged in the default mode, which does not check workflows.
-  Run the gate from a workflow the change cannot edit — an organisation ruleset's required workflow —
-  and the block covers every other workflow, its own invocation included.
-- **Hide its rules.** Every rule is open source and documented, blind spots included, so an agent
-  iterating against the gate can read what it does not see. A rule pack the agents cannot read would
-  be the scenario-style holdout equivalent; it is not built.
+→ [Factory mode](docs/factory-mode.md)
 
 ---
 
 ## What it checks
 
-| concern | blocks on | reports, without blocking | covers |
-|---|---|---|---|
-| secrets | credentials hardcoded in any file; a credential-named value assembled from literals (split, joined, base64- or hex-encoded) | — | every file; assembly in Python, JavaScript/TypeScript, Go, Java, Ruby, C#, Rust |
-| dependencies | high or critical CVEs; a manifest that declares dependencies with no lockfile the scanner can read | CVEs in an unlocked `requirements.txt`, `go.mod` or `pom.xml` | npm, PyPI, Go, Maven, Cargo, RubyGems, Packagist and the rest of [OSV](https://osv.dev) |
-| injection | request data reaching a shell, a SQL statement, an evaluator, an outbound request's host (SSRF), a file path (path traversal) or a C format string; any use of `gets()` | a query or command built from a value of unknown origin; a non-literal C format string; an XML parser that resolves external entities (XXE) | Python, JavaScript/TypeScript, Go, Java, Ruby, C#, Rust, C, C++ — Flask, Django, FastAPI, Express, `net/http`, gin, Spring, servlets, Rails, Sinatra, ASP.NET Core, axum, actix-web; in C, CGI and sockets, and cpp-httplib, Crow, Drogon |
-| authentication | routes anyone can call; a credential compared with `==` or accepted when unset | routes exempt by name, each listed | Python, JavaScript/TypeScript, Go, Java, Ruby |
-| infrastructure | Terraform plan and policy violations; IAM, IRSA and Kubernetes manifests that contradict the code; workloads authenticating with held credentials | checkov's findings on Terraform for any cloud, CloudFormation, ARM and Bicep | blocking: Terraform (AWS), Kubernetes YAML; advisory: also CloudFormation, ARM, Bicep |
-| containers | a base image past end of life, in any build stage | checkov's Dockerfile rules — `USER`, `HEALTHCHECK` | official `node`, `python`, `golang`, `ruby`, `php`, `debian`, `ubuntu`, `alpine`, `eclipse-temurin` images |
-| build | syntax errors, undefined names, a Go build that fails | — | Python, JavaScript, Go |
-| task requirements | tests that fail or do not exist, a store that can be altered, a retention period not met, a secret that cannot rotate, client errors reported as 500s, a named artifact missing — **each only when the task or a [baseline](#requirements-the-codes-author-cannot-remove) states it** | — | tests run under `node --test`, jest, vitest, pytest and `go test`; error distinction in Python |
-| process | work not committed; a commit that edits the task file | — | — |
+### What scanners miss
 
-A check that could not run — a scanner missing, a control unreachable — makes the whole run exit 3,
-never a pass. Code in a language nothing reads is named above the verdict.
+Controls that are present and do not work. Each row below blocks.
 
-The checks live in four control servers, each in its own repository and each installed as a
-dependency:
+| concern | blocks on |
+|---|---|
+| authentication | a route anyone can call, judged route by route; a credential accepted when it is unset, or compared with `==` instead of in constant time; a signature header nothing verifies; a dependency that looks like auth and isn't (`Depends(get_db)`) |
+| code against deployment | an environment variable the code requires and no Kubernetes manifest sets; `${...}` that Kubernetes never expands; a container field on the pod spec, which the API server rejects; an IRSA role the ServiceAccount cannot assume; an AWS managed policy that does not exist, which plans clean and fails at apply |
+| workload identity | a workload that authenticates with a password, static key or shared token rather than an identity — wherever the credential is stored |
+| task requirements | when the task states them: an "immutable" store that can be altered; records deleted before the stated retention period; a secret cached so that it cannot rotate; client errors reported as 500s; tests that fail when run, or do not exist; a deliverable the task names that is not there |
+| evidence | a file that exists but is empty, which every check reading it would pass; work not committed; a commit that edits the task file |
 
-| control | checks | backed by |
-|---|---|---|
-| [terraform-guard](https://github.com/tjwitko/terraform-guard-mcp) | Terraform plan, policy, and source scanning | `terraform`, `checkov` |
-| [dep-audit](https://github.com/tjwitko/dep-audit-mcp) | dependency vulnerabilities, direct vs transitive | `osv-scanner` |
-| [secret-guard](https://github.com/tjwitko/secret-guard-mcp) | hardcoded credentials | `gitleaks` |
-| [identity-guard](https://github.com/tjwitko/identity-guard-mcp) | workload identity posture | — |
+Authentication covers Python, JavaScript/TypeScript, Go, Java and Ruby; error distinction covers
+Python. The task-gated checks are narrow on purpose — immutability, for instance, only judges a
+store that names itself an audit log — because a blocking check that fires on correct code gets
+switched off.
 
-Plus in-process validators: `build_check`, `tests`, `immutability`, `authentication`,
-`manifest_contract`, `k8s_manifest`, `secret_rotation`, `retention`, `iam_contract`,
-`artifact_presence`, `dockerfile`, `sast`, `code_quality`, `artifact_census`, `uncommitted_work`.
+### The scanner floor
 
-A few are worth calling out because they exist in response to measured failures:
+The checks you would expect, still necessary:
 
-- **`tests` runs the suite.** It does not check that test files exist. A deliverable once shipped a
-  jest config, thirteen test cases, and no installed toolchain, and reported "comprehensive test
-  coverage". Installed, three of twelve failed — and those three were exactly the acceptance
-  criteria.
-- **`authentication` judges per route.** A project-level "is there auth here" check passes a project
-  that authenticates POST and leaves GET open. One did.
-- **`uncommitted_work` blocks.** Work that was never committed was never seen by whatever runs at
-  commit time.
-- **`dockerfile` reads the Dockerfile.** It blocks on a base image whose release is past end of life
-  — `FROM node:14` passed until it existed, because the only check confirmed the file was there. The
-  dates come from [endoflife.date](https://endoflife.date), for the official `node`, `python`,
-  `golang`, `ruby`, `php`, `debian`, `ubuntu`, `alpine` and `eclipse-temurin` images, and the OS
-  named in a language image's tag (`-buster`, `-alpine3.18`) is judged too. checkov's Dockerfile
-  rules — no `USER`, no `HEALTHCHECK` — are reported as advisories.
-- **`sast` blocks on injection** — request data reaching a shell, a SQL statement, `eval`, the host
-  of an outbound request (SSRF) or a file path (path traversal), in Python, JavaScript/TypeScript, Go,
-  Java, Ruby, C#, Rust, C and C++. A URL whose scheme and host are fixed in the code, with request data only in the
-  path, is not SSRF and is not reported. It runs Semgrep with this project's own rules, and only the
-  ones that trace data from an HTTP request to the dangerous call block. The [calibration
-  corpus](#development) holds them to two answers at pinned commits. Across sixteen real
-  applications, about 26,700 files in every language the rules cover except C++, they block twice:
-  Jellyfin's admin endpoint that writes a file where the request says, which is what the rule
-  describes. And they find the documented vulnerabilities in the deliberately vulnerable WebGoat (3),
-  RailsGoat (6), Juice Shop (11), PyGoat (8) and dvcsharp-api (2). Code that builds a query or a shell
-  command from a value of unknown origin is an advisory. Neither `.semgrepignore` nor an inline
-  `# nosemgrep` hides code from it.
-  In Python it also catches a broad `except Exception` that turns the handler's own 400 into a 500 —
-  blocking when the task asks for error distinction — and exception text sent back to the caller.
-
----
+| concern | blocks on |
+|---|---|
+| injection | request data reaching a shell, SQL, an evaluator, an outbound request's host (SSRF) or a file path — in Python, JavaScript/TypeScript, Go, Java, Ruby, C#, Rust, C and C++ |
+| dependencies | high or critical CVEs; dependencies declared with no lockfile the scanner can read |
+| secrets | credentials hardcoded in any file, including ones split, joined or encoded |
+| infrastructure | Terraform plan and policy violations on AWS, such as a security group or EKS API open to `0.0.0.0/0` |
+| containers | a base image past end of life, in any build stage |
+| build | syntax errors, undefined names, a Go build that fails |
 
 ## What it does not check
 
-Listed so that a clean verdict is read for what it is.
+So that a clean verdict is read for what it is:
 
-- **Languages outside the table.** PHP, Kotlin, Swift, Scala and the rest get the project-wide scans —
-  secrets, dependencies, infrastructure — and nothing that reads the code itself. The run says so above
-  the verdict.
-- **Injection across a function call.** Request data is followed within one function; Semgrep's
-  open-source analysis does not cross calls. A helper that builds a query from its argument is reported
-  as an advisory, not a finding: SQL text built from a value is reported where it is built, whichever
-  function later runs it. A shell command built that way is reported only where it is run.
-- **Other classes of injection.** Shell, SQL, evaluators, SSRF and path traversal are covered, and
-  an XML parser configured to resolve external entities is an advisory. Cross-site scripting is not:
-  templates escape by default, so what is worth checking is the escape hatches (`|safe`, `Markup()`,
-  `dangerouslySetInnerHTML`, `html_safe`), and that is not written yet. Neither is server-side
-  template injection, LDAP injection, open redirect or insecure deserialization.
-- **Memory safety in C and C++.** Beyond `gets()`, buffer overflows, use-after-free and integer
-  overflow are not checked: the patterns that find them flag most C code, and a check that blocks most
-  projects gets switched off. A sanitiser build (`-fsanitize=address`) and a fuzzer find them better.
-- **Proof that the Go, Rust, C and C++ rules find injection in real code.** They are tested on
-  annotated samples and on real projects with none, which shows they do not over-fire; no
-  deliberately vulnerable application in those languages is in the calibration corpus, so nothing
-  shows they catch a real one. C++ has no real application in it at all.
-- **Request data in a C buffer, used in another function.** Free Semgrep does not follow taint into a
-  buffer, so a write into one is reported only when the same function passes it to the dangerous call.
-- **Rocket, Warp and other Rust frameworks**, and ASP.NET WebForms. Their request types are not yet
-  named as sources.
-- **Authorisation.** `authentication` checks that a route requires a caller identity, not what that
-  caller may then do.
-- **The built image.** A Dockerfile's base image is judged; the packages inside a built image are not
-  scanned. That needs a build or a pull, so it is a job for a CI step with Trivy or Grype.
-- **Secrets assembled at run time.** gitleaks reads literals, including credentials that only look
-  random, and a credential-named value assembled from literals — split, joined, reversed, base64- or
-  hex-encoded — is caught too. A key built by a loop, fetched from somewhere unsafe, or held under a
-  name that does not say what it is, is not seen.
-- **Blocking infrastructure policy beyond Terraform on AWS and Kubernetes.** Terraform for Azure and
-  GCP, CloudFormation, ARM and Bicep get checkov's findings as advisories; none of them can block.
-  Pulumi programs are not read as infrastructure at all.
-- **Requirements nobody stated.** The task-gated checks run only when the task or a baseline states
-  the requirement. Without either they report "not checked", which is accurate and much less useful.
-- **A commit made with `--no-verify`.** The hook is a convenience. CI with the gate as a required check
-  is the enforcement point; see [Use it in CI](#use-it-in-ci).
+- **Code in other languages.** PHP, Kotlin, Swift, Scala and the rest get only the project-wide
+  scans — secrets, dependencies, infrastructure. The run says so above the verdict.
+- **Injection across a function call**, and cross-site scripting, template injection, LDAP
+  injection, open redirect and insecure deserialization.
+- **Memory safety in C and C++**, beyond `gets()`.
+- **Authorisation** — what an authenticated caller may then do.
+- **The packages inside a built image** — use Trivy or Grype in CI.
+- **Blocking infrastructure policy beyond Terraform on AWS and Kubernetes.** Other clouds and
+  formats get advisories only.
+- **Requirements nobody stated.**
+
+→ [What it checks, in full](docs/checks.md): languages and frameworks, the four controls, how the
+injection rules are calibrated, and every known blind spot.
 
 ---
 
@@ -724,313 +322,29 @@ Listed so that a clean verdict is read for what it is.
 
 **Exit 3 is the one that matters.** It means the project was not fully checked. It is not a pass,
 and it is not a normal failure. Treating it as either is the failure mode this project exists to
-remove — and it has bitten this codebase twice, which is why the distinction is enforced and tested.
+remove. A gate that crashes exits 3 too.
 
-A gate that crashes exits 3 too, never Node's default 1, and in `--json` mode still writes one
-document: `{"exitCode": 3, "incomplete": true, "error": "..."}`. A usage error writes
-`{"exitCode": 2, "error": "..."}`.
-
-`wolfproof init` has its own codes: `0` done, `1` left an existing file alone (reported, and
-`--force` overrides), `2` usage error, `70` failed partway — rerun after fixing the cause, since
-nothing it writes overwrites.
-
----
-
-## Configuration
-
-Controls resolve in this order, and the run reports which rule won:
-
-1. **Environment variable** — `TFGUARD_SERVER`, `DEPAUDIT_SERVER`, `SECRETGUARD_SERVER`, `IDENTITYGUARD_SERVER`
-2. **`.wolfproof.json`** in the project being checked (`.agent-gate.json`, its name before v1.2.0,
-   is not read: a project with only that file exits 3 until it is renamed)
-3. **`node_modules`** — the normal case
-4. **A sibling checkout** — for developing the controls themselves
-
-```json
-{
-  "controls": {
-    "terraform-guard": "./vendor/terraform-guard-mcp/index.mjs"
-  }
-}
-```
-
-An environment variable or config entry pointing at a file that does not exist is an **error**, not
-a reason to fall through to the next rule. Someone said where the control was and was wrong; quietly
-using a different one would hide that.
-
-`WOLFPROOF_TEST_TIMEOUT` sets how long the `tests` check lets the suite run, in whole seconds; the
-default is 120. A suite killed at the limit is exit 3, so a suite that needs longer was exit 3 on every
-run until this was set. A value that is not a whole number of seconds is exit 3 too, naming the value,
-rather than the default used quietly. In the Action, set it on the step:
-
-```yaml
-      - uses: tjwitko/wolfproof@v1.5.1
-        env:
-          WOLFPROOF_TEST_TIMEOUT: "300"
-```
+`wolfproof init` has its own codes — see [Configuration](docs/configuration.md#wolfproof-init).
 
 ---
 
 ## Upgrading
 
-The four controls come **with** the gate — `wolfproof` pins them — so upgrading the gate
-upgrades them. You only upgrade a control separately if you wired it into an editor on its own.
+1. Check what you are on: `./node_modules/.bin/wolfproof --version` lists the gate, each control and
+   each scanner.
+2. Move the pin — in CI, **both** `uses:` lines.
+3. Run `./node_modules/.bin/wolfproof init --upgrade` to refresh the stanza and hook setup wrote.
+4. Run the new version locally before moving the CI pin. A release that closes a gap can turn a
+   passing project red on purpose; release notes list these under *expect this to fail*.
 
-### 1. See what you are on
-
-```text
-$ ./node_modules/.bin/wolfproof --version
-wolfproof 1.5.1
-  terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
-  dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
-  secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
-  identity-guard   v1.0.2  node_modules @tjwitko/identity-guard-mcp
-tools on PATH
-  node             26.5.1
-  go               1.27.1
-  terraform        1.15.8
-  gitleaks         8.30.1
-  osv-scanner      2.4.0
-  checkov          3.3.10
-  python3          3.14.8
-  ruff             0.16.2
-  semgrep          1.180.0
-  pytest           9.1.1
-  docker           29.6.2
-```
-
-Run it again afterwards. **"The package moved" and "the controls that will run moved" are different
-answers**, and only the second one protects anything: v1.1.1 shipped with terraform-guard a release
-behind its own fixes, and nothing in the output said so. Every gate run now prints the version of
-each control beside where it was found, in the CLI and in the Action's log alike.
-
-The controls are not all that decides a verdict. The scanners they shell out to are the rest: a
-semgrep upgrade moves `sast` findings with no wolfproof change, and osv-scanner answers from a live
-database, so the same tree and pins can give different dependency findings on different days.
-`--version` lists each one on `PATH`, and `not found` for one that is not — a missing scanner switches its checks off.
-The `--json` report carries the same list as `toolchain`, and `scannedAt`, the time the run started.
-
-### 2. Move the pin
-
-**GitHub Action** — bump **both** references, which name one repository at one version:
-
-```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.5.1
-- uses: tjwitko/wolfproof@v1.5.1
-```
-
-A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
-miss: a search for `wolfproof@` does not match the first line.
-
-**npm:**
-
-```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.5.1
-```
-
-### 3. Refresh what setup wrote
-
-```bash
-./node_modules/.bin/wolfproof init --upgrade
-```
-
-Upgrading the package does not touch what `wolfproof init` wrote into your project, so without this
-a project keeps an older release's stanza and hook indefinitely. `--upgrade` refreshes exactly
-those, and nothing it did not write:
-
-| | refreshed when | left alone when |
-| --- | --- | --- |
-| `AGENTS.md` stanza | it sits between wolfproof's markers, or agent-gate's from an earlier version | there are no markers, or the end marker is missing |
-| pre-commit hook | it carries the `Installed by wolfproof init` header, or `Installed by agent-gate-init` | anyone else wrote it |
-| `.mcp.json` controls | the entry is one setup wrote, or the control is missing | you defined the control yourself |
-
-The task file is read back from what setup wrote, so you do not have to repeat it — and it is not
-quietly dropped, which would switch six checks off. Running it twice changes nothing the second
-time. It exits **1** if something of its own could not be refreshed, and says what.
-
-
-`--force` would also refresh these, and would also overwrite a hook you wrote. Use `--upgrade`.
-
-### 4. Run the new version before you gate on it
-
-**An upgrade can turn a passing project red, deliberately.** When a release fixes a check that was
-passing something it should not have, projects relying on that gap start failing. v1.1.2 did this
-for S3 buckets with no public access block of their own; v1.1.4 does it for services whose only
-authentication was commented out. Release notes call these out under *expect this to fail*.
-
-So run the new version locally first, read what it finds, and move the CI pin once you have — not
-the other way round, where the first you hear of it is a red build on someone else's pull request.
-
-### Coming from agent-gate
-
-The project was called agent-gate until v1.2.0, which still accepted the old names. Since v1.3.0
-it does not: the `agent-gate` and `agent-gate-init` commands are gone, a project with only
-`.agent-gate.json` exits 3 until the file is renamed `.wolfproof.json`, and an `AGENT_GATE_*`
-variable is reported as set and unread. `wolfproof init --upgrade` still moves a project set up by
-any earlier version to the new names.
-
-The repository moved from `tjwitko/agent-gate` to `tjwitko/wolfproof`. Git and install URLs under
-the old name redirect, and every earlier tag is here; **workflows must say `tjwitko/wolfproof`**,
-because GitHub does not redirect Actions — `uses: tjwitko/agent-gate@…` fails with "repository not
-found".
-
-From agent-gate (v1.1.18 or earlier), run `wolfproof init --upgrade` straight after installing.
-It replaces the `agent-gate` markers, stanza command and hook with `wolfproof` ones and keeps the task
-file. Until you do, a stanza or hook that still says `./node_modules/.bin/agent-gate` finds no such
-command — the hook fails closed with exit 3, it does not let the commit through. Rename
-`.agent-gate.json` to `.wolfproof.json` (a project with only the old file exits 3 and says so) and
-`AGENT_GATE_*` variables to `WOLFPROOF_*` (an old one left set is reported, not read). In workflows,
-change both `uses: tjwitko/agent-gate…` lines to `tjwitko/wolfproof…`: GitHub does not redirect
-Actions, so the old path fails.
-
-### Keeping current
-
-Dependabot's `github-actions` updater opens a pull request when a new tag is published:
-
-```yaml
-# .github/dependabot.yml
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-```
-
-Check that the pull request moves **both** references before merging it.
-
-### A control wired in on its own
-
-If you run one of the four servers directly from an editor rather than through the gate, upgrade it
-by its own tag — `npm install github:tjwitko/secret-guard-mcp#vX`, or `git pull && npm ci` in a
-checkout — and then **restart the editor's MCP client**. A client starts each server once per
-session, so a running editor keeps serving the old code until it is restarted, and nothing about
-the upgrade tells you that.
-
-### Rolling back
-
-Pin the previous tag and run `npm install`. The stanza and hook a newer release wrote keep working
-with an older gate, with one exception: **below v1.1.3, remove the pre-commit hook**. It passes
-`--pre-commit`, which older releases do not know, so they run the uncommitted-work check inside the
-hook — where a commit in progress always has uncommitted work — and block every commit.
-
----
-
-## Troubleshooting
-
-**`exit 3` and "a control could not be reached"** — a control server did not resolve. The message
-names which one and what to set. Usually the install did not complete, or an override points
-somewhere stale.
-
-**`exit 3` and "COULD NOT RUN"** — a scanner is missing from `PATH`. The message names the binary.
-Install it and re-run; the verdict before it was installed proves nothing about your code.
-
-**`exit 3` and "did not finish within 120s and was killed"** — the `tests` check stopped your suite
-at its limit. If the suite is simply slow, set `WOLFPROOF_TEST_TIMEOUT` to a number of seconds it
-finishes in; if it hangs, a longer limit only makes the wait longer.
-
-**"builds on a base image past end of life"** — the release in a `FROM` line no longer gets security
-fixes. The finding names the line, the date it ended and the supported releases. Every stage counts:
-a build stage on an unsupported compiler ships its unpatched standard library in the binary. Floating
-tags (`node:lts`, `python:3`) and other publishers' images (`bitnami/node`) are not judged; the
-dates are refreshed with each release, so a release newer than the table is simply not judged yet.
-
-**`sast: command injection` / `SQL injection` / `code injection`** — data from an HTTP request reaches
-a shell, a SQL statement or an evaluator in the same function. The finding names each line and the
-fix. The check follows data within a function, not across calls, so a request value passed to a helper
-that builds the query shows up as an advisory about the helper instead ("built by string formatting…
-not blocking").
-
-**"NOT READ" above the verdict** — part of the project is in a language no language-aware check reads
-(Rust, PHP, C#, Kotlin, Swift, C/C++, Scala, Elixir, Dart, Lua, Perl, JSX, Vue, Svelte). The
-verdict says nothing about that code: only the project-wide scans — secrets, dependencies,
-infrastructure — apply to it, and a requirement like "include unit tests" cannot be enforced on it.
-
-**Routes "exempt by name"** — the authentication check leaves probe paths (`/health`, `/ping`,
-`/metrics`…) and credential-issuing endpoints (`/login`, `/token`…) open, and lists each one it
-skipped. The exemption is by path alone, so check the list: a route with one of those names that
-reads input or changes state needs authentication like any other.
-
-**"declare dependencies that no scanner read"** — `osv-scanner` reads lockfiles, and of manifests
-only `requirements*.txt`, `go.mod` and `pom.xml`. A `package.json`, `Cargo.toml`, `pyproject.toml`,
-`Pipfile`, `build.gradle`, `Gemfile` or `composer.json` that declares dependencies is scanned through
-its lockfile or not at all, so without one this blocks: the alternative is reporting a dependency
-check that looked at nothing as one that passed. The message names each manifest and the command
-that writes its lockfile. `bun.lockb` does not count — it is binary and the scanner cannot read it;
-`bun install --save-text-lockfile` writes `bun.lock`, which it can.
-
-**`check_dependencies` findings that look wrong** — for the three manifests it does read without a
-lockfile, `osv-scanner` resolves the dependency graph to minimum-satisfying versions that no real
-install produces. Those findings are reported as advisory rather than blocking, and the message says
-so. Commit a lockfile to make the result authoritative.
-
-**Terraform findings about credentials** — a plan needs to authenticate to your cloud provider. With
-no credentials the plan-based rules cannot run, and the gate says the configuration is UNSCANNED
-rather than clean. The credential-free source scan still runs.
-
----
-
-## Development
-
-```bash
-git clone https://github.com/tjwitko/wolfproof
-cd wolfproof
-npm install
-npm test          # unit tests
-npm run corpus    # regression corpus — thirteen frozen projects
-npm run corpus:factory  # the same thirteen, in factory mode, against their own frozen verdicts
-npm run calibration   # the sast rules on 22 real apps, cloned at pinned commits — about 75 minutes
-node scripts/refresh-eol-data.mjs   # end-of-life dates for the dockerfile check, before a release
-```
-
-The corpus is the important one. **Every control defect in this project's history was found by
-running real work through the controls, never by a unit test.** `npm run corpus` re-measures
-thirteen frozen projects and fails on drift in either direction, because a control that stops
-firing is as much a regression as one that starts over-firing.
-
-`npm run corpus:factory` runs the same thirteen in [factory mode](#factory-mode), each judged as a
-change written from nothing — the base is an empty commit before the deliverable, with no allowlist
-and no policy — against verdicts frozen separately from the default ones. Measured on 2026-10-20,
-factory mode blocks more in eight of them: an unverifiable secret rotation in seven, an undetermined
-retention period in one, and a `# noqa` in a test file. None moves from clean to blocked, and none
-becomes incomplete.
-
-Eleven are real deliverables, frozen with the verdict each one scored. The other two exist to cover
-shapes the graded set does not have — a plain Node library with no infrastructure, and a Python
-service — because a corpus in which every fixture was a Terraform-bearing webhook receiver could
-not see a check that fires on projects which never asked for what it checks. Adding them found a
-live false positive in a blocking validator the same afternoon.
-
-It also records the toolchain that measured it and reports any difference, since a finding count
-compared against a different scanner version looks exactly like a control that changed behaviour.
-
-**The calibration corpus** does the same for the `sast` rules on other people's code. Its manifest,
-[`calibration/manifest.json`](calibration/manifest.json), names 22 applications by repository and
-full commit SHA, with the count each rule gave each one, blocking and advisory, measured with the
-pinned semgrep. `npm run calibration` clones each at that commit, runs the `sast` validator on it —
-only that: nothing is built, installed or run — compares, and deletes the clone. A rule that stops
-finding WebGoat's SQL injection has broken; one that starts blocking Bitwarden is a false positive on
-code people ship. No application's code is copied into this repository. It runs in its own workflow
-when the rules or the validator change, and on demand; it is not a required check.
-
-| language | known findings | known clean |
-| --- | --- | --- |
-| Java | WebGoat | Spring PetClinic, Spring RealWorld |
-| Ruby | RailsGoat | rubygems.org, Mastodon |
-| JavaScript/TypeScript | Juice Shop | Outline |
-| Python | PyGoat | NetBox |
-| C# | dvcsharp-api, Jellyfin | eShop, Bitwarden server |
-| Go | **none** | Gitea |
-| Rust | **none** | Lemmy, Meilisearch |
-| C | **none** — Damn Vulnerable C Program's bugs are memory safety, and it correctly scores 0 | curl, git, Redis, nginx |
-| C++ | **none** | **none** |
+→ [Upgrading](docs/upgrading.md): rolling back, Dependabot, coming from agent-gate.
 
 ---
 
 ## Why this exists
 
 The design comes from a measured experiment: the same task run fifteen times across models, graded
-by one frozen gate. The short version:
+by one frozen gate.
 
 - Twelve runs by a smaller model produced **zero** passes; three frontier-model runs passed on the
   first attempt.
@@ -1047,10 +361,28 @@ Full write-up: [`docs/haiku-experiment.md`](docs/haiku-experiment.md).
 
 ---
 
-## Also in this repository
+## Documentation
 
-An MCP server for delegating mechanical subtasks to a locally-hosted model, which this project grew
-out of. It is independent of the gate and documented in [`CLAUDE.md`](CLAUDE.md).
+| page | for |
+|---|---|
+| [The task file](docs/task-file.md) | writing requirements the checks can read; baselines |
+| [Coding agents](docs/coding-agents.md) | the agent stanza, MCP configuration, the build–gate loop |
+| [Action reference](docs/action-reference.md) | every Action input and output |
+| [Why CI enforces](docs/ci.md) | MCP vs hooks vs required checks; branch protection |
+| [Factory mode](docs/factory-mode.md) | pipelines with no human reviewer |
+| [What it checks](docs/checks.md) | full coverage, the controls, calibration, blind spots |
+| [Configuration](docs/configuration.md) | control resolution, `init`, timeouts, JSON output |
+| [Troubleshooting](docs/troubleshooting.md) | what each message means and what to do |
+| [Upgrading](docs/upgrading.md) | moving pins, rolling back, coming from agent-gate, version notes |
+| [Development](docs/development.md) | tests, the regression corpus, the calibration corpus |
+
+---
+
+## About the name
+
+In the story of the three little pigs, all three houses looked like houses until the wolf came. The
+straw and the sticks fell at the first huff; only the third pig's house of brick was wolfproof. A
+check that never ran is a straw wall with a green tick on it.
 
 ---
 
