@@ -501,6 +501,7 @@ repository, fetching the base commit itself at depth 1 is all it takes, with no 
 | writes code under an exemption that predates it | not checked | **blocks**, unless the allowlist approves the exemption |
 | writes code where the checks do not look — `dist/`, `build/`, `venv/`, `node_modules/`, or `vendor/` and the rest of secret-guard's gitleaks allowlist | not checked | **blocks**, unless the allowlist approves the directory |
 | moves code to a test name or test directory, which the authentication check skips | not checked | **blocks** |
+| writes an HTTP server into a test name or test directory, and code outside the tests runs it — a start script, a Dockerfile `CMD`, a Procfile, an import | not checked | **blocks**, unless the allowlist approves it. A server only the tests use is an ordinary test |
 | edits the task file, or a baseline inside the project | checked against the edited text (the pre-commit hook blocks the edit) | checked against the base's text, and the edit **blocks** |
 | adds the task file | read | **blocks**: in a factory the requirements predate the change |
 | adds, edits, renames or deletes a file under `.github/workflows/`, or under `.github/actions/` where local actions live | not checked | **blocks**, unless the allowlist approves it — a workflow, and a local action it calls, decides what checks the change and what a passing run then does. A local action kept anywhere else (`uses: ./tools/deploy`) is not covered |
@@ -560,7 +561,7 @@ inputs, written outside the workspace.
 
 An entry approves its `kind` at its `path` or anywhere under it, and needs a `reason`; one without
 is ignored and reported. The kinds are the ones above plus `changed-under-exemption`,
-`skipped-location`, `moved-to-unchecked` and `workflow-change`, which covers both `.github/workflows/`
+`skipped-location`, `moved-to-unchecked`, `server-in-test` and `workflow-change`, which covers both `.github/workflows/`
 and `.github/actions/`. A `workflow-change` path is from the repository root, where GitHub reads
 workflows, even when the project is a subdirectory:
 
@@ -585,8 +586,9 @@ The policy maps an advisory id, an id family (`sast` for every `sast:<category>`
 - **Block a reading route renamed to a probe name.** A `GET /health` is exempt by name in either mode,
   whatever it returns; factory mode names one the change added. A write method on a probe path is not
   a probe: since v1.4.1, `POST /health` running `DELETE FROM users` is checked, and blocks, in both modes.
-- **See code written directly into a test file or test directory.** A move there blocks; a server
-  written as `server.test.js` from the start is skipped by the authentication check and not flagged.
+- **Judge a server in a test file that nothing in the project runs.** A server written as
+  `server.test.js` blocks once a start script, a Dockerfile, a Procfile or application code refers to
+  it; one that is run only by something outside the repository looks like any other test.
 - **Protect its own invocation.** A change that edits `.github/workflows/` blocks, but only in a run
   that is in factory mode — and a pull request's workflows run as the pull request wrote them, so a
   change that removes `factory: true` is judged in the default mode, which does not check workflows.
