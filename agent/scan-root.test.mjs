@@ -109,7 +109,7 @@ test("scanRootProblem: the root itself, and nothing else", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "scanroot-unit-"));
   try {
     assert.equal(scanRootProblem(dir, dir), null);
-    assert.equal(scanRootProblem(null, dir), null, "a control that reports no root is judged elsewhere");
+    assert.equal(scanRootProblem(null, dir), null, "a control that reports no root is judged by its caller: could-not-run");
     assert.match(scanRootProblem(path.join(dir, "a", "b"), dir).what, /^only a\/b, part of this project/);
     assert.match(scanRootProblem(path.dirname(dir), dir).what, /^not this project/);
     assert.match(scanRootProblem(`${dir}-sibling`, dir).what, /^not this project/, "a sibling sharing the prefix is not inside");
@@ -187,5 +187,32 @@ test("a dependency scan of the root is judged as before: clean passes, findings 
     const found = await validateProject(dir, depAuditReturning({ directory: dir, scanned: true, findings: [FINDING] }), "");
     assert.equal(depFailures(found).length, 1);
     assert.match(depFailures(found)[0], /^check_dependencies: 1 finding\(s\) at or above high severity/);
+  });
+});
+
+// Every release of secret-guard and identity-guard reports where it looked. A result that does not is
+// not one of theirs, or not one about this project: the redirect that hid four CVEs from the dependency
+// scan works as well with a wrapper that drops the field as with one that reports a subdirectory.
+test("a secret scan or workload-identity scan that does not say where it looked could not be judged", async () => {
+  await inEmptyProject(async (dir) => {
+    for (const findings of [0, 3]) {
+      const r = await validateProject(dir, registryReturning({ clean: findings === 0, summary: { total: findings } }), "");
+      assert.deepEqual(scanFailures(r), [], "neither a pass nor this project's findings");
+      assert.ok(r.couldNotRun.some((c) => /^scan_path: secret-guard's result does not say what it scanned/.test(c)), JSON.stringify(r.couldNotRun));
+    }
+    const posture = new Map([["check_auth_posture", { kind: "mcp", server: { call: async () => JSON.stringify({ clean: true, findings: [] }) } }]]);
+    const r = await validateProject(dir, posture, "");
+    assert.deepEqual(r.failures.filter((f) => f.startsWith("check_auth_posture") || f.startsWith("workload identity")), []);
+    assert.ok(r.couldNotRun.some((c) => /^check_auth_posture: identity-guard's result does not say which directory it scanned/.test(c)), JSON.stringify(r.couldNotRun));
+  });
+});
+
+test("a workload-identity scan of the root is judged as before", async () => {
+  await inEmptyProject(async (dir) => {
+    const posture = (payload) => new Map([["check_auth_posture", { kind: "mcp", server: { call: async () => JSON.stringify(payload) } }]]);
+    const clean = await validateProject(dir, posture({ root: dir, clean: true, findings: [] }), "");
+    assert.ok(!clean.couldNotRun.some((c) => c.startsWith("check_auth_posture")), JSON.stringify(clean.couldNotRun));
+    const found = await validateProject(dir, posture({ root: dir, clean: false, findings: [{ file: "k8s/app.yaml", message: "a static key", severity: "high" }] }), "");
+    assert.ok(found.failures.some((f) => f === "workload identity: k8s/app.yaml: a static key"), JSON.stringify(found.failures));
   });
 });

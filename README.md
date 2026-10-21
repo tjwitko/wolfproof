@@ -474,8 +474,9 @@ secret-guard at an empty directory. Both were in the report. In a factory, nothi
 less than the project's root — a subdirectory, as there — is a scan that did not run, in either
 mode. The dependency scan is held to the same rule: dep-audit always reported the directory it
 scanned, and until v1.4.1 the gate did not read it, so the same redirect aimed at dep-audit hid four
-high or critical lodash advisories at exit 0. A dependency result that names no directory could not be judged
-(exit 3). Factory mode refuses the redirect itself, whatever the control then does.)
+high or critical lodash advisories at exit 0. A result from secret-guard, identity-guard or
+dep-audit that names no scan root could not be judged (exit 3): every release of each reports one.
+Factory mode refuses the redirect itself, whatever the control then does.)
 
 `--factory` compares the change with a base — the commit before it — and refuses what the change
 granted itself:
