@@ -95,7 +95,10 @@ runs:
           got="${out%%$'\n'*}"
           case "$got" in
             *"$want"*) echo "  ok       $name -> $got" ;;
-            *)         echo "  VERSION  $name -> '$got', expected to contain '$want'"; fail=1 ;;
+            *)         echo "  VERSION  $name -> '$got', expected to contain '$want'"; fail=1
+                       # The first line alone said only '' when semgrep's changed: the whole answer
+                       # is what says why.
+                       printf '%s\n' "$out" | sed -n '1,15s/^/             | /p' ;;
           esac
         }
         check terraform   "1.15.8" version
