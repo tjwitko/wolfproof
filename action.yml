@@ -45,7 +45,7 @@ inputs:
       loosens the gate: controls come only from the pinned packages or the inputs above, never from
       the project's .wolfproof.json; an exemption, opt-out or ignore entry is honoured only if it
       existed at the base or the allowlist approves it; and an advisory that means "nothing was
-      checked" blocks. See "Factory mode" in the README.
+      checked" blocks. See docs/factory-mode.md in this repository.
     required: false
     default: "false"
   base:
