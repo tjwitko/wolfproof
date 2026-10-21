@@ -39,7 +39,7 @@ wolfproof.
 ## Quickstart
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.5.0
+npm install --save-dev github:tjwitko/wolfproof#v1.5.1
 echo "Build an HTTP service. Ship tests someone else can run." > task.txt   # the requirements, in prose
 ./node_modules/.bin/wolfproof init --hook --task task.txt                   # agent instructions + pre-commit hook
 ./node_modules/.bin/wolfproof . task.txt                                    # the verdict
@@ -83,16 +83,16 @@ python3 -m pip install pytest                         # only if the project has 
 
 ### Install
 
-Latest release: **[v1.5.0](https://github.com/tjwitko/wolfproof/releases/latest)**
+Latest release: **[v1.5.1](https://github.com/tjwitko/wolfproof/releases/latest)**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.5.0
+npm install --save-dev github:tjwitko/wolfproof#v1.5.1
 ```
 
 The four control servers come with it as dependencies — there is nothing else to clone or wire up.
 They are pinned to specific release tags, so this installs the same five components every time;
 `./node_modules/.bin/wolfproof --version` shows which.
-Drop the `#v1.5.0` to track `main` instead, which moves.
+Drop the `#v1.5.1` to track `main` instead, which moves.
 
 ### Run it
 
@@ -394,9 +394,9 @@ jobs:
 
       # Everything the controls drive, at the versions this release was tested with: Terraform,
       # gitleaks, osv-scanner, checkov, ruff and pytest, each checked after install.
-      - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.5.0
+      - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.5.1
 
-      - uses: tjwitko/wolfproof@v1.5.0
+      - uses: tjwitko/wolfproof@v1.5.1
         with:
           project: .
           task-file: task.txt
@@ -437,7 +437,7 @@ a requirement every project must meet, set it in a workflow the project cannot e
 organisation ruleset requires, for instance:
 
 ```yaml
-      - uses: tjwitko/wolfproof@v1.5.0
+      - uses: tjwitko/wolfproof@v1.5.1
         with:
           task-file: task.txt
           baseline: |
@@ -486,7 +486,7 @@ wolfproof . task.txt --factory --base=origin/main
 ```
 
 ```yaml
-      - uses: tjwitko/wolfproof@v1.5.0
+      - uses: tjwitko/wolfproof@v1.5.1
         with:
           task-file: task.txt
           factory: true
@@ -764,7 +764,7 @@ run until this was set. A value that is not a whole number of seconds is exit 3 
 rather than the default used quietly. In the Action, set it on the step:
 
 ```yaml
-      - uses: tjwitko/wolfproof@v1.5.0
+      - uses: tjwitko/wolfproof@v1.5.1
         env:
           WOLFPROOF_TEST_TIMEOUT: "300"
 ```
@@ -780,7 +780,7 @@ upgrades them. You only upgrade a control separately if you wired it into an edi
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.5.0
+wolfproof 1.5.1
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -815,8 +815,8 @@ The `--json` report carries the same list as `toolchain`, and `scannedAt`, the t
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.5.0
-- uses: tjwitko/wolfproof@v1.5.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.5.1
+- uses: tjwitko/wolfproof@v1.5.1
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -825,7 +825,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.5.0
+npm install --save-dev github:tjwitko/wolfproof#v1.5.1
 ```
 
 ### 3. Refresh what setup wrote
