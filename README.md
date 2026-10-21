@@ -986,8 +986,8 @@ firing is as much a regression as one that starts over-firing.
 change written from nothing — the base is an empty commit before the deliverable, with no allowlist
 and no policy — against verdicts frozen separately from the default ones. Measured on 2026-10-20,
 factory mode blocks more in eight of them: an unverifiable secret rotation in seven, an undetermined
-retention period in one, two committed files under `terraform/.terraform`, and a `# noqa` in a test
-file. None moves from clean to blocked, and none becomes incomplete.
+retention period in one, and a `# noqa` in a test file. None moves from clean to blocked, and none
+becomes incomplete.
 
 Eleven are real deliverables, frozen with the verdict each one scored. The other two exist to cover
 shapes the graded set does not have — a plain Node library with no infrastructure, and a Python

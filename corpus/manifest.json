@@ -122,12 +122,11 @@
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
       ],
       "factory": {
-        "expectedBlocking": 11,
+        "expectedBlocking": 10,
         "expectedFindings": {
           "check_dependencies": 1,
           "dockerfile": 1,
           "factory: nothing checked (secret rotation)": 1,
-          "factory: skipped-location": 2,
           "retention": 2,
           "terraform_plan": 1,
           "tests": 1,

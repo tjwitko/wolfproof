@@ -202,6 +202,21 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
     const configError = factory ? null : rawConfigError;
     if (factory && rawConfigError) factoryAdvisories.push(`config: ${rawConfigError} Factory mode does not read it.`);
     const controls = resolveControls(projectDir, { config, env, configFile, factory: Boolean(factory) });
+    // The change is judged here, before any check runs, because checks write into the tree: the
+    // Terraform plan runs `terraform init` in the project, and a project that does not ignore
+    // .terraform/ then holds untracked provider files the change never wrote. Judged after the checks,
+    // they counted as code written where no check looks -- two files on one machine and one on another,
+    // with the plugin cache deciding.
+    let judged = { failures: [], notes: [], grants: [], changed: [], newProbeRoutes: [], workflows: [] };
+    if (factory && base) {
+      judged = judgeChange(projectDir, {
+        sha: base.sha,
+        baseDir: base.dir,
+        allowlist: allowlist.entries,
+        secretGuardEntry: controls.find((c) => c.name === "secret-guard")?.entry || null,
+        policy,
+      });
+    }
     // A control the project tried to choose for itself. The pinned one runs instead, and the attempt
     // blocks: an agent that points secret-guard at an empty directory has not fixed a credential.
     if (factory) {
@@ -288,17 +303,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       r.failures.push(...factoryFailures);
       r.advisories.push(...factoryAdvisories);
       couldNotRun.push(...factoryCouldNotRun);
-      let judged = { failures: [], notes: [], grants: [], changed: [], newProbeRoutes: [], workflows: [] };
-      if (base) {
-        judged = judgeChange(projectDir, {
-          sha: base.sha,
-          baseDir: base.dir,
-          allowlist: allowlist.entries,
-          secretGuardEntry: controls.find((c) => c.name === "secret-guard")?.entry || null,
-          policy,
-        });
-        r.failures.push(...judged.failures);
-      }
+      r.failures.push(...judged.failures);
       const ctx = { servesHttp: servesHttp(projectDir), couldNotRun: [...couldNotRun] };
       const kept = [];
       const classified = [];
