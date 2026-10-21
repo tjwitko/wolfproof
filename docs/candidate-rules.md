@@ -1114,35 +1114,36 @@ Trivy for the packages inside a built image, and CodeQL for taint that crosses f
 as optional Action steps. Neither belongs in the core gate: one needs a build, the other a database and,
 for private code, a licence.
 
-### 18. The unit suite is CPU-bound near the gate's own test limit — open
+### 18. The unit suite is CPU-bound near the gate's own test limit — measured, partly fixed
 
 `npm test` takes 63–100s on a 4-vCPU GitHub runner, and the self job's `tests` check killed it at the
 then-fixed 120s on `21863d3`, a README-only commit. `edef716` added `WOLFPROOF_TEST_TIMEOUT` and the
-self job sets 300, which stops the flake without explaining it.
+self job sets 300, which stopped the flake without explaining it.
 
-What is known (2026-10-20, on a many-core Mac):
+**Where the CPU went** (2026-10-21, each file run alone, user + sys including children): about 412s in
+all, and semgrep was most of it. A wrapper on PATH counted the calls in the eight heavy files:
 
-- 390s of CPU for 122s of wall time. Wall time was the slowest file, `agent/sast.test.mjs` at 105s;
-  `aaf2489` ran its eleven serial `semgrep --test` calls as one (63s to 11s), and wall time fell to
-  73s. CPU fell only to 365s, and CI did not move: a 4-vCPU runner is bound by total CPU, roughly
-  365 / 4 ≈ 90s.
-- After `sast.test.mjs` (52s, about seven semgrep runs of ~5s each), the slowest files are
-  `scan-root.test.mjs` 31s, `build-check.test.mjs` 26s, `requirement-sentences.test.mjs` 24s,
-  `lib/requirements.test.mjs` 19s, `unscanned-manifests.test.mjs` 15s, `applicability.test.mjs` 14s
-  and `bin/exit-codes.test.mjs` 12s.
+| semgrep call | runs | seconds |
+|---|---|---|
+| `--version` | 51 | 117 |
+| `scan` | 39 | 132 |
+| `--test` | 1 | 12 |
 
-To find out:
+1. **The version probe.** `agent/sast.mjs` ran `semgrep --version` before every scan, a full Python
+   start-up (about 2.3s of CPU) for a string nothing reads, and the agent loop and the suite run the
+   check many times per process. Removed: a missing semgrep is found by the scan failing to start
+   (ENOENT, the same "not installed" message), and the version comes from the scan's own JSON.
+2. **A fixture with code it did not need.** `agent/scan-root.test.mjs` judged where controls looked,
+   but its project held an `index.mjs`, so every one of its validateProject calls ran semgrep: 36
+   runs, 120s of CPU, 101s of wall, the heaviest file in the suite. Its project now holds a README:
+   0.5s.
+3. **What is left is the checks themselves.** The two requirements files, `exit-codes` and
+   `requirement-sentences` run the real CLI on purpose, and each run pays for the control servers,
+   the toolchain report (about 4s of CPU: ten version probes, three of them Python) and a semgrep
+   scan, which their assertions need: one asserts that a baseline sentence about parameterised
+   queries is covered by sast. `sast.test.mjs` is semgrep by definition.
 
-1. Which tests spend the CPU, not the wall time: per-test CPU on a 4-vCPU Linux box, or a runner
-   with `--test-concurrency=1` and per-test timing.
-2. How much is process start-up — semgrep (~5s each), MCP control servers spawned per test, the
-   whole gate spawned per test — and whether those can be shared across a file's tests, as the rule
-   samples now are.
-3. Whether `requirement-sentences` and `requirements` spend their time in the gate or in fixtures
-   they rebuild per test.
-
-Done when the suite fits under 120s on the runner with margin, or the self job's 300 is a measured
-choice rather than a guess.
+After 1 and 2: 699 of 699, 286s of CPU (from about 412), 58s wall locally.
 
 ### 12. Considered and deferred
 

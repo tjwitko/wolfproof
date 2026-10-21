@@ -67,11 +67,6 @@ export function sastTargets(projectDir) {
   return out.sort();
 }
 
-function semgrepAvailable() {
-  const r = spawnSync("semgrep", ["--version"], { encoding: "utf8", env: semgrepEnv() });
-  return r.status === 0 ? r.stdout.trim().split("\n").pop() : null;
-}
-
 function semgrepEnv() {
   return { ...process.env, SEMGREP_SEND_METRICS: "off", SEMGREP_ENABLE_VERSION_CHECK: "0" };
 }
@@ -85,6 +80,10 @@ function run(files) {
     // a wedged child that ignores SIGTERM made a timeout bound nothing once already (#5).
     { encoding: "utf8", env: semgrepEnv(), timeout: TIMEOUT_MS, killSignal: "SIGKILL", maxBuffer: 64 * 1024 * 1024 }
   );
+  // Not installed is found by running the scan, not by a `semgrep --version` first: each probe was a
+  // full Python start-up, about 2.3s of CPU, and in the unit suite 51 of them were 117s of roughly 412s.
+  // The scan's own JSON carries the version.
+  if (r.error?.code === "ENOENT") return { missing: true };
   if (r.error || r.signal) {
     return { error: r.error?.code === "ETIMEDOUT" || r.signal ? `semgrep did not finish within ${TIMEOUT_MS / 1000}s` : `semgrep could not be run: ${r.error.message}` };
   }
@@ -156,8 +155,7 @@ export function sastScan(projectDir, { taskText = "" } = {}) {
   const files = sastTargets(projectDir);
   if (files.length === 0) return { files: 0, version: null, findings: [], unparsed: [] };
 
-  const version = semgrepAvailable();
-  if (!version) {
+  const notInstalled = () => {
     const langs = [...new Set(files.map((f) => LANGUAGE[path.extname(f)] || "JavaScript/TypeScript"))].join(", ");
     return {
       files: files.length,
@@ -169,13 +167,16 @@ export function sastScan(projectDir, { taskText = "" } = {}) {
           `Install it — \`brew install semgrep\` or \`pipx install semgrep\` — and re-run.`,
       ],
     };
-  }
+  };
 
+  let version = null;
   const results = [];
   const unparsed = new Set();
   for (let i = 0; i < files.length; i += CHUNK) {
     const r = run(files.slice(i, i + CHUNK));
+    if (r.missing) return notInstalled();
     if (r.error) return { files: files.length, version, findings: [], unparsed: [], couldNotRun: [`${r.error}; nothing was checked for injection.`] };
+    version ||= r.doc.version || null;
     results.push(...(r.doc.results || []));
     for (const e of r.doc.errors || []) if (e.path) unparsed.add(path.relative(projectDir, e.path));
   }

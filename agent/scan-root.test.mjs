@@ -21,9 +21,11 @@ function registryReturning(payload) {
 // Awaited. It returned fn's promise from inside try/finally, so the directory was deleted before any
 // test body ran and every test here judged a project that no longer existed -- which went unnoticed
 // until a test needed the project to be there.
+// No source file: what these tests judge is where a control looked, and a JavaScript file here ran
+// semgrep on every validateProject call -- 36 runs and 101s of CPU, the most of any file in the suite.
 async function inEmptyProject(fn) {
   const dir = mkdtempSync(path.join(tmpdir(), "scanroot-"));
-  writeFileSync(path.join(dir, "index.mjs"), "export const x = 1;\n");
+  writeFileSync(path.join(dir, "README.md"), "a project\n");
   try {
     return await fn(dir);
   } finally {
