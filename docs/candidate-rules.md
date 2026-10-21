@@ -1114,7 +1114,7 @@ Trivy for the packages inside a built image, and CodeQL for taint that crosses f
 as optional Action steps. Neither belongs in the core gate: one needs a build, the other a database and,
 for private code, a licence.
 
-### 18. The unit suite is CPU-bound near the gate's own test limit — measured, partly fixed
+### 18. The unit suite is CPU-bound near the gate's own test limit — fixed
 
 `npm test` takes 63–100s on a 4-vCPU GitHub runner, and the self job's `tests` check killed it at the
 then-fixed 120s on `21863d3`, a README-only commit. `edef716` added `WOLFPROOF_TEST_TIMEOUT` and the
@@ -1144,6 +1144,15 @@ all, and semgrep was most of it. A wrapper on PATH counted the calls in the eigh
    queries is covered by sast. `sast.test.mjs` is semgrep by definition.
 
 After 1 and 2: 699 of 699, 286s of CPU (from about 412), 58s wall locally.
+
+On CI (`b5f14e8` and the commit after it, six runner measurements): `npm test` 43–68s, from 63–100s, so
+the suite fits under the default 120s with at least 52s to spare. The self job keeps
+`WOLFPROOF_TEST_TIMEOUT=300` as headroom for a slow runner; it is no longer what keeps the job green.
+
+Measuring it also found that a semgrep release newer than the pin makes `semgrep --version` print an
+upgrade notice first: the CI tooling check read that as an empty version and failed every job that
+installs the tooling. It and the toolchain probe now set `SEMGREP_ENABLE_VERSION_CHECK=0`, as the sast
+check always had.
 
 ### 12. Considered and deferred
 
