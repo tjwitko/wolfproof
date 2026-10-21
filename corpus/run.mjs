@@ -18,25 +18,13 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { toolchain, toolchainDrift } from "../lib/toolchain.mjs";
 import { setting } from "../lib/settings.mjs";
+import { findingId, factoryFindingId } from "../lib/corpus-keys.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..");
 
-/**
- * A finding's identity is the check that produced it. Message bodies carry counts, paths and prose
- * that move for reasons unrelated to whether the control still fires, so the corpus pins WHICH
- * checks fire and HOW MANY times rather than their wording. Pinning the prose would make every
- * improvement to a remediation message look like a regression, and the remediations have been
- * rewritten repeatedly -- one of them cost a run by naming a setting without naming the block it
- * belongs in.
- */
-export function findingId(message) {
-  const m = /^([a-z_][a-z_ ]*)\s*(?:\(|:)/i.exec(message.trim());
-  return m ? m[1].trim() : message.trim().slice(0, 24);
-}
-
-function runGate(projectDir, taskFile) {
-  const args = [path.join(REPO, "bin", "validate.mjs"), projectDir, taskFile, "--json"];
+function runGate(projectDir, taskFile, extra = []) {
+  const args = [path.join(REPO, "bin", "validate.mjs"), projectDir, taskFile, "--json", ...extra];
   let out;
   try {
     out = execFileSync("node", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] });
@@ -99,6 +87,13 @@ process.on("exit", () => { if (extracted) rmSync(extracted, { recursive: true, f
 // skipped the scratch copy and the git init, and every fixture read as drifted.
 const UPDATE = process.argv.includes("--update");
 
+// --factory runs the same fixtures in factory mode, against frozen factory verdicts kept beside the
+// default ones (entry.factory, manifest.factory). The base is an empty commit before the fixture, so
+// the whole deliverable is the change: the shape of a dark factory, where an agent wrote all of it and
+// nothing in it predates the work under review. Same code path as the default run for the reason
+// above -- --update --factory re-derives only the factory verdicts and leaves the default ones alone.
+const FACTORY = process.argv.includes("--factory");
+
 // What measured these numbers, not just when: lib/toolchain.mjs records the scanners, and why. A
 // null there is the interesting value, not a missing one: the corpus was derived on a machine that
 // could not run that language's checks at all.
@@ -110,19 +105,23 @@ const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 // fixture moves on the day a release ages out, with nothing changed. Comparing against frozen
 // verdicts, the gate is asked to judge as of the date they were measured; --update measures as of
 // today and records today. An explicit WOLFPROOF_TODAY (or AGENT_GATE_TODAY) still wins.
-if (!UPDATE && !setting(process.env, "TODAY")) process.env.WOLFPROOF_TODAY = manifest.measured;
-console.log(`corpus: ${manifest.entries.length} deliverables${UPDATE ? " — RE-DERIVING expected values" : `, verdicts measured ${manifest.measured}`}\n`);
+const frozen = FACTORY ? manifest.factory || {} : manifest;
+if (!UPDATE && !setting(process.env, "TODAY") && frozen.measured) process.env.WOLFPROOF_TODAY = frozen.measured;
+console.log(
+  `corpus${FACTORY ? " (factory mode)" : ""}: ${manifest.entries.length} deliverables` +
+    `${UPDATE ? " — RE-DERIVING expected values" : frozen.measured ? `, verdicts measured ${frozen.measured}` : ", no verdicts frozen yet"}\n`
+);
 
 const CURRENT_TOOLCHAIN = await toolchain();
 if (!UPDATE) {
-  const drift = toolchainDrift(manifest.toolchain, CURRENT_TOOLCHAIN);
+  const drift = toolchainDrift(frozen.toolchain, CURRENT_TOOLCHAIN);
   if (drift.length) {
     console.log(`  the toolchain differs from the one that measured these verdicts:`);
     for (const d of drift) console.log(`    ${d}`);
     console.log(`  counts are compared against scanners, not against source alone, so a difference`);
     console.log(`  here can look exactly like a control that changed behaviour.\n`);
   }
-  if (!manifest.toolchain) {
+  if (frozen.measured && !frozen.toolchain) {
     console.log(`  this manifest records no toolchain, so nothing can be said about what measured it.\n`);
   }
 }
@@ -156,16 +155,41 @@ for (const entry of manifest.entries) {
   let r;
   try {
     cpSync(dir, work, { recursive: true });
+    const commit = (...a) => execFileSync("git", ["-C", work, "-c", "user.name=corpus", "-c", "user.email=corpus@localhost", "commit", "-q", ...a]);
     execFileSync("git", ["-C", work, "init", "-q"]);
+    let base = null;
+    if (FACTORY) {
+      commit("--allow-empty", "-m", "before the deliverable");
+      base = execFileSync("git", ["-C", work, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    }
     execFileSync("git", ["-C", work, "add", "-A"]);
-    execFileSync("git", ["-C", work, "-c", "user.name=corpus", "-c", "user.email=corpus@localhost",
-      "commit", "-q", "-m", "corpus fixture"]);
-    r = runGate(work, taskFile);
+    commit("-m", "corpus fixture");
+    r = runGate(work, taskFile, FACTORY ? ["--factory", `--base=${base}`] : []);
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+  const keyOf = (message) => (FACTORY ? factoryFindingId(message) : { id: findingId(message), n: 1 });
   const counts = {};
-  for (const f of r.findings) counts[findingId(f.message)] = (counts[findingId(f.message)] || 0) + 1;
+  for (const f of r.findings) {
+    const { id, n } = keyOf(f.message);
+    counts[id] = (counts[id] || 0) + n;
+  }
+  if (UPDATE && FACTORY) {
+    if (r.incomplete) {
+      entry.factory = {
+        ...(entry.factory || {}),
+        unmeasured: { on: new Date().toISOString().slice(0, 10), why: (r.couldNotRun || []).concat((r.unreachable || []).map((u) => `${u.name}: ${u.why}`)) },
+      };
+      console.log(`  SKIPPED  ${entry.name} — the run was INCOMPLETE, expectations left unchanged`);
+      for (const w of entry.factory.unmeasured.why) console.log(`      ${w}`);
+      unmeasured++;
+      continue;
+    }
+    const was = entry.factory ? entry.factory.expectedBlocking : "none";
+    entry.factory = { expectedBlocking: r.blocking, expectedFindings: Object.fromEntries(Object.entries(counts).sort()) };
+    console.log(`  recorded ${entry.name}  ${was} -> ${r.blocking}  (default mode ${entry.expectedBlocking})`);
+    continue;
+  }
   if (UPDATE) {
     // An incomplete run measured nothing worth freezing. Recording it anyway is how three Go
     // fixtures came to carry a clean `tests` verdict from a machine with no Go toolchain: the
@@ -210,15 +234,21 @@ for (const entry of manifest.entries) {
     continue;
   }
 
-  const drift = diffCounts(entry.expectedFindings, counts);
+  if (FACTORY && !entry.factory) {
+    console.log(`  NOT FROZEN ${entry.name} — no factory-mode verdict is recorded; run with --factory --update`);
+    unmeasured++;
+    continue;
+  }
+  const expected = FACTORY ? entry.factory : entry;
+  const drift = diffCounts(expected.expectedFindings || {}, counts);
 
   // Expectations that were never measured are not a baseline, so there is nothing to compare
   // against and no verdict to print. This returns rather than falling through deliberately: the
   // first version printed UNMEASURED and then `ok (0 blocking)` for the same fixture, one line
   // apart, which is the mixed message the whole exercise is about.
-  if (entry.unmeasured) {
-    console.log(`  UNMEASURED ${entry.name} — its expectations were never measured (${entry.unmeasured.on})`);
-    for (const w of entry.unmeasured.why) console.log(`      ${w}`);
+  if (expected.unmeasured) {
+    console.log(`  UNMEASURED ${entry.name} — its expectations were never measured (${expected.unmeasured.on})`);
+    for (const w of expected.unmeasured.why) console.log(`      ${w}`);
     console.log(`      Nothing is compared for this fixture; matching it would confirm nothing.`);
     unmeasured++;
     continue;
@@ -229,8 +259,8 @@ for (const entry of manifest.entries) {
     console.log(`  INCOMPLETE ${entry.name} — a control could not run; this verdict proves nothing`);
     for (const c of r.controls.filter((c) => c.status !== "ran")) console.log(`      ${c.name}: ${c.error || "never called"}`);
     failed++;
-  } else if (r.blocking !== entry.expectedBlocking || drift.length) {
-    console.log(`  DRIFT    ${entry.name} — blocking ${entry.expectedBlocking} -> ${r.blocking}`);
+  } else if (r.blocking !== expected.expectedBlocking || drift.length) {
+    console.log(`  DRIFT    ${entry.name} — blocking ${expected.expectedBlocking} -> ${r.blocking}`);
     for (const d of drift) console.log(`      ${d}`);
     // The counts say WHICH check moved; they never say why, and on a machine that is not this one
     // that is the whole question. Four fixtures drifted on the first CI run with `build_check:
@@ -238,7 +268,7 @@ for (const entry of manifest.entries) {
     // document the whole time. Printing it costs nothing on a green run, because there is no drift
     // to print.
     for (const f of r.findings) {
-      if (drift.some((d) => d.startsWith(`${findingId(f.message)}:`))) {
+      if (drift.some((d) => d.startsWith(`${keyOf(f.message).id}:`))) {
         console.log(`        ${f.message.replace(/\n/g, "\n        ")}`);
       }
     }
@@ -265,19 +295,28 @@ for (const entry of manifest.entries) {
     // and a scoreboard on which the clean projects read as 1 invites exactly one question -- the
     // answer to which should not be a footnote in a manifest nobody opens.
     const delivered =
-      typeof entry.asDelivered === "number" && entry.asDelivered !== r.blocking
+      !FACTORY && typeof entry.asDelivered === "number" && entry.asDelivered !== r.blocking
         ? `; ${entry.asDelivered} as delivered — the suite cannot run without node_modules`
         : "";
-    console.log(`  ok       ${entry.name}  (${r.blocking} blocking${delivered})`);
+    const vsDefault = FACTORY && r.blocking !== entry.expectedBlocking ? `; ${entry.expectedBlocking} in the default mode` : "";
+    console.log(`  ok       ${entry.name}  (${r.blocking} blocking${delivered}${vsDefault})`);
   }
 }
 
 if (UPDATE) {
-  manifest.measured = new Date().toISOString().slice(0, 10);
-  manifest.toolchain = CURRENT_TOOLCHAIN;
+  if (FACTORY) {
+    manifest.factory = {
+      measured: new Date().toISOString().slice(0, 10),
+      base: "an empty commit before the fixture, so the whole deliverable is the change; no allowlist, no policy",
+      toolchain: CURRENT_TOOLCHAIN,
+    };
+  } else {
+    manifest.measured = new Date().toISOString().slice(0, 10);
+    manifest.toolchain = CURRENT_TOOLCHAIN;
+  }
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   const absent = Object.entries(CURRENT_TOOLCHAIN).filter(([, v]) => v === null).map(([k]) => k);
-  console.log(`\nre-derived ${manifest.entries.length - unmeasured} verdicts into corpus/manifest.json`);
+  console.log(`\nre-derived ${manifest.entries.length - unmeasured} ${FACTORY ? "factory-mode " : ""}verdicts into corpus/manifest.json`);
   if (absent.length) {
     console.log(`  NOT INSTALLED HERE: ${absent.join(", ")} — any check needing one of these measured nothing.`);
   }
@@ -321,4 +360,4 @@ if (failed) {
   console.log("If the change was deliberate, re-derive corpus/manifest.json and say so in the commit.");
   process.exit(1);
 }
-console.log(`all ${manifest.entries.length} deliverables match.`);
+console.log(`all ${manifest.entries.length} deliverables match${FACTORY ? " in factory mode" : ""}.`);

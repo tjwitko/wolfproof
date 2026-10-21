@@ -972,6 +972,7 @@ cd wolfproof
 npm install
 npm test          # unit tests
 npm run corpus    # regression corpus — thirteen frozen projects
+npm run corpus:factory  # the same thirteen, in factory mode, against their own frozen verdicts
 npm run calibration   # the sast rules on 22 real apps, cloned at pinned commits — about 75 minutes
 node scripts/refresh-eol-data.mjs   # end-of-life dates for the dockerfile check, before a release
 ```
@@ -980,6 +981,13 @@ The corpus is the important one. **Every control defect in this project's histor
 running real work through the controls, never by a unit test.** `npm run corpus` re-measures
 thirteen frozen projects and fails on drift in either direction, because a control that stops
 firing is as much a regression as one that starts over-firing.
+
+`npm run corpus:factory` runs the same thirteen in [factory mode](#factory-mode), each judged as a
+change written from nothing — the base is an empty commit before the deliverable, with no allowlist
+and no policy — against verdicts frozen separately from the default ones. Measured on 2026-10-20,
+factory mode blocks more in eight of them: an unverifiable secret rotation in seven, an undetermined
+retention period in one, two committed files under `terraform/.terraform`, and a `# noqa` in a test
+file. None moves from clean to blocked, and none becomes incomplete.
 
 Eleven are real deliverables, frozen with the verdict each one scored. The other two exist to cover
 shapes the graded set does not have — a plain Node library with no infrastructure, and a Python

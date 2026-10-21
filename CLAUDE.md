@@ -122,6 +122,7 @@ npm install
 node bin/validate.mjs <project-dir> <task-file>   # the gate, against a project
 npm test                                          # node --test agent/*.test.mjs
 npm run corpus                                    # the frozen-verdict fixtures
+npm run corpus:factory                            # the same fixtures in factory mode (--update re-derives)
 ```
 
 Tests run per-file (`node --test agent/immutability.test.mjs`). The path must be the file:

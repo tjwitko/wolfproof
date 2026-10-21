@@ -17,7 +17,14 @@
       "asDelivered": 0,
       "differsFromAsDelivered": "the vendored copy scores 1 where the original scores 0, because node_modules is not vendored: the suite cannot run, so the tests check fires",
       "asDeliveredMeasured": "against the original deliverable, same gate",
-      "remeasured": "check_dependencies 0 -> 1 on 2026-10-13: proxy-addr 2.0.7 in this deliverable's own dependencies, GHSA-jqcg-44mw-7w3h (critical), published 2026-10-05 -- after these verdicts were measured. The advisory database moved; the deliverable and the controls did not. Applied from the CI run on 425c4ec, which measured all thirteen with a working Docker: nine matched exactly and these four moved by this one finding and nothing else. Not re-derived locally, because Docker on the measuring machine was wedged and a local --update would have frozen an incomplete Go verdict."
+      "remeasured": "check_dependencies 0 -> 1 on 2026-10-13: proxy-addr 2.0.7 in this deliverable's own dependencies, GHSA-jqcg-44mw-7w3h (critical), published 2026-10-05 -- after these verdicts were measured. The advisory database moved; the deliverable and the controls did not. Applied from the CI run on 425c4ec, which measured all thirteen with a working Docker: nine matched exactly and these four moved by this one finding and nothing else. Not re-derived locally, because Docker on the measuring machine was wedged and a local --update would have frozen an incomplete Go verdict.",
+      "factory": {
+        "expectedBlocking": 2,
+        "expectedFindings": {
+          "check_dependencies": 1,
+          "tests": 1
+        }
+      }
     },
     {
       "name": "webhook-sonnet-2",
@@ -29,7 +36,11 @@
       "digest": "4ef89c7b1a2993f2",
       "upstream": "../webhook-sonnet-2",
       "asDelivered": 0,
-      "asDeliveredMeasured": "against the original deliverable, same gate"
+      "asDeliveredMeasured": "against the original deliverable, same gate",
+      "factory": {
+        "expectedBlocking": 0,
+        "expectedFindings": {}
+      }
     },
     {
       "name": "webhook-sonnet-3",
@@ -46,7 +57,14 @@
       "asDelivered": 0,
       "differsFromAsDelivered": "the vendored copy scores 1 where the original scores 0, because node_modules is not vendored: the suite cannot run, so the tests check fires",
       "asDeliveredMeasured": "against the original deliverable, same gate",
-      "remeasured": "check_dependencies 0 -> 1 on 2026-10-13: proxy-addr 2.0.7 in this deliverable's own dependencies, GHSA-jqcg-44mw-7w3h (critical), published 2026-10-05 -- after these verdicts were measured. The advisory database moved; the deliverable and the controls did not. Applied from the CI run on 425c4ec, which measured all thirteen with a working Docker: nine matched exactly and these four moved by this one finding and nothing else. Not re-derived locally, because Docker on the measuring machine was wedged and a local --update would have frozen an incomplete Go verdict."
+      "remeasured": "check_dependencies 0 -> 1 on 2026-10-13: proxy-addr 2.0.7 in this deliverable's own dependencies, GHSA-jqcg-44mw-7w3h (critical), published 2026-10-05 -- after these verdicts were measured. The advisory database moved; the deliverable and the controls did not. Applied from the CI run on 425c4ec, which measured all thirteen with a working Docker: nine matched exactly and these four moved by this one finding and nothing else. Not re-derived locally, because Docker on the measuring machine was wedged and a local --update would have frozen an incomplete Go verdict.",
+      "factory": {
+        "expectedBlocking": 2,
+        "expectedFindings": {
+          "check_dependencies": 1,
+          "tests": 1
+        }
+      }
     },
     {
       "name": "webhook-haiku",
@@ -68,7 +86,18 @@
       "remeasured": [
         "check_dependencies 0 -> 1 on 2026-10-13: a control change, not the advisory database. This deliverable's package.json declares dependencies and it has no lockfile, which osv-scanner does not read on its own -- so its dependencies were never scanned, and the gate reported a check that ran and found nothing (candidate-rules #7). The original at ../webhook-haiku has no lockfile either, so the as-delivered verdict moves with it. Measured locally with a responsive Docker: the other eleven fixtures matched exactly.",
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
-      ]
+      ],
+      "factory": {
+        "expectedBlocking": 7,
+        "expectedFindings": {
+          "check_dependencies": 1,
+          "dockerfile": 1,
+          "factory: nothing checked (secret rotation)": 1,
+          "immutability": 1,
+          "tests": 1,
+          "workload identity": 2
+        }
+      }
     },
     {
       "name": "webhook-haiku-2",
@@ -91,7 +120,20 @@
       "asDeliveredMeasured": "against the original deliverable, same gate",
       "remeasured": [
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
-      ]
+      ],
+      "factory": {
+        "expectedBlocking": 11,
+        "expectedFindings": {
+          "check_dependencies": 1,
+          "dockerfile": 1,
+          "factory: nothing checked (secret rotation)": 1,
+          "factory: skipped-location": 2,
+          "retention": 2,
+          "terraform_plan": 1,
+          "tests": 1,
+          "workload identity": 3
+        }
+      }
     },
     {
       "name": "webhook-haiku-3",
@@ -113,7 +155,18 @@
       "remeasured": [
         "check_dependencies 0 -> 1 on 2026-10-13: proxy-addr 2.0.7 in this deliverable's own dependencies, GHSA-jqcg-44mw-7w3h (critical), published 2026-10-05 -- after these verdicts were measured. The advisory database moved; the deliverable and the controls did not. Applied from the CI run on 425c4ec, which measured all thirteen with a working Docker: nine matched exactly and these four moved by this one finding and nothing else. Not re-derived locally, because Docker on the measuring machine was wedged and a local --update would have frozen an incomplete Go verdict.",
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
-      ]
+      ],
+      "factory": {
+        "expectedBlocking": 10,
+        "expectedFindings": {
+          "check_dependencies": 1,
+          "code quality": 1,
+          "dockerfile": 1,
+          "factory: nothing checked (secret rotation)": 1,
+          "retention": 1,
+          "workload identity": 5
+        }
+      }
     },
     {
       "name": "webhook-haiku-4",
@@ -134,7 +187,17 @@
       "remeasured": [
         "check_dependencies 0 -> 1 on 2026-10-13: a control change, not the advisory database. This deliverable's package.json declares dependencies and it has no lockfile, which osv-scanner does not read on its own -- so its dependencies were never scanned, and the gate reported a check that ran and found nothing (candidate-rules #7). The original at ../webhook-haiku-4 has no lockfile either, so the as-delivered verdict moves with it. Measured locally with a responsive Docker: the other eleven fixtures matched exactly.",
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
-      ]
+      ],
+      "factory": {
+        "expectedBlocking": 7,
+        "expectedFindings": {
+          "check_dependencies": 1,
+          "dockerfile": 1,
+          "factory: nothing checked (secret rotation)": 1,
+          "tests": 1,
+          "workload identity": 3
+        }
+      }
     },
     {
       "name": "webhook-haiku-6",
@@ -154,7 +217,17 @@
       "asDeliveredMeasured": "against the original deliverable, same gate",
       "remeasured": [
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
-      ]
+      ],
+      "factory": {
+        "expectedBlocking": 9,
+        "expectedFindings": {
+          "check_dependencies": 1,
+          "dockerfile": 1,
+          "factory: nothing checked (secret rotation)": 1,
+          "tests": 1,
+          "workload identity": 5
+        }
+      }
     },
     {
       "name": "webhook-haiku-7",
@@ -173,7 +246,16 @@
       "asDeliveredMeasured": "against the original deliverable, same gate",
       "remeasured": [
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
-      ]
+      ],
+      "factory": {
+        "expectedBlocking": 4,
+        "expectedFindings": {
+          "dockerfile": 1,
+          "factory: nothing checked (secret rotation)": 1,
+          "tests": 1,
+          "workload identity": 1
+        }
+      }
     },
     {
       "name": "webhook-haiku-8",
@@ -192,7 +274,17 @@
       "asDeliveredMeasured": "against the original deliverable, same gate",
       "remeasured": [
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
-      ]
+      ],
+      "factory": {
+        "expectedBlocking": 6,
+        "expectedFindings": {
+          "dockerfile": 1,
+          "factory: nothing checked (retention)": 1,
+          "factory: nothing checked (secret rotation)": 1,
+          "tests": 1,
+          "workload identity": 2
+        }
+      }
     },
     {
       "name": "webhook-haiku-12",
@@ -217,7 +309,19 @@
       "remeasured": [
         "check_dependencies 0 -> 1 on 2026-10-13: proxy-addr 2.0.7 in this deliverable's own dependencies, GHSA-jqcg-44mw-7w3h (critical), published 2026-10-05 -- after these verdicts were measured. The advisory database moved; the deliverable and the controls did not. Applied from the CI run on 425c4ec, which measured all thirteen with a working Docker: nine matched exactly and these four moved by this one finding and nothing else. Not re-derived locally, because Docker on the measuring machine was wedged and a local --update would have frozen an incomplete Go verdict.",
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
-      ]
+      ],
+      "factory": {
+        "expectedBlocking": 8,
+        "expectedFindings": {
+          "check_dependencies": 1,
+          "dockerfile": 1,
+          "iam": 2,
+          "immutability": 1,
+          "manifest contract": 1,
+          "terraform_plan": 1,
+          "tests": 1
+        }
+      }
     },
     {
       "name": "shape-node-library",
@@ -229,7 +333,11 @@
       "expectedBlocking": 0,
       "expectedFindings": {},
       "asDelivered": 0,
-      "asDeliveredMeasured": "against the original deliverable, same gate"
+      "asDeliveredMeasured": "against the original deliverable, same gate",
+      "factory": {
+        "expectedBlocking": 0,
+        "expectedFindings": {}
+      }
     },
     {
       "name": "shape-python-service",
@@ -243,7 +351,14 @@
         "authentication": 1
       },
       "asDelivered": 1,
-      "asDeliveredMeasured": "against the original deliverable, same gate"
+      "asDeliveredMeasured": "against the original deliverable, same gate",
+      "factory": {
+        "expectedBlocking": 2,
+        "expectedFindings": {
+          "authentication": 1,
+          "factory: added noqa": 1
+        }
+      }
     }
   ],
   "fixtures": {
@@ -266,5 +381,22 @@
     "semgrep": "1.180.0",
     "pytest": "9.1.1",
     "docker": "29.6.2"
+  },
+  "factory": {
+    "measured": "2026-10-21",
+    "base": "an empty commit before the fixture, so the whole deliverable is the change; no allowlist, no policy",
+    "toolchain": {
+      "node": "26.5.1",
+      "go": "1.27.1",
+      "terraform": "1.15.8",
+      "gitleaks": "8.30.1",
+      "osv-scanner": "2.4.0",
+      "checkov": "3.3.10",
+      "python3": "3.14.8",
+      "ruff": "0.16.2",
+      "semgrep": "1.180.0",
+      "pytest": "9.1.1",
+      "docker": "29.6.2"
+    }
   }
 }
