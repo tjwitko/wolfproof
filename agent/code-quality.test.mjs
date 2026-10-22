@@ -73,6 +73,51 @@ test("Go and JS test conventions are recognised", () => {
   }
 });
 
+// Maven's src/test/java was not recognised: a Java project with tests was blocked for having none.
+test("JVM, .NET, PHP and Rust test conventions are recognised", () => {
+  const ADD = { "src/main/java/app/Add.java": "package app;\npublic class Add { public static int add(int a, int b) { return a + b; } }\n" };
+  for (const [name, body] of [
+    ["src/test/java/app/AddTest.java", "class AddTest {\n  @Test void adds() { assertEquals(3, Add.add(1, 2)); }\n}\n"],
+    ["src/test/kotlin/app/AddTest.kt", "class AddTest {\n  @Test fun adds() { assertEquals(3, add(1, 2)) }\n}\n"],
+    ["src/test/kotlin/app/AddSpec.kt", "class AddSpec : StringSpec({\n  \"adds\" { add(1, 2) shouldBe 3 }\n})\n"],
+    ["App.Tests/AddTests.cs", "public class AddTests {\n  [Fact] public void Adds() { Assert.Equal(3, Calc.Add(1, 2)); }\n}\n"],
+    ["App.Tests/CalcTests.cs", "public class CalcTests {\n  [Test] public void Adds() { Calc.Add(1, 2).Should().Be(3); }\n}\n"],
+    ["tests/AddTest.php", "<?php\nfinal class AddTest extends TestCase {\n  public function testAdds(): void { $this->assertSame(3, add(1, 2)); }\n}\n"],
+    ["src/lib.rs", "pub fn add(a: i32, b: i32) -> i32 { a + b }\n#[cfg(test)]\nmod tests {\n  #[test]\n  fn adds() { assert_eq!(super::add(1, 2), 3); }\n}\n"],
+  ]) {
+    const r = run({ ...ADD, [name]: body }, (d) => ({ failures: codeQualityFailures(d, WANTS).failures, tests: checkCodeQuality(d, WANTS).tests }));
+    assert.deepEqual(r.failures.filter((f) => /contains none/.test(f)), [], name);
+    assert.deepEqual(r.tests.map((t) => t.rel), [name], name);
+  }
+});
+
+// webhook-haiku-3: a hand-rolled tests/runner.js imports only its suites, which re-implement the
+// signature check with crypto. Once files under tests/ counted as tests, importing a sibling test
+// passed as reaching the project, and the corpus finding that none of them do was lost.
+test("importing another test file does not reach the project; importing its code does", () => {
+  const suite = "import assert from 'assert';\nexport function testSigns() { assert.equal(sign('a'), sign('a')); }\n";
+  const runner = "import { testSigns } from './signing.test.js';\nimport assert from 'assert';\ntestSigns();\nassert.ok(true);\n";
+  const app = { "src/app.js": "export const sign = (x) => x;\n" };
+  const detached = run({ ...app, "tests/signing.test.js": suite, "tests/runner.js": runner }, (d) => codeQualityFailures(d, WANTS));
+  assert.ok(detached.failures.some((f) => /^code quality: none of the 2 test file\(s\) import anything from this project/.test(f)), detached.failures.join("\n"));
+
+  const reaching = runner.replace("import assert from 'assert';", "import { sign } from '../src/app.js';\nimport assert from 'assert';");
+  const r = run({ ...app, "tests/signing.test.js": suite, "tests/runner.js": reaching }, (d) => codeQualityFailures(d, WANTS));
+  assert.ok(!r.failures.some((f) => /import anything from this project/.test(f)), r.failures.join("\n"));
+});
+
+test("a class whose name only ends like a test word is not a test, and a test-named file needs an assertion", () => {
+  const files = {
+    "src/main/java/app/Latest.java": "class Latest { void check() { assertEquals(1, 1); } }\n",
+    "src/Contest.php": "<?php\nassert(true);\n",
+    "src/test/java/app/AddTest.java": "class AddTest { /* TODO */ }\n",
+  };
+  const r = run(files, (d) => checkCodeQuality(d, WANTS));
+  assert.deepEqual(r.tests, []);
+  const { failures } = run(files, (d) => codeQualityFailures(d, WANTS));
+  assert.ok(failures.some((f) => /contains none/.test(f)), failures.join("\n"));
+});
+
 // --- errors reported as faults --------------------------------------------------------------------
 
 const SWALLOWS =

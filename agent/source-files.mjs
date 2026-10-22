@@ -22,8 +22,29 @@ export const READ_EXT = new Set([
 
 const MAX_FILE_BYTES = 512 * 1024;
 
-/** Every readable source file under `dir`, as [{ rel, text }]. */
-export function walk(dir, acc = [], root = dir) {
+// Test files, defined once for the two checks that ask about them: code quality (are there tests that
+// assert something) and the tests check (are there tests to run). Each used to keep its own pattern,
+// and neither knew Maven's src/test/java: a Java project with tests was blocked for having none, and a
+// PHP project's tests/ was "no test files were found". This is the union of both old patterns, plus
+// the conventions of the languages the injection rules read.
+//
+// The extensions include every READ_EXT, so nothing either check found before is lost.
+export const TEST_EXT = new Set([...READ_EXT, ".jsx", ".kt", ".cs", ".rs", ".php"]);
+// A test/, tests/, spec/ or __tests__ path segment (Maven's src/test/java, .NET's MyApp.Tests/), or a
+// file named the JavaScript, Python, Go or Ruby way.
+const TEST_PATH = /(^|[\/._-])(tests?|spec|__tests__)([\/._-]|$)|_test\.(py|go|js|mjs|ts|rb)$|\.(test|spec)\.(m|c)?(js|ts)x?$/i;
+// JVM, .NET and PHP test classes, by their name. Case-sensitive: Latest.java is not a test.
+const TEST_CLASS = /(^|\/)(\w*(Test|Tests|IT)|\w+Spec)\.(java|kt|cs|php)$|(^|\/)Test[A-Z]\w*\.(java|kt|cs|php)$/;
+// Rust keeps unit tests in the file they test, under #[cfg(test)].
+const RUST_TEST = /#\[(?:tokio::|async_std::)?test\]/;
+
+/** Whether `rel` is a test file. `text` is needed only for Rust, whose tests are named by attribute. */
+export function isTestFile(rel, text = "") {
+  return TEST_PATH.test(rel) || TEST_CLASS.test(rel) || (rel.endsWith(".rs") && RUST_TEST.test(text));
+}
+
+/** Every readable source file under `dir` with one of `exts`, as [{ rel, text }]. */
+export function walk(dir, acc = [], root = dir, exts = READ_EXT) {
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -34,8 +55,8 @@ export function walk(dir, acc = [], root = dir) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) {
       // A declared fixture is deliberately unrepresentative; see fixture-markers.mjs.
-      if (!SKIP_DIRS.has(e.name) && !isDeclaredFixture(full)) walk(full, acc, root);
-    } else if (READ_EXT.has(path.extname(e.name))) {
+      if (!SKIP_DIRS.has(e.name) && !isDeclaredFixture(full)) walk(full, acc, root, exts);
+    } else if (exts.has(path.extname(e.name))) {
       try {
         if (statSync(full).size <= MAX_FILE_BYTES) {
           acc.push({ rel: path.relative(root, full), text: readFileSync(full, "utf8") });

@@ -24,7 +24,7 @@ import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { spawnSync } from "child_process";
 
-import { walk } from "./source-files.mjs";
+import { isTestFile, TEST_EXT, walk } from "./source-files.mjs";
 import { setting } from "../lib/settings.mjs";
 
 const DEFAULT_TIMEOUT_S = 120;
@@ -42,15 +42,14 @@ export function testTimeout(env = process.env) {
   const seconds = Number(v);
   return { ms: seconds * 1000, seconds, set: true };
 }
-const TEST_FILE = /(^|\/|\.)(test|tests|spec|__tests__)(\/|\.|_|$)|_test\.(py|go|js|mjs|ts)$/i;
 
 /**
  * Which runner can start this project's tests, as { label, cmd, args, cwd }, or
  * { unavailable } naming what is missing. Never returns a command the project itself authored.
  */
 export function detectSuite(projectDir) {
-  const files = walk(projectDir);
-  const testFiles = files.filter((f) => TEST_FILE.test(f.rel));
+  const files = walk(projectDir, [], projectDir, TEST_EXT);
+  const testFiles = files.filter((f) => isTestFile(f.rel, f.text));
   if (testFiles.length === 0) return { unavailable: "no test files were found" };
 
   const bin = (name) => path.join(projectDir, "node_modules", ".bin", name);
@@ -86,7 +85,7 @@ export function detectSuite(projectDir) {
     }
 
     // No declared runner: node's own, which needs nothing installed. Note the narrower pattern --
-    // TEST_FILE matches anything under a test/ directory, which is right for "does this project
+    // isTestFile matches anything under a test/ directory, which is right for "does this project
     // have tests" and wrong for "what should I execute". Handing node --test a helper module like
     // test/fakes.mjs runs it as a test file: harmless when it only exports fakes, and not something
     // to rely on when the helper has side effects.

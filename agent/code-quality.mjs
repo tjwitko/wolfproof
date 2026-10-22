@@ -13,9 +13,10 @@ import path from "path";
 import { taskMatcher } from "./task-phrases.mjs";
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
+import { isTestFile } from "./source-files.mjs";
 
 const MAX_FILE_BYTES = 512 * 1024;
-const CODE_EXT = [".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".go", ".rb", ".java"];
+const CODE_EXT = [".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".go", ".rb", ".java", ".kt", ".cs", ".rs", ".php"];
 
 // Both gate BLOCKING findings, and taskWantsTests now also gates whether the suite is executed at
 // all -- so a miss here silences the newest blocking check entirely. Measured against rephrasings
@@ -58,9 +59,11 @@ const TASK_WANTS_ERROR_DISTINCTION = taskMatcher({
 
 // A file is a test if it is named like one AND asserts something. Naming alone was not enough: a
 // file called test_main.py containing a TODO is not a test, and rewarding it would teach exactly
-// the wrong thing.
-const TEST_FILENAME = /(^|[\/._-])(tests?|spec)([._-]|$)|_test\.(go|py|rb)$|\.(test|spec)\.(js|mjs|ts|tsx)$/i;
-const ASSERTION = /\bassert\w*\s*[(\s]|\bexpect\s*\(|\brequire\.\w+\s*\(|\bt\.(Error|Fatal)f?\s*\(|\bshould\b|\.to(Be|Equal|Throw)\b/;
+// the wrong thing. What counts as named like one is shared with the tests check (source-files.mjs).
+// The assertions: xUnit and NUnit's Assert.X(, FluentAssertions' .Should(), Kotest's shouldBe, and
+// Rust's assert_eq!( as well as assert-, expect-, require- and should-style.
+const ASSERTION =
+  /\bassert\w*\s*[(\s]|\bassert(?:_eq|_ne)?!\s*\(|\bAssert\.\w+\s*\(|\.Should\(\)|\bexpect\s*\(|\brequire\.\w+\s*\(|\bt\.(Error|Fatal)f?\s*\(|\bshould\b|\bshould[A-Z]\w*\b|\.to(Be|Equal|Throw)\b/;
 
 // Broad handlers that turn a client error into a 500 were detected here by regex until 2026-10-14.
 // It flagged any `except Exception` that raised a 5xx -- including the corrected code its own message
@@ -109,10 +112,23 @@ function importsProjectCode(file, files, pkgName) {
 
   // JavaScript and TypeScript: a relative specifier, a dynamic import of one, a mock of one, or an
   // import of this package by its own name (the "exports" map style).
-  if (/(?:^|[^\w])(?:import|export)\s[^;]*?['"]\.\.?\//s.test(t)) return true;
-  if (/\brequire\s*\(\s*['"]\.\.?\//.test(t)) return true;
-  if (/\bimport\s*\(\s*['"]\.\.?\//.test(t)) return true;
-  if (/\b(?:jest|vi)\s*\.\s*mock\s*\(\s*['"]\.\.?\//.test(t)) return true;
+  //
+  // A relative import of another test file reaches the tests, not the code under test. When files in
+  // a tests/ directory began to count as tests (for Maven's src/test/java), webhook-haiku-3's
+  // hand-rolled tests/runner.js -- importing only crypto and its two suites, which re-implement the
+  // signature check themselves -- passed as reaching the project, and the finding that none of its
+  // tests touch the application was lost.
+  const specs = [];
+  for (const re of [
+    /(?:^|[^\w])(?:import|export)\s[^;]*?['"](\.\.?\/[^'"]*)['"]/gs,
+    /\brequire\s*\(\s*['"](\.\.?\/[^'"]*)['"]/g,
+    /\bimport\s*\(\s*['"](\.\.?\/[^'"]*)['"]/g,
+    /\b(?:jest|vi)\s*\.\s*mock\s*\(\s*['"](\.\.?\/[^'"]*)['"]/g,
+  ]) {
+    for (const m of t.matchAll(re)) specs.push(m[1]);
+  }
+  const from = path.posix.dirname(file.rel.split(path.sep).join("/"));
+  if (specs.some((spec) => !isTestFile(path.posix.normalize(path.posix.join(from, spec))))) return true;
   if (pkgName && new RegExp(`['"]${pkgName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:/[^'"]*)?['"]`).test(t)) return true;
   return false;
 }
@@ -175,7 +191,7 @@ export function checkCodeQuality(projectDir, taskText = "") {
   const files = walk(projectDir, CODE_EXT);
   if (files.length === 0) return { ran: false, unknown: "no source files to read", tests: [] };
 
-  const tests = files.filter((f) => TEST_FILENAME.test(f.rel) && ASSERTION.test(f.text));
+  const tests = files.filter((f) => isTestFile(f.rel, f.text) && ASSERTION.test(f.text));
 
   // A package that imports itself by name is reaching its own code, so the name is needed to tell
   // that apart from an import of somebody else's library.
@@ -186,7 +202,7 @@ export function checkCodeQuality(projectDir, taskText = "") {
     /* no package.json, or unreadable: the relative-specifier tests still apply */
   }
   const reach = testsReachingProject(tests, files, pkgName);
-  const namedOnly = files.filter((f) => TEST_FILENAME.test(f.rel) && !ASSERTION.test(f.text));
+  const namedOnly = files.filter((f) => isTestFile(f.rel, f.text) && !ASSERTION.test(f.text));
 
   // Patch targets that name an attribute the module does not define.
   const badPatches = [];

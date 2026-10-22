@@ -152,6 +152,21 @@ test("a suite that hangs is killed and reported, not treated as passing", () => 
   );
 });
 
+// The tests check said "no test files were found" for a PHP project with a tests/ directory, because it
+// read no .php file at all. It still has no PHP runner; it now says that instead.
+test("test files in languages with no runner here are found, and the report says the runner is what is missing", () => {
+  for (const [name, body] of [
+    ["tests/AddTest.php", "<?php\nfinal class AddTest extends TestCase {}\n"],
+    ["src/test/java/app/AddTest.java", "class AddTest {}\n"],
+    ["App.Tests/AddTests.cs", "public class AddTests {}\n"],
+    ["src/lib.rs", "#[cfg(test)]\nmod tests {\n  #[test]\n  fn adds() {}\n}\n"],
+  ]) {
+    run({ [name]: body }, (dir) => {
+      assert.deepEqual(detectSuite(dir), { unavailable: "no runner could be identified for the test files present" }, name);
+    });
+  }
+});
+
 const HANGS = {
   "package.json": "{}",
   "src/a.test.mjs": `
