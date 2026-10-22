@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.6.0
+wolfproof 1.7.0
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.6.0
-- uses: tjwitko/wolfproof@v1.6.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.7.0
+- uses: tjwitko/wolfproof@v1.7.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.6.0
+npm install --save-dev github:tjwitko/wolfproof#v1.7.0
 ```
 
 ## 3. Refresh what setup wrote
@@ -82,7 +82,7 @@ time. It exits **1** if something of its own could not be refreshed, and says wh
 passing something it should not have, projects relying on that gap start failing. Release notes
 call these out under *expect this to fail*.
 
-**After v1.6.0: a test suite the gate cannot run is exit 3.** In a Java, Kotlin, C#, Rust, PHP or
+**In v1.7.0: a test suite the gate cannot run is exit 3.** In a Java, Kotlin, C#, Rust, PHP or
 Ruby project whose task or baseline asks for tests, the gate now finds the test files, has no
 runner for them, and exits 3 — in the default mode, where it used to exit 0 with the suite unrun,
 and in factory mode, where it used to exit 1. A Java project used to be blocked for having no tests
