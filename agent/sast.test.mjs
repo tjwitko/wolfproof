@@ -166,7 +166,21 @@ test("installed dependencies and declared fixtures are not scanned", () => {
 });
 
 test("a project in a language no rule covers reports nothing", () => {
-  assert.deepEqual(within({ "index.php": "<?php echo 1;\n" }, sastFailures), { failures: [], advisories: [] });
+  assert.deepEqual(within({ "main.swift": "print(1)\n" }, sastFailures), { failures: [], advisories: [] });
+});
+
+// The rules pass semgrep's own test runner above; this is the gate reading .php and .kt files at all,
+// and turning what the rules find into its findings.
+scanner("PHP and Kotlin are read: request data reaching a shell blocks in each", () => {
+  const php = within({ "public/index.php": '<?php\nshell_exec("ping -c1 " . $_GET["host"]);\n' }, sastFailures);
+  assert.equal(php.failures.length, 1, JSON.stringify(php));
+  assert.match(php.failures[0], /^sast: command injection — request data reaches a shell command: public\/index\.php:2\./);
+  const kt = within(
+    { "src/main/kotlin/Ping.kt": '@GetMapping("/ping")\nfun ping(@RequestParam host: String) {\n    Runtime.getRuntime().exec("ping -c1 $host")\n}\n' },
+    sastFailures
+  );
+  assert.equal(kt.failures.length, 1, JSON.stringify(kt));
+  assert.match(kt.failures[0], /^sast: command injection — request data reaches a shell command: src\/main\/kotlin\/Ping\.kt:3\./);
 });
 
 // A check that cannot run says so: missing semgrep is could-not-run, exactly as a missing ruff is

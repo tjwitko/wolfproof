@@ -1,0 +1,467 @@
+# Injection rules for PHP (plain PHP, Laravel, Symfony), written for wolfproof. See python.yaml for the
+# split between blocking taint rules (ERROR) and advisory pattern rules (WARNING).
+#
+# Measured against Semgrep's PHP matching before being written: the superglobals work as taint sources
+# written as themselves ($_GET is not read as a metavariable), taint follows a value into an
+# interpolated string, and escapeshellarg() and intval() work as sanitizers.
+#
+# $_SERVER is a source only for the entries the client sends. Most of it is the server's own
+# configuration, and `include $_SERVER['DOCUMENT_ROOT'] . '/header.php'` is ordinary PHP.
+rules:
+  - id: php-command-injection
+    mode: taint
+    languages: [php]
+    severity: ERROR
+    message: request data reaches a shell command
+    metadata: { category: command injection }
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+          - pattern: $_FILES[$F]['name']
+          - pattern: file_get_contents('php://input')
+          - pattern: request(...)
+          - pattern: request()->$M(...)
+          - pattern: Request::$M(...)
+          - pattern: Input::get(...)
+      - patterns:
+          - pattern: $_SERVER[$K]
+          - metavariable-regex:
+              metavariable: $K
+              regex: ^['"](HTTP_\w+|QUERY_STRING|REQUEST_URI|PATH_INFO|PHP_SELF|CONTENT_TYPE)['"]$
+      # Laravel's and Symfony's request object. Matched by the variable's name: Semgrep does not know
+      # PHP types, and a controller's request is called $request by convention in both frameworks.
+      - patterns:
+          - pattern-either:
+              - pattern: $REQ->input(...)
+              - pattern: $REQ->get(...)
+              - pattern: $REQ->query(...)
+              - pattern: $REQ->post(...)
+              - pattern: $REQ->all(...)
+              - pattern: $REQ->only(...)
+              - pattern: $REQ->header(...)
+              - pattern: $REQ->cookie(...)
+              - pattern: $REQ->route(...)
+              - pattern: $REQ->getContent(...)
+              - pattern: $REQ->query->get(...)
+              - pattern: $REQ->request->get(...)
+              - pattern: $REQ->headers->get(...)
+              - pattern: $REQ->cookies->get(...)
+              - pattern: $REQ->attributes->get(...)
+          - metavariable-regex:
+              metavariable: $REQ
+              regex: ^\$(request|req)$
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: exec($CMD, ...)
+              - pattern: shell_exec($CMD)
+              - pattern: system($CMD, ...)
+              - pattern: passthru($CMD, ...)
+              - pattern: popen($CMD, ...)
+              - pattern: proc_open($CMD, ...)
+          # proc_open with an array (PHP 7.4+) starts no shell; each element is one argument.
+          - pattern-not: proc_open([...], ...)
+          - focus-metavariable: $CMD
+    pattern-sanitizers:
+      - pattern: escapeshellarg(...)
+      - pattern: intval(...)
+      - pattern: (int) $X
+
+  - id: php-sql-injection
+    mode: taint
+    languages: [php]
+    severity: ERROR
+    message: request data is built into a SQL statement
+    metadata: { category: SQL injection }
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+          - pattern: $_FILES[$F]['name']
+          - pattern: file_get_contents('php://input')
+          - pattern: request(...)
+          - pattern: request()->$M(...)
+          - pattern: Request::$M(...)
+          - pattern: Input::get(...)
+      - patterns:
+          - pattern: $_SERVER[$K]
+          - metavariable-regex:
+              metavariable: $K
+              regex: ^['"](HTTP_\w+|QUERY_STRING|REQUEST_URI|PATH_INFO|PHP_SELF|CONTENT_TYPE)['"]$
+      # Laravel's and Symfony's request object. Matched by the variable's name: Semgrep does not know
+      # PHP types, and a controller's request is called $request by convention in both frameworks.
+      - patterns:
+          - pattern-either:
+              - pattern: $REQ->input(...)
+              - pattern: $REQ->get(...)
+              - pattern: $REQ->query(...)
+              - pattern: $REQ->post(...)
+              - pattern: $REQ->all(...)
+              - pattern: $REQ->only(...)
+              - pattern: $REQ->header(...)
+              - pattern: $REQ->cookie(...)
+              - pattern: $REQ->route(...)
+              - pattern: $REQ->getContent(...)
+              - pattern: $REQ->query->get(...)
+              - pattern: $REQ->request->get(...)
+              - pattern: $REQ->headers->get(...)
+              - pattern: $REQ->cookies->get(...)
+              - pattern: $REQ->attributes->get(...)
+          - metavariable-regex:
+              metavariable: $REQ
+              regex: ^\$(request|req)$
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: mysqli_query($C, $Q, ...)
+              - pattern: mysqli_multi_query($C, $Q)
+              - pattern: mysqli_real_query($C, $Q)
+              - pattern: mysql_query($Q, ...)
+              - pattern: pg_query($C, $Q)
+              - pattern: pg_query($Q)
+              - pattern: sqlite_query($C, $Q, ...)
+              - pattern: $DB->query($Q, ...)
+              - pattern: $DB->exec($Q)
+              - pattern: $DB->prepare($Q, ...)
+              - pattern: $DB->multi_query($Q)
+              - pattern: $DB->real_query($Q)
+              - pattern: DB::select($Q, ...)
+              - pattern: DB::insert($Q, ...)
+              - pattern: DB::update($Q, ...)
+              - pattern: DB::delete($Q, ...)
+              - pattern: DB::statement($Q, ...)
+              - pattern: DB::unprepared($Q)
+              - pattern: DB::raw($Q)
+              - pattern: $B->whereRaw($Q, ...)
+              - pattern: $B->orWhereRaw($Q, ...)
+              - pattern: $B->orderByRaw($Q, ...)
+              - pattern: $B->selectRaw($Q, ...)
+              - pattern: $B->havingRaw($Q, ...)
+              - pattern: $B->groupByRaw($Q, ...)
+              - pattern: $B->fromRaw($Q, ...)
+          # Laravel's $request->query('x') is a source, not a database call.
+          - pattern-not: $request->query(...)
+          - pattern-not: $req->query(...)
+          - focus-metavariable: $Q
+    pattern-sanitizers:
+      - pattern: intval(...)
+      - pattern: floatval(...)
+      - pattern: (int) $X
+      - pattern: (float) $X
+      - pattern: $DB->quote(...)
+      - pattern: mysqli_real_escape_string(...)
+      - pattern: $DB->real_escape_string(...)
+      - pattern: pg_escape_string(...)
+      - pattern: pg_escape_literal(...)
+
+  # Code injection includes include and require: given request data they run whatever file it names as
+  # PHP, which is how local and remote file inclusion become code execution.
+  - id: php-code-injection
+    mode: taint
+    languages: [php]
+    severity: ERROR
+    message: request data is evaluated as code
+    metadata: { category: code injection }
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+          - pattern: $_FILES[$F]['name']
+          - pattern: file_get_contents('php://input')
+          - pattern: request(...)
+          - pattern: request()->$M(...)
+          - pattern: Request::$M(...)
+          - pattern: Input::get(...)
+      - patterns:
+          - pattern: $_SERVER[$K]
+          - metavariable-regex:
+              metavariable: $K
+              regex: ^['"](HTTP_\w+|QUERY_STRING|REQUEST_URI|PATH_INFO|PHP_SELF|CONTENT_TYPE)['"]$
+      # Laravel's and Symfony's request object. Matched by the variable's name: Semgrep does not know
+      # PHP types, and a controller's request is called $request by convention in both frameworks.
+      - patterns:
+          - pattern-either:
+              - pattern: $REQ->input(...)
+              - pattern: $REQ->get(...)
+              - pattern: $REQ->query(...)
+              - pattern: $REQ->post(...)
+              - pattern: $REQ->all(...)
+              - pattern: $REQ->only(...)
+              - pattern: $REQ->header(...)
+              - pattern: $REQ->cookie(...)
+              - pattern: $REQ->route(...)
+              - pattern: $REQ->getContent(...)
+              - pattern: $REQ->query->get(...)
+              - pattern: $REQ->request->get(...)
+              - pattern: $REQ->headers->get(...)
+              - pattern: $REQ->cookies->get(...)
+              - pattern: $REQ->attributes->get(...)
+          - metavariable-regex:
+              metavariable: $REQ
+              regex: ^\$(request|req)$
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: eval($X)
+              - pattern: assert($X, ...)
+              - pattern: create_function($A, $X)
+              - pattern: unserialize($X, ...)
+              - pattern: call_user_func($X, ...)
+              - pattern: call_user_func_array($X, ...)
+              - pattern: include $X
+              - pattern: include_once $X
+              - pattern: require $X
+              - pattern: require_once $X
+          - focus-metavariable: $X
+    pattern-sanitizers:
+      - pattern: basename(...)
+      - pattern: intval(...)
+
+  - id: php-sql-string-built
+    languages: [php]
+    severity: WARNING
+    message: a SQL statement is built by string concatenation rather than passed parameters
+    metadata: { category: SQL injection }
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB->$M("..." . $X, ...)
+              - pattern: $DB->$M($X . "...", ...)
+              - pattern: $DB->$M(sprintf(...), ...)
+          - metavariable-regex:
+              metavariable: $M
+              regex: ^(query|exec|prepare|multi_query|real_query|whereRaw|orWhereRaw|orderByRaw|selectRaw|havingRaw|groupByRaw|fromRaw)$
+      - pattern: mysqli_query($C, "..." . $X, ...)
+      - pattern: mysqli_query($C, sprintf(...), ...)
+      - pattern: pg_query($C, "..." . $X)
+      - pattern: DB::$M("..." . $X, ...)
+
+  - id: php-shell-nonliteral
+    languages: [php]
+    severity: WARNING
+    message: a shell command is built from a value that is not a literal
+    metadata: { category: command injection }
+    patterns:
+      - pattern-either:
+          - pattern: exec($CMD, ...)
+          - pattern: shell_exec($CMD)
+          - pattern: system($CMD, ...)
+          - pattern: passthru($CMD, ...)
+          - pattern: popen($CMD, ...)
+          - pattern: proc_open($CMD, ...)
+      - pattern-not: proc_open([...], ...)
+      - metavariable-pattern:
+          metavariable: $CMD
+          patterns:
+            - pattern: $X
+            - pattern-not: '"..."'
+            - pattern-not: "'...'"
+      - focus-metavariable: $CMD
+
+  # See java.yaml's java-sql-text-built: a query built into a variable in one function and executed in
+  # another is not followed by taint, so SQL text with an interpolated or concatenated value is
+  # reported where it is built. Single-quoted PHP strings do not interpolate, so for them only
+  # concatenation counts.
+  - id: php-sql-text-built
+    languages: [php]
+    severity: WARNING
+    message: SQL text is built by interpolation or concatenation, wherever it is later executed
+    metadata: { category: SQL injection }
+    patterns:
+      - pattern-either:
+          - pattern-regex: (?is)"\s*(select\s[^"]*\sfrom|insert\s+into|update\s+\S+\s+set|delete\s+from)\b[^"]*(\{?\$\w|"\s*\.\s*[$\w(])
+          - pattern-regex: (?is)'\s*(select\s[^']*\sfrom|insert\s+into|update\s+\S+\s+set|delete\s+from)\b[^']*'\s*\.\s*[$\w(]
+      # A regex reads raw text, so a commented-out query would match.
+      - pattern-not-regex: (?m)^[ \t]*(//|#|\*).*$
+
+  # A credential assembled from literals is still in the source, just not as one string, so
+  # gitleaks -- which reads literals -- does not see it. See java.yaml for why the name has to END like
+  # a credential and why prose is excluded. PHP names carry their sigil, and a define() name its
+  # quotes, so the name pattern allows both.
+  - id: php-assembled-credential
+    languages: [php]
+    severity: ERROR
+    message: a credential is assembled from literals in the source
+    metadata: { category: hardcoded credential }
+    options:
+      constant_propagation: false
+    patterns:
+      - pattern-either:
+          - pattern: '$V = "$A" . "$B";'
+          - pattern: '$V = "$A" . "$B" . "$C";'
+          - pattern: '$V = "$A" . "$B" . "$C" . "$D";'
+          - pattern: '$V = implode($S, ["$A", "$B", ...]);'
+          - pattern: '$V = <... base64_decode("$A") ...>;'
+          - pattern: '$V = strrev("$A");'
+          - pattern: 'const $V = "$A" . "$B";'
+          - pattern: 'const $V = "$A" . "$B" . "$C";'
+          - pattern: 'define($V, "$A" . "$B");'
+          - pattern: 'define($V, "$A" . "$B" . "$C");'
+          - pattern: 'define($V, base64_decode("$A"));'
+          - pattern: '[..., $V => "$A" . "$B", ...]'
+          - pattern: '[..., $V => "$A" . "$B" . "$C", ...]'
+          - pattern: '[..., $V => base64_decode("$A"), ...]'
+      - metavariable-regex:
+          metavariable: $V
+          regex: (?i)^.*?(api_?key|access_?key|secret(_?key)?|signing_?key|private_?key|token|passw(or)?d|pwd|passphrase|credentials?)['"]?$
+      - metavariable-regex:
+          metavariable: $V
+          regex: ^\S+$
+      - pattern-not-regex: (["'])[^"'\n]*\s[^"'\n]*\1\s*\.|\.\s*(["'])[^"'\n]*\s[^"'\n]*\2
+      # At the name: an array entry is otherwise reported where the array starts.
+      - focus-metavariable: $V
+
+  # SSRF: request data choosing where the server connects. A fixed scheme and host with request data
+  # only after the first path slash cannot be redirected, so that construction is a sanitizer.
+  # file_get_contents and fopen fetch URLs too; they are reported under path traversal, once.
+  - id: php-ssrf
+    mode: taint
+    languages: [php]
+    severity: ERROR
+    message: request data chooses where the server sends a request
+    metadata: { category: SSRF }
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+          - pattern: $_FILES[$F]['name']
+          - pattern: file_get_contents('php://input')
+          - pattern: request(...)
+          - pattern: request()->$M(...)
+          - pattern: Request::$M(...)
+          - pattern: Input::get(...)
+      - patterns:
+          - pattern: $_SERVER[$K]
+          - metavariable-regex:
+              metavariable: $K
+              regex: ^['"](HTTP_\w+|QUERY_STRING|REQUEST_URI|PATH_INFO|PHP_SELF|CONTENT_TYPE)['"]$
+      # Laravel's and Symfony's request object. Matched by the variable's name: Semgrep does not know
+      # PHP types, and a controller's request is called $request by convention in both frameworks.
+      - patterns:
+          - pattern-either:
+              - pattern: $REQ->input(...)
+              - pattern: $REQ->get(...)
+              - pattern: $REQ->query(...)
+              - pattern: $REQ->post(...)
+              - pattern: $REQ->all(...)
+              - pattern: $REQ->only(...)
+              - pattern: $REQ->header(...)
+              - pattern: $REQ->cookie(...)
+              - pattern: $REQ->route(...)
+              - pattern: $REQ->getContent(...)
+              - pattern: $REQ->query->get(...)
+              - pattern: $REQ->request->get(...)
+              - pattern: $REQ->headers->get(...)
+              - pattern: $REQ->cookies->get(...)
+              - pattern: $REQ->attributes->get(...)
+          - metavariable-regex:
+              metavariable: $REQ
+              regex: ^\$(request|req)$
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: curl_init($URL)
+              - pattern: curl_setopt($CH, CURLOPT_URL, $URL)
+              - pattern: Http::$M($URL, ...)
+              - pattern: $C->request($METHOD, $URL, ...)
+              - pattern: (new \GuzzleHttp\Client(...))->$M($URL, ...)
+          - focus-metavariable: $URL
+    pattern-sanitizers:
+      - patterns:
+          - pattern: '"$P" . $X'
+          - metavariable-regex:
+              metavariable: $P
+              regex: ^https?://[^/]+/
+      - pattern-regex: '"https?://[^/#"$]+/[^"]*"'
+
+  # Path traversal: request data naming a file the server opens, sends, writes or deletes. basename()
+  # takes only the file name.
+  - id: php-path-traversal
+    mode: taint
+    languages: [php]
+    severity: ERROR
+    message: request data names a file the server reads, writes or deletes
+    metadata: { category: path traversal }
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+          - pattern: $_FILES[$F]['name']
+          - pattern: file_get_contents('php://input')
+          - pattern: request(...)
+          - pattern: request()->$M(...)
+          - pattern: Request::$M(...)
+          - pattern: Input::get(...)
+      - patterns:
+          - pattern: $_SERVER[$K]
+          - metavariable-regex:
+              metavariable: $K
+              regex: ^['"](HTTP_\w+|QUERY_STRING|REQUEST_URI|PATH_INFO|PHP_SELF|CONTENT_TYPE)['"]$
+      # Laravel's and Symfony's request object. Matched by the variable's name: Semgrep does not know
+      # PHP types, and a controller's request is called $request by convention in both frameworks.
+      - patterns:
+          - pattern-either:
+              - pattern: $REQ->input(...)
+              - pattern: $REQ->get(...)
+              - pattern: $REQ->query(...)
+              - pattern: $REQ->post(...)
+              - pattern: $REQ->all(...)
+              - pattern: $REQ->only(...)
+              - pattern: $REQ->header(...)
+              - pattern: $REQ->cookie(...)
+              - pattern: $REQ->route(...)
+              - pattern: $REQ->getContent(...)
+              - pattern: $REQ->query->get(...)
+              - pattern: $REQ->request->get(...)
+              - pattern: $REQ->headers->get(...)
+              - pattern: $REQ->cookies->get(...)
+              - pattern: $REQ->attributes->get(...)
+          - metavariable-regex:
+              metavariable: $REQ
+              regex: ^\$(request|req)$
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: fopen($P, ...)
+              - pattern: file_get_contents($P, ...)
+              - pattern: file_put_contents($P, ...)
+              - pattern: readfile($P, ...)
+              - pattern: file($P, ...)
+              - pattern: unlink($P, ...)
+              - pattern: copy($P, ...)
+              - pattern: copy($S, $P, ...)
+              - pattern: rename($P, ...)
+              - pattern: rename($S, $P, ...)
+              - pattern: move_uploaded_file($T, $P)
+              - pattern: Storage::$M($P, ...)
+              - pattern: response()->download($P, ...)
+              - pattern: response()->file($P, ...)
+          # Reading the request body is the source, not a file.
+          - pattern-not: file_get_contents('php://input')
+          - focus-metavariable: $P
+    pattern-sanitizers:
+      - pattern: basename(...)
+      - pattern: intval(...)
+      - pattern: (int) $X
+
+  # XXE: libxml substitutes entities, and loads external DTDs, only when asked to.
+  - id: php-xxe
+    languages: [php]
+    severity: WARNING
+    message: an XML parser is configured to resolve external entities
+    metadata: { category: XXE }
+    pattern-either:
+      - pattern: LIBXML_NOENT
+      - pattern: LIBXML_DTDLOAD
+      - pattern: libxml_disable_entity_loader(false)

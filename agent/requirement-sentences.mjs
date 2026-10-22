@@ -77,7 +77,7 @@ export function unjudgedSentences(text = "") {
 //     reads five languages and sast nine; a project with C# in it is not covered for authentication,
 //     and the sentence says why instead.
 
-const SAST_LANGUAGES = ["Python", "JavaScript/TypeScript", "Go", "Java", "Ruby", "C#", "Rust", "C/C++"];
+const SAST_LANGUAGES = ["Python", "JavaScript/TypeScript", "Go", "Java", "Ruby", "C#", "Rust", "C/C++", "PHP", "Kotlin"];
 const AUTH_LANGUAGES = ["Python", "JavaScript/TypeScript", "Go", "Java", "Ruby"];
 
 const NEGATED = /\b(?:not|never|no|without|free of|must not|mustn't|cannot)\b/i;

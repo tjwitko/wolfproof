@@ -114,8 +114,9 @@ already blocks on in every project:
 | no high or critical CVEs | `check_dependencies` |
 
 Such a sentence is listed as **covered** rather than unread — but only when that check ran and reads
-every language in the project. In a project containing PHP, "use parameterized queries" is listed as
-unread, with a note that `sast` reads no PHP.
+every language in the project. In a project containing Swift, "use parameterized queries" is listed
+as unread, with a note that `sast` reads no Swift; in one containing PHP, "all routes require
+authentication" is, because `authentication` reads no PHP.
 
 Covered means the check blocks on what the sentence asks, not that it is on the same topic.
 "Passwords are hashed with argon2id" and "authorization enforces least privilege" stay unread.

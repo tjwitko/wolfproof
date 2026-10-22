@@ -109,7 +109,7 @@ first row; add the rows for the languages and files you have:
 | Python | `semgrep`, `ruff`; `pytest` if it has tests | injection checks, static checks, the test suite |
 | JavaScript / TypeScript | `semgrep` | injection checks; tests run with the project's own tooling |
 | Go | `semgrep`, `go`, `docker` | injection checks, the build and the tests |
-| Java, Ruby, C#, Rust, C, C++ | `semgrep` | injection checks |
+| Java, Ruby, C#, Rust, C, C++, PHP, Kotlin | `semgrep` | injection checks |
 | Terraform | `terraform`; `checkov` optional | plan and policy checks; checkov adds advisories |
 | Dockerfile | nothing extra; `checkov` optional | the base-image end-of-life check; checkov adds advisories |
 
@@ -284,7 +284,7 @@ The checks you would expect, still necessary:
 
 | concern | blocks on |
 |---|---|
-| injection | request data reaching a shell, SQL, an evaluator, an outbound request's host (SSRF) or a file path — in Python, JavaScript/TypeScript, Go, Java, Ruby, C#, Rust, C and C++ |
+| injection | request data reaching a shell, SQL, an evaluator, an outbound request's host (SSRF) or a file path — in Python, JavaScript/TypeScript, Go, Java, Ruby, C#, Rust, C, C++, PHP and Kotlin |
 | dependencies | high or critical CVEs; dependencies declared with no lockfile the scanner can read |
 | secrets | credentials hardcoded in any file, including ones split, joined or encoded |
 | infrastructure | Terraform plan and policy violations on AWS, such as a security group or EKS API open to `0.0.0.0/0` |
@@ -295,8 +295,9 @@ The checks you would expect, still necessary:
 
 So that a clean verdict is read for what it is:
 
-- **Code in other languages.** PHP, Kotlin, Swift, Scala and the rest get only the project-wide
-  scans — secrets, dependencies, infrastructure. The run says so above the verdict.
+- **Code in other languages.** Swift, Scala and the rest get only the project-wide scans —
+  secrets, dependencies, infrastructure. The run says so above the verdict. PHP and Kotlin get the
+  injection check and nothing else that reads the code: no authentication check, build or test run.
 - **Injection across a function call**, and cross-site scripting, template injection, LDAP
   injection, open redirect and insecure deserialization.
 - **Memory safety in C and C++**, beyond `gets()`.

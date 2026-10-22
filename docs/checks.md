@@ -157,9 +157,10 @@ request (SSRF), a file path (path traversal) or a C format string; any use of `g
 C format string; an XML parser that resolves external entities (XXE); exception text sent back to
 the caller.
 
-**Covers:** Python, JavaScript/TypeScript, Go, Java, Ruby, C#, Rust, C, C++ — Flask, Django,
-FastAPI, Express, `net/http`, gin, Spring, servlets, Rails, Sinatra, ASP.NET Core, axum, actix-web;
-in C, CGI and sockets; in C++, cpp-httplib, Crow, Drogon.
+**Covers:** Python, JavaScript/TypeScript, Go, Java, Ruby, C#, Rust, C, C++, PHP, Kotlin — Flask,
+Django, FastAPI, Express, `net/http`, gin, Spring, servlets, Rails, Sinatra, ASP.NET Core, axum,
+actix-web, Laravel, Symfony, plain PHP's superglobals, Ktor; in C, CGI and sockets; in C++,
+cpp-httplib, Crow, Drogon.
 
 `sast` runs Semgrep with this project's own rules. Only the rules that trace data from an HTTP
 request to the dangerous call block. A URL whose scheme and host are fixed in the code, with request
@@ -196,7 +197,7 @@ Control: secret-guard (`gitleaks`).
 split, joined, reversed, base64- or hex-encoded.
 
 **Covers:** every file; assembly detection in Python, JavaScript/TypeScript, Go, Java, Ruby, C#,
-Rust.
+Rust, PHP, Kotlin.
 
 ### Infrastructure
 
@@ -253,9 +254,9 @@ Plus in-process validators: `build_check`, `tests`, `immutability`, `authenticat
 
 Listed so that a clean verdict is read for what it is.
 
-- **Languages outside the coverage above.** PHP, Kotlin, Swift, Scala and the rest get the
-  project-wide scans — secrets, dependencies, infrastructure — and nothing that reads the code itself.
-  The run says so above the verdict.
+- **Languages outside the coverage above.** Swift, Scala and the rest get the project-wide scans —
+  secrets, dependencies, infrastructure — and nothing that reads the code itself. The run says so
+  above the verdict. PHP and Kotlin get the injection check and no other check that reads code.
 - **Injection across a function call.** Request data is followed within one function; Semgrep's
   open-source analysis does not cross calls. A helper that builds a query from its argument is reported
   as an advisory, not a finding: SQL text built from a value is reported where it is built, whichever

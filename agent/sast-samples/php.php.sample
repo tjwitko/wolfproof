@@ -1,0 +1,273 @@
+<?php
+// Annotated samples for php.yaml, run through `semgrep --test` by agent/sast.test.mjs.
+
+// --- command injection ----------------------------------------------------------------------
+
+function ping() {
+    $host = $_GET['host'];
+    // ruleid: php-command-injection, php-shell-nonliteral
+    shell_exec("ping -c1 " . $host);
+}
+
+function pingInterpolated() {
+    // ruleid: php-command-injection, php-shell-nonliteral
+    system("ping -c1 {$_POST['host']}");
+}
+
+function pingEscaped() {
+    // escapeshellarg quotes the value as one argument.
+    // ok: php-command-injection
+    // ruleid: php-shell-nonliteral
+    exec("ping -c1 " . escapeshellarg($_GET['host']));
+}
+
+function pingArray() {
+    // An array command starts no shell.
+    // ok: php-command-injection, php-shell-nonliteral
+    proc_open(['ping', '-c1', $_GET['host']], [], $pipes);
+}
+
+function uptime() {
+    // ok: php-command-injection, php-shell-nonliteral
+    passthru("uptime");
+}
+
+function headerToShell() {
+    // ruleid: php-command-injection, php-shell-nonliteral
+    exec("echo " . $_SERVER['HTTP_X_FORWARDED_FOR']);
+}
+
+function serverConfig() {
+    // DOCUMENT_ROOT is the server's own configuration, not the client's.
+    // ok: php-command-injection
+    // ruleid: php-shell-nonliteral
+    exec("ls " . $_SERVER['DOCUMENT_ROOT']);
+}
+
+// --- SQL injection ----------------------------------------------------------------------------
+
+function userById($conn) {
+    // ruleid: php-sql-text-built
+    $sql = "SELECT * FROM users WHERE id = " . $_GET['id'];
+    // ruleid: php-sql-injection
+    return mysqli_query($conn, $sql);
+}
+
+function userByName($pdo) {
+    $name = $_REQUEST['name'];
+    // ruleid: php-sql-injection, php-sql-string-built, php-sql-text-built
+    return $pdo->query("SELECT * FROM users WHERE name = '" . $name . "'");
+}
+
+function userInterpolated($pdo) {
+    // ruleid: php-sql-injection, php-sql-text-built
+    return $pdo->query("SELECT * FROM users WHERE name = '{$_POST['name']}'");
+}
+
+function userPrepared($pdo) {
+    // Placeholders, with the value passed separately.
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE name = ?");
+    // ok: php-sql-injection, php-sql-string-built
+    $stmt->execute([$_GET['name']]);
+    return $stmt->fetchAll();
+}
+
+function userIntval($pdo) {
+    // ok: php-sql-injection
+    // ruleid: php-sql-string-built, php-sql-text-built
+    return $pdo->query("SELECT * FROM users WHERE id = " . intval($_GET['id']));
+}
+
+function userQuoted($pdo) {
+    // ok: php-sql-injection
+    // ruleid: php-sql-string-built, php-sql-text-built
+    return $pdo->query("SELECT * FROM users WHERE name = " . $pdo->quote($_GET['name']));
+}
+
+function laravelRaw($request) {
+    // ruleid: php-sql-injection, php-sql-string-built, php-sql-text-built
+    return DB::select(DB::raw("SELECT * FROM orders WHERE status = '" . $request->input('status') . "'"));
+}
+
+function laravelWhereRaw($request) {
+    // ruleid: php-sql-injection, php-sql-string-built
+    return User::query()->whereRaw("email = '" . $request->get('email') . "'")->get();
+}
+
+function laravelBinding($request) {
+    // ok: php-sql-injection
+    return DB::select('SELECT * FROM orders WHERE status = ?', [$request->input('status')]);
+}
+
+function symfonyQuery($request, $conn) {
+    $sort = $request->query->get('sort');
+    // ruleid: php-sql-injection, php-sql-string-built, php-sql-text-built
+    return $conn->query('SELECT * FROM items ORDER BY ' . $sort);
+}
+
+function singleQuotedInterpolationIsLiteral($pdo) {
+    // Single-quoted PHP strings do not interpolate: this is the literal text $id.
+    // ok: php-sql-injection, php-sql-text-built
+    return $pdo->query('SELECT * FROM users WHERE id = $id');
+}
+
+function notARequest($pdo, $report) {
+    // ok: php-sql-injection
+    // ruleid: php-sql-string-built, php-sql-text-built
+    return $pdo->query("SELECT * FROM reports WHERE id = " . $report->input('id'));
+}
+
+// --- code injection ---------------------------------------------------------------------------
+
+function calc() {
+    // ruleid: php-code-injection
+    eval('return ' . $_GET['expr'] . ';');
+}
+
+function restore() {
+    // ruleid: php-code-injection
+    return unserialize($_COOKIE['state']);
+}
+
+function page() {
+    // Local and remote file inclusion: the named file runs as PHP.
+    // ruleid: php-code-injection
+    include $_GET['page'] . '.php';
+}
+
+function pageBasename() {
+    // ok: php-code-injection
+    include 'pages/' . basename($_GET['page']) . '.php';
+}
+
+function header() {
+    // ok: php-code-injection
+    include $_SERVER['DOCUMENT_ROOT'] . '/header.php';
+}
+
+function dispatch() {
+    // ruleid: php-code-injection
+    return call_user_func($_GET['action']);
+}
+
+// --- SSRF -------------------------------------------------------------------------------------
+
+function fetch() {
+    // ruleid: php-ssrf
+    $ch = curl_init($_GET['url']);
+    return curl_exec($ch);
+}
+
+function fetchOpt() {
+    $ch = curl_init();
+    // ruleid: php-ssrf
+    curl_setopt($ch, CURLOPT_URL, $_POST['url']);
+    return curl_exec($ch);
+}
+
+function laravelHttp($request) {
+    // ruleid: php-ssrf
+    return Http::get($request->input('callback'));
+}
+
+function guzzle($request, $client) {
+    // ruleid: php-ssrf
+    return $client->request('GET', $request->input('target'));
+}
+
+function fixedHost($request) {
+    // A fixed scheme and host; request data chooses only the path.
+    // ok: php-ssrf
+    return Http::get("https://api.example.com/users/" . $request->input('id'));
+}
+
+function fixedHostInterpolated($request) {
+    $id = $request->input('id');
+    // ok: php-ssrf
+    return Http::get("https://api.example.com/users/{$id}");
+}
+
+// --- path traversal ---------------------------------------------------------------------------
+
+function download() {
+    // ruleid: php-path-traversal
+    readfile('/srv/files/' . $_GET['name']);
+}
+
+function downloadBasename() {
+    // ok: php-path-traversal
+    readfile('/srv/files/' . basename($_GET['name']));
+}
+
+function upload() {
+    // The client names the uploaded file.
+    // ruleid: php-path-traversal
+    move_uploaded_file($_FILES['doc']['tmp_name'], '/srv/uploads/' . $_FILES['doc']['name']);
+}
+
+function uploadSafe() {
+    // ok: php-path-traversal
+    move_uploaded_file($_FILES['doc']['tmp_name'], '/srv/uploads/' . basename($_FILES['doc']['name']));
+}
+
+function remove($request) {
+    // ruleid: php-path-traversal
+    Storage::delete('reports/' . $request->input('file'));
+}
+
+function laravelDownload($request) {
+    // ruleid: php-path-traversal
+    return response()->download(storage_path('exports/' . $request->query('file')));
+}
+
+function body() {
+    // Reading the request body is a source, not a path.
+    // ok: php-path-traversal
+    return file_get_contents('php://input');
+}
+
+// --- assembled credentials ----------------------------------------------------------------------
+
+function credentials() {
+    // ruleid: php-assembled-credential
+    $api_key = "sk_live_" . "51Hq9kPmZ";
+    // ruleid: php-assembled-credential
+    $dbPassword = base64_decode("aHVudGVyMg==");
+    // ruleid: php-assembled-credential
+    $secret = implode("", ["s3", "cr", "3t"]);
+    // ok: php-assembled-credential
+    $token_url = "https://auth." . "example.com";
+    // ok: php-assembled-credential
+    $password_hint = "Use at least " . "twelve characters";
+    // ok: php-assembled-credential
+    $token = getenv('API_TOKEN');
+}
+
+// ruleid: php-assembled-credential
+define('STRIPE_SECRET_KEY', 'sk_' . 'live_' . '4eC39HqLyjWDarj');
+
+// ok: php-assembled-credential
+define('APP_NAME', 'wolf' . 'proof');
+
+$config = [
+    // ruleid: php-assembled-credential
+    'password' => 'hun' . 'ter2',
+    // ok: php-assembled-credential
+    'username' => 'ad' . 'min',
+];
+
+// --- XXE --------------------------------------------------------------------------------------
+
+function parseXml($xml) {
+    $doc = new DOMDocument();
+    // ruleid: php-xxe
+    $doc->loadXML($xml, LIBXML_NOENT | LIBXML_DTDLOAD);
+    return $doc;
+}
+
+function parseXmlSafe($xml) {
+    $doc = new DOMDocument();
+    // ok: php-xxe
+    $doc->loadXML($xml, LIBXML_NONET);
+    return $doc;
+}

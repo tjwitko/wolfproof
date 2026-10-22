@@ -30,8 +30,8 @@ that builds the query shows up as an advisory about the helper instead ("built b
 not blocking").
 
 **"were not read" or "MOST OF THIS PROJECT'S SOURCE WAS NOT READ" above the verdict** — part of the
-project is in a language no language-aware check reads (PHP, Kotlin, Swift, Scala, Elixir, Dart,
-Lua, Perl, Vue, Svelte). The verdict says nothing about that code: only the project-wide scans —
+project is in a language no language-aware check reads (Swift, Scala, Elixir, Dart, Lua, Perl, Vue,
+Svelte). The verdict says nothing about that code: only the project-wide scans —
 secrets, dependencies, infrastructure — apply to it, and a requirement like "include unit tests"
 cannot be enforced on it.
 

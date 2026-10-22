@@ -1154,6 +1154,40 @@ upgrade notice first: the CI tooling check read that as an empty version and fai
 installs the tooling. It and the toolchain probe now set `SEMGREP_ENABLE_VERSION_CHECK=0`, as the sast
 check always had.
 
+### 19. Injection rules for PHP and Kotlin — fixed, not yet calibrated
+
+`agent/sast-rules/php.yaml` and `kotlin.yaml`, the same ten rules as Java and Ruby: blocking taint
+rules for command injection, SQL injection, code injection, SSRF, path traversal and credentials
+assembled from literals, and advisories for SQL built by concatenation (two shapes), a shell command
+built from a non-literal, and XXE.
+
+- **PHP sources:** `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`, an upload's `$_FILES[...]['name']`,
+  `php://input`, the client-sent entries of `$_SERVER` (`HTTP_*`, `QUERY_STRING`, `REQUEST_URI`,
+  `PATH_INFO`, `PHP_SELF`) and Laravel's and Symfony's request objects, recognised by the name
+  `$request`. The rest of `$_SERVER` is the server's own configuration, and
+  `include $_SERVER['DOCUMENT_ROOT'] . '/header.php'` is ordinary PHP. `include` and `require` of
+  request data are code injection: the named file runs as PHP.
+- **Kotlin sources:** Spring and JAX-RS annotated handler parameters, Ktor's `call.parameters`,
+  `call.request.queryParameters`, headers, cookies and `call.receive*`, and the servlet API.
+
+Measured against Semgrep 1.180.0 before writing: superglobals work as sources as written, taint
+follows a value into PHP interpolation and Kotlin string templates, and the sanitizers
+(`escapeshellarg`, `intval`, `basename`, `toInt`, `File(x).name`) cut it. Two things the first
+sample run caught: a source that also matches a sink (`$request->query('x')` matched the SQL sink
+`$db->query(...)`, `file_get_contents('php://input')` the file sink), now excluded from each; and an
+array entry `'password' => 'a' . 'b'` reported where the array starts, now reported at its key.
+
+**Not yet calibrated.** Over 905 real Kotlin files on this machine (Gradle's own sources and a small
+project), the rules gave no blocking finding and one advisory, a `DocumentBuilderFactory` created
+without disabling DTDs and parsing fetched XML, which is what the advisory describes. That shows they
+are quiet on ordinary code, not that they find what is there: none of it takes requests. No real PHP
+was available. Calibrating both against applications with known answers, as `calibration/` does for
+the other languages, needs those applications cloned.
+
+Not covered: authentication (no PHP or Kotlin route reader), builds and test runners (see #12),
+Ktor's client beyond a receiver named `client`, Exposed's raw `exec`, and PHP's `preg_replace` with
+`/e`, removed in PHP 7.
+
 ### 12. Considered and deferred
 
 - **Split-string secrets** (`"abc" + "def"`). Missed, as the review says. The rest of its claim did not

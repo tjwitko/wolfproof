@@ -32,10 +32,11 @@ import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { taskWantsErrorDistinction } from "./code-quality.mjs";
 
 const RULES = fileURLToPath(new URL("./sast-rules/", import.meta.url));
-export const SAST_EXT = new Set([".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".go", ".java", ".rb", ".cs", ".rs", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh"]);
+export const SAST_EXT = new Set([".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".go", ".java", ".rb", ".cs", ".rs", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".php", ".kt"]);
 const LANGUAGE = {
   ".py": "Python", ".go": "Go", ".java": "Java", ".rb": "Ruby", ".cs": "C#", ".rs": "Rust",
   ".c": "C/C++", ".h": "C/C++", ".cc": "C/C++", ".cpp": "C/C++", ".cxx": "C/C++", ".hpp": "C/C++", ".hh": "C/C++",
+  ".php": "PHP", ".kt": "Kotlin",
 };
 const MAX_FILE_BYTES = 1024 * 1024;
 const CHUNK = 400;

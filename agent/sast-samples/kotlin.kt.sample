@@ -1,0 +1,212 @@
+// Annotated samples for kotlin.yaml, run through `semgrep --test` by agent/sast.test.mjs.
+package samples
+
+import io.ktor.server.application.*
+import io.ktor.server.request.*
+import io.ktor.server.routing.*
+import java.io.File
+import java.net.URL
+import java.nio.file.Paths
+import java.sql.Connection
+import java.util.Base64
+import javax.script.ScriptEngine
+import javax.servlet.http.HttpServletRequest
+import javax.xml.parsers.DocumentBuilderFactory
+import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.web.bind.annotation.*
+
+@RestController
+class Samples(private val jdbc: JdbcTemplate, private val conn: Connection, private val engine: ScriptEngine) {
+
+    // --- command injection ----------------------------------------------------------------------
+
+    @GetMapping("/ping")
+    fun ping(@RequestParam host: String): String {
+        // ruleid: kotlin-command-injection, kotlin-shell-nonliteral
+        Runtime.getRuntime().exec("ping -c1 $host")
+        return "ok"
+    }
+
+    @GetMapping("/ping-shell")
+    fun pingShell(@RequestParam("host") host: String) {
+        // ruleid: kotlin-command-injection, kotlin-shell-nonliteral
+        ProcessBuilder("sh", "-c", "ping -c1 " + host).start()
+    }
+
+    @GetMapping("/ping-args")
+    fun pingArgs(@RequestParam host: String) {
+        // An argument array starts no shell; the request value is one argument.
+        // ok: kotlin-command-injection, kotlin-shell-nonliteral
+        Runtime.getRuntime().exec(arrayOf("ping", "-c1", host))
+    }
+
+    @GetMapping("/uptime")
+    fun uptime() {
+        // ok: kotlin-command-injection, kotlin-shell-nonliteral
+        Runtime.getRuntime().exec("uptime")
+    }
+
+    @GetMapping("/count")
+    fun count(@RequestParam n: String) {
+        // ok: kotlin-command-injection
+        // ruleid: kotlin-shell-nonliteral
+        Runtime.getRuntime().exec("seq " + n.toInt())
+    }
+
+    // --- SQL injection ----------------------------------------------------------------------------
+
+    @GetMapping("/user/{id}")
+    fun user(@PathVariable id: String): Any? {
+        // ruleid: kotlin-sql-injection, kotlin-sql-string-built, kotlin-sql-text-built
+        return jdbc.queryForObject("SELECT name FROM users WHERE id = " + id, String::class.java)
+    }
+
+    @GetMapping("/user")
+    fun userTemplate(@RequestParam name: String): Any? {
+        // ruleid: kotlin-sql-text-built
+        val sql = "SELECT * FROM users WHERE name = '$name'"
+        // ruleid: kotlin-sql-injection
+        return conn.createStatement().executeQuery(sql)
+    }
+
+    @GetMapping("/user-param")
+    fun userParam(@RequestParam name: String): Any? {
+        // ok: kotlin-sql-injection, kotlin-sql-string-built, kotlin-sql-text-built
+        return jdbc.queryForList("SELECT * FROM users WHERE name = ?", name)
+    }
+
+    @GetMapping("/user-int")
+    fun userInt(@RequestParam id: String): Any? {
+        // ok: kotlin-sql-injection
+        // ruleid: kotlin-sql-string-built, kotlin-sql-text-built
+        return jdbc.queryForObject("SELECT name FROM users WHERE id = " + id.toInt(), String::class.java)
+    }
+
+    @PostMapping("/report")
+    fun report(@RequestBody filter: String, db: Database): Any? {
+        // ruleid: kotlin-sql-injection, kotlin-sql-text-built
+        return db.query("SELECT * FROM reports WHERE " + filter)
+    }
+
+    @PostMapping("/cache")
+    fun cache(@RequestBody key: String, cache: Cache): Any? {
+        // A query() on something that is not a database is not SQL.
+        // ok: kotlin-sql-injection
+        return cache.query(key)
+    }
+
+    // --- code injection ---------------------------------------------------------------------------
+
+    @GetMapping("/calc")
+    fun calc(@RequestParam expr: String): Any? {
+        // ruleid: kotlin-code-injection
+        return engine.eval(expr)
+    }
+
+    // --- SSRF -------------------------------------------------------------------------------------
+
+    @GetMapping("/fetch")
+    fun fetch(@RequestParam url: String): String {
+        // ruleid: kotlin-ssrf
+        return URL(url).readText()
+    }
+
+    @GetMapping("/fetch-fixed")
+    fun fetchFixed(@RequestParam id: String): String {
+        // A fixed scheme and host; request data chooses only the path.
+        // ok: kotlin-ssrf
+        return URL("https://api.example.com/users/$id").readText()
+    }
+
+    @GetMapping("/proxy")
+    fun proxy(@RequestHeader("X-Target") target: String, restTemplate: RestTemplate): String? {
+        // ruleid: kotlin-ssrf
+        return restTemplate.getForObject(target, String::class.java)
+    }
+
+    // --- path traversal ---------------------------------------------------------------------------
+
+    @GetMapping("/download")
+    fun download(@RequestParam name: String): ByteArray {
+        // ruleid: kotlin-path-traversal
+        return File("/srv/files", name).readBytes()
+    }
+
+    @GetMapping("/download-safe")
+    fun downloadSafe(@RequestParam name: String): ByteArray {
+        // ok: kotlin-path-traversal
+        return File("/srv/files", File(name).name).readBytes()
+    }
+
+    @GetMapping("/export")
+    fun export(@RequestParam path: String): String {
+        // ruleid: kotlin-path-traversal
+        return Paths.get("/srv/exports", path).toFile().readText()
+    }
+
+    // --- servlets ---------------------------------------------------------------------------------
+
+    fun legacy(request: HttpServletRequest) {
+        val cmd = request.getParameter("cmd")
+        // ruleid: kotlin-command-injection, kotlin-shell-nonliteral
+        Runtime.getRuntime().exec(cmd)
+    }
+}
+
+// --- Ktor -------------------------------------------------------------------------------------
+
+fun Application.routes(conn: Connection) {
+    routing {
+        get("/k/ping") {
+            val h = call.parameters["host"]
+            // ruleid: kotlin-command-injection, kotlin-shell-nonliteral
+            Runtime.getRuntime().exec("ping -c1 ${h}")
+        }
+        get("/k/file") {
+            val name = call.request.queryParameters["name"]
+            // ruleid: kotlin-path-traversal
+            File("/srv/files/$name").delete()
+        }
+        post("/k/sql") {
+            val body = call.receiveText()
+            // ruleid: kotlin-sql-injection, kotlin-sql-string-built, kotlin-sql-text-built
+            conn.prepareStatement("INSERT INTO notes (text) VALUES ('" + body + "')").execute()
+        }
+        get("/k/fixed") {
+            // ok: kotlin-path-traversal
+            File("/srv/static/index.html").readText()
+        }
+    }
+}
+
+// --- assembled credentials ----------------------------------------------------------------------
+
+object Credentials {
+    // ruleid: kotlin-assembled-credential
+    val apiKey = "sk_live_" + "51Hq9kPmZ"
+    // ruleid: kotlin-assembled-credential
+    val dbPassword = String(Base64.getDecoder().decode("aHVudGVyMg=="))
+    // ruleid: kotlin-assembled-credential
+    val secret = listOf("s3", "cr", "3t").joinToString("")
+    // ok: kotlin-assembled-credential
+    val tokenUrl = "https://auth." + "example.com"
+    // ok: kotlin-assembled-credential
+    val passwordHint = "Use at least " + "twelve characters"
+    // ok: kotlin-assembled-credential
+    val token = System.getenv("API_TOKEN")
+}
+
+// --- XXE --------------------------------------------------------------------------------------
+
+fun parseXml(xml: String): Any {
+    // ruleid: kotlin-xxe
+    val factory = DocumentBuilderFactory.newInstance()
+    return factory.newDocumentBuilder().parse(xml.byteInputStream())
+}
+
+fun parseXmlSafe(xml: String): Any {
+    // ok: kotlin-xxe
+    val factory = DocumentBuilderFactory.newInstance()
+    factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+    return factory.newDocumentBuilder().parse(xml.byteInputStream())
+}

@@ -22,17 +22,18 @@ function cov(files) {
 // The probe: a Rust project exited 0, and the only sign none of its code was read was one advisory
 // among several.
 test("a project written in a language nothing reads says so, loudly", () => {
-  // Rust is read now (agent/sast-rules/rust.yaml); PHP is the example of a language nothing reads.
-  const c = cov({ "composer.json": "{}\n", "src/index.php": "<?php\n", "src/lib.php": "<?php\n" });
-  assert.deepEqual(c.unread, [{ language: "PHP", files: 2 }]);
+  // Rust is read now (agent/sast-rules/rust.yaml), and PHP (php.yaml); Swift is the example of a
+  // language nothing reads.
+  const c = cov({ "Package.swift": "\n", "Sources/App/main.swift": "\n", "Sources/App/routes.swift": "\n" });
+  assert.deepEqual(c.unread, [{ language: "Swift", files: 3 }]);
   assert.equal(c.mostlyUnread, true);
-  assert.match(coverageLine(c), /^MOST OF THIS PROJECT'S SOURCE WAS NOT READ: 2 PHP file\(s\), against 0/);
+  assert.match(coverageLine(c), /^MOST OF THIS PROJECT'S SOURCE WAS NOT READ: 3 Swift file\(s\), against 0/);
 });
 
 test("a minority of unread files is still named, without the capitals", () => {
-  const c = cov({ "app.py": "\n", "server.py": "\n", "mobile/Main.kt": "\n" });
+  const c = cov({ "app.py": "\n", "server.py": "\n", "jobs/Main.scala": "\n" });
   assert.equal(c.mostlyUnread, false);
-  assert.match(coverageLine(c), /^1 Kotlin file\(s\) were not read/);
+  assert.match(coverageLine(c), /^1 Scala file\(s\) were not read/);
 });
 
 test("a project entirely in languages the checks read gets no line", () => {
@@ -40,12 +41,12 @@ test("a project entirely in languages the checks read gets no line", () => {
 });
 
 test("installed dependencies are not the project's source; vendored code is", () => {
-  const c = cov({ "index.js": "\n", "node_modules/native/binding.php": "\n", "vendor/x.php": "\n" });
-  assert.deepEqual(c.unread, [{ language: "PHP", files: 1 }]);
+  const c = cov({ "index.js": "\n", "node_modules/native/binding.swift": "\n", "vendor/x.swift": "\n" });
+  assert.deepEqual(c.unread, [{ language: "Swift", files: 1 }]);
 });
 
 test("languages the injection rules read are not called unread", () => {
-  const c = cov({ "main.rs": "\n", "Program.cs": "\n", "server.c": "\n", "lib.cpp": "\n", "App.jsx": "\n" });
+  const c = cov({ "main.rs": "\n", "Program.cs": "\n", "server.c": "\n", "lib.cpp": "\n", "App.jsx": "\n", "index.php": "\n", "Main.kt": "\n" });
   assert.deepEqual(c.unread, []);
   assert.equal(coverageLine(c), null);
 });

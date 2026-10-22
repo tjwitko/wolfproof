@@ -19,8 +19,6 @@ import { READ_EXT } from "./source-files.mjs";
 import { SAST_EXT } from "./sast.mjs";
 
 export const UNREAD_LANGUAGES = {
-  ".php": "PHP",
-  ".kt": "Kotlin",
   ".swift": "Swift",
   ".scala": "Scala",
   ".ex": "Elixir",
@@ -45,6 +43,7 @@ export const READ_LANGUAGES = {
   ".js": "JavaScript/TypeScript", ".mjs": "JavaScript/TypeScript", ".cjs": "JavaScript/TypeScript",
   ".jsx": "JavaScript/TypeScript", ".ts": "JavaScript/TypeScript", ".tsx": "JavaScript/TypeScript",
   ".c": "C/C++", ".h": "C/C++", ".cc": "C/C++", ".cpp": "C/C++", ".cxx": "C/C++", ".hpp": "C/C++", ".hh": "C/C++",
+  ".php": "PHP", ".kt": "Kotlin",
 };
 
 /**
