@@ -113,8 +113,29 @@ export function detectSuite(projectDir) {
     return { label: "go test", cmd: "go", args: ["test", "./..."], cwd: projectDir };
   }
 
+  // Test files in a language this check has no runner for -- Java, Kotlin, C#, Rust, PHP, Ruby. That
+  // is a limit of the gate, not a fact about the project, so the run is incomplete rather than the
+  // tests passing by default: measured on a PHP project whose only test fails, with a task asking
+  // for tests, this was an advisory and the run exited 0. Test files that are not code -- YAML
+  // fixtures under tests/, Terraform tests -- leave it as it was.
+  const code = testFiles.filter((f) => TEST_LANGUAGE[path.extname(f.rel)]);
+  if (code.length) {
+    const languages = [...new Set(code.map((f) => TEST_LANGUAGE[path.extname(f.rel)]))].join(", ");
+    return {
+      unsupported: true,
+      unavailable:
+        `the tests are ${languages} (${code.slice(0, 3).map((f) => f.rel).join(", ")}${code.length > 3 ? `, +${code.length - 3} more` : ""}), ` +
+        `and this check runs only node --test, jest, vitest, pytest and go test`,
+    };
+  }
   return { unavailable: "no runner could be identified for the test files present" };
 }
+
+const TEST_LANGUAGE = {
+  ".java": "Java", ".kt": "Kotlin", ".cs": "C#", ".rs": "Rust", ".php": "PHP", ".rb": "Ruby",
+  ".js": "JavaScript", ".mjs": "JavaScript", ".cjs": "JavaScript", ".jsx": "JavaScript",
+  ".ts": "TypeScript", ".tsx": "TypeScript", ".go": "Go", ".py": "Python",
+};
 
 // Each runner's own summary line. Falling back to the exit code alone would report "the suite
 // failed" without saying how much of it did, which is the difference between one broken assertion
@@ -214,6 +235,7 @@ export function runTests(projectDir, { timeoutMs, env = process.env } = {}) {
       unavailable: suite.unavailable,
       declaredRunnerMissing: !!suite.declaredRunnerMissing,
       environmental: !!suite.environmental,
+      unsupported: !!suite.unsupported,
     };
   }
 
@@ -287,10 +309,12 @@ export function verdictFor(r) {
     // This was not academic: three Go deliverables recorded a clean `tests` verdict on a machine
     // with no Go toolchain, and their suites had never compiled. The corpus froze the non-answer
     // as the answer, and only a run on a machine that HAD Go found the defect.
-    if (r.environmental) return { failures: [], advisories: [line], couldNotRun: [r.unavailable] };
+    //
+    // A suite in a language this check has no runner for is the same: the gate could not run it.
+    if (r.environmental || r.unsupported) return { failures: [], advisories: [line], couldNotRun: [r.unavailable] };
 
-    // Everything left is a fact about the project, not the machine: no test files, no identifiable
-    // runner, an unparseable manifest. Nothing was prevented from running.
+    // Everything left is a fact about the project, not the machine: no test files (code quality
+    // blocks on that), a package.json with test files and no runner, an unparseable manifest.
     return { failures: [], advisories: [line] };
   }
 

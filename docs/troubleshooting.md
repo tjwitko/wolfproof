@@ -9,6 +9,12 @@ somewhere stale. See [Configuration](configuration.md#where-the-controls-come-fr
 **`exit 3` and "COULD NOT RUN"** — a scanner is missing from `PATH`. The message names the binary.
 Install it and re-run; the verdict before it was installed proves nothing about your code.
 
+**`exit 3` and "the tests are Java (…), and this check runs only node --test, jest, vitest, pytest
+and go test"** — the task asks for tests, and the project's are in a language the `tests` check
+cannot run. The gate does not pass a suite it has not run. Run the suite in CI yourself and gate
+on that, or take the requirement for tests out of the task; until a runner is added, nothing here
+can say whether these tests pass.
+
 **`exit 3` and "did not finish within 120s and was killed"** — the `tests` check stopped your suite
 at its limit. If the suite is simply slow, set `WOLFPROOF_TEST_TIMEOUT` to a number of seconds it
 finishes in; if it hangs, a longer limit only makes the wait longer.

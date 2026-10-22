@@ -109,7 +109,7 @@ first row; add the rows for the languages and files you have:
 | Python | `semgrep`, `ruff`; `pytest` if it has tests | injection checks, static checks, the test suite |
 | JavaScript / TypeScript | `semgrep` | injection checks; tests run with the project's own tooling |
 | Go | `semgrep`, `go`, `docker` | injection checks, the build and the tests |
-| Java, Ruby, C#, Rust, C, C++, PHP, Kotlin | `semgrep` | injection checks |
+| Java, Ruby, C#, Rust, C, C++, PHP, Kotlin | `semgrep` | injection checks; a test suite is found but not run, so a task asking for tests is exit 3 |
 | Terraform | `terraform`; `checkov` optional | plan and policy checks; checkov adds advisories |
 | Dockerfile | nothing extra; `checkov` optional | the base-image end-of-life check; checkov adds advisories |
 

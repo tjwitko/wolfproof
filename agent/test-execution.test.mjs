@@ -153,18 +153,36 @@ test("a suite that hangs is killed and reported, not treated as passing", () => 
 });
 
 // The tests check said "no test files were found" for a PHP project with a tests/ directory, because it
-// read no .php file at all. It still has no PHP runner; it now says that instead.
-test("test files in languages with no runner here are found, and the report says the runner is what is missing", () => {
-  for (const [name, body] of [
-    ["tests/AddTest.php", "<?php\nfinal class AddTest extends TestCase {}\n"],
-    ["src/test/java/app/AddTest.java", "class AddTest {}\n"],
-    ["App.Tests/AddTests.cs", "public class AddTests {}\n"],
-    ["src/lib.rs", "#[cfg(test)]\nmod tests {\n  #[test]\n  fn adds() {}\n}\n"],
+// read no .php file at all; then, once it found them, an advisory -- and a PHP project whose only test
+// failed, with a task asking for tests, exited 0. A suite this check cannot run is a check that could
+// not run.
+test("a suite in a language with no runner here could not be run, and says which language and which runners", () => {
+  for (const [name, body, language] of [
+    ["tests/AddTest.php", "<?php\nfinal class AddTest extends TestCase {}\n", "PHP"],
+    ["src/test/java/app/AddTest.java", "class AddTest {}\n", "Java"],
+    ["App.Tests/AddTests.cs", "public class AddTests {}\n", "C#"],
+    ["src/lib.rs", "#[cfg(test)]\nmod tests {\n  #[test]\n  fn adds() {}\n}\n", "Rust"],
+    ["spec/add_spec.rb", "describe 'add' do\n  it { expect(1).to eq(1) }\nend\n", "Ruby"],
   ]) {
     run({ [name]: body }, (dir) => {
-      assert.deepEqual(detectSuite(dir), { unavailable: "no runner could be identified for the test files present" }, name);
+      const suite = detectSuite(dir);
+      assert.equal(suite.unsupported, true, name);
+      assert.equal(suite.unavailable, `the tests are ${language} (${name}), and this check runs only node --test, jest, vitest, pytest and go test`);
+      // Through the report the gate calls: runTests once rebuilt this result and dropped the flag, and a
+      // test of verdictFor alone passed while the gate still exited 0.
+      const v = testExecutionReport(dir, { wanted: true });
+      assert.deepEqual(v.failures, [], "not the project's fault");
+      assert.deepEqual(v.couldNotRun, [suite.unavailable], "the run is incomplete, not passed");
     });
   }
+});
+
+test("test-named files that are not code -- fixtures under tests/ -- are not a suite that could not run", () => {
+  run({ "main.tf": "\n", "tests/fixtures/plan.yaml": "a: 1\n" }, (dir) => {
+    const suite = detectSuite(dir);
+    assert.equal(suite.unsupported, undefined);
+    assert.equal(testExecutionReport(dir, { wanted: true }).couldNotRun, undefined);
+  });
 });
 
 const HANGS = {

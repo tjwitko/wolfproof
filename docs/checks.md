@@ -113,10 +113,14 @@ describes, or an expiry whose horizon cannot be read; a backup window offered as
 an immutability answer that cannot be determined when the task does not demand it.
 
 A test suite that cannot be started on this machine — no toolchain, killed at the time limit — is
-neither: the run exits 3.
+neither: the run exits 3. So is a suite in a language the `tests` check has no runner for — Java,
+Kotlin, C#, Rust, PHP, Ruby — when the task asks for tests: the files are found and named, and the
+run says it could not run them rather than passing them unrun.
 
-**Covers:** tests under `node --test`, jest, vitest, pytest and `go test`; error distinction in
-Python. Immutability judges only a store that names itself an audit log.
+**Covers:** running tests under `node --test`, jest, vitest, pytest and `go test`; finding test
+files, and whether they assert something, in those languages and in Java, Kotlin, C#, Rust and PHP
+(Maven's `src/test/java`, `*Test.kt`, `*Tests.cs`, `*Test.php`, Rust's `#[test]`); error
+distinction in Python. Immutability judges only a store that names itself an audit log.
 
 **Why it exists:** these requirements were stated in the task and missed in run after run.
 Across nineteen runs of an "immutable audit log" task, not one deliverable implemented an
