@@ -164,9 +164,26 @@ The policy maps an advisory id, an id family (`sast` for every `sast:<category>`
   change that removes `factory: true` is judged in the default mode, which does not check workflows.
   Run the gate from a workflow the change cannot edit — an organisation ruleset's required workflow —
   and the block covers every other workflow, its own invocation included.
-- **Hide its rules.** Every rule is open source and documented, blind spots included, so an agent
-  iterating against the gate can read what it does not see. A rule pack the agents cannot read would
-  be the scenario-style holdout equivalent; it is not built.
+- **Hide its rules, or test the running service.** Every rule is open source and documented, blind
+  spots included, so an agent iterating against the gate can read what it does not see. And every
+  check reads source code: a defect written in a shape no pattern recognises passes, however the
+  service behaves.
+
+  The direction chosen for that is a *behavioural holdout*, and it is not built yet. Where a static
+  check reads the code, a behavioural holdout runs it: it starts the change's service in a sandbox
+  and attacks it from outside, the way a caller would. It sends a request with no credentials to
+  every route and expects a 401 or 403; puts injection payloads in each parameter; asks for a path
+  containing `../`; and gives every URL parameter the address of a canary that records any
+  connection made to it. It judges what the service does — the status code, the data that comes
+  back, whether the canary was reached — not what the code looks like, so it catches the defect
+  however the code is written. The attacks are held by the pipeline, outside the repository, where
+  the agents cannot read them, so there is nothing to tune the code to. It is the security
+  counterpart of the scenario validation above, and it would keep this gate's exit contract: a
+  service that cannot be started is a check that could not run (exit 3), never a pass.
+
+  A private rule pack — the gate's own rules kept from the agents — was considered and rejected. It
+  works against an open-source gate, and it leaks anyway: every finding names its rule and where it
+  fired, so an agent that iterates long enough learns the pack one finding at a time.
 
 ## The scan-root rule, in both modes
 
