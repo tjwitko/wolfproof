@@ -1154,7 +1154,7 @@ upgrade notice first: the CI tooling check read that as an empty version and fai
 installs the tooling. It and the toolchain probe now set `SEMGREP_ENABLE_VERSION_CHECK=0`, as the sast
 check always had.
 
-### 19. Injection rules for PHP and Kotlin — fixed, not yet calibrated
+### 19. Injection rules for PHP and Kotlin — fixed, calibrated
 
 `agent/sast-rules/php.yaml` and `kotlin.yaml`, the same ten rules as Java and Ruby: blocking taint
 rules for command injection, SQL injection, code injection, SSRF, path traversal and credentials
@@ -1177,12 +1177,35 @@ sample run caught: a source that also matches a sink (`$request->query('x')` mat
 `$db->query(...)`, `file_get_contents('php://input')` the file sink), now excluded from each; and an
 array entry `'password' => 'a' . 'b'` reported where the array starts, now reported at its key.
 
-**Not yet calibrated.** Over 905 real Kotlin files on this machine (Gradle's own sources and a small
-project), the rules gave no blocking finding and one advisory, a `DocumentBuilderFactory` created
-without disabling DTDs and parsing fetched XML, which is what the advisory describes. That shows they
-are quiet on ordinary code, not that they find what is there: none of it takes requests. No real PHP
-was available. Calibrating both against applications with known answers, as `calibration/` does for
-the other languages, needs those applications cloned.
+**Calibrated** (2026-10-22, seven applications added to `calibration/manifest.json`):
+
+| app | language | role | blocking | advisory |
+|---|---|---|---|---|
+| DVWA | PHP | deliberately vulnerable | 33 | 42 |
+| BookStack (Laravel, 2,220 files) | PHP | clean | 0 | 3 |
+| Symfony demo | PHP | clean | 0 | 0 |
+| spring-petclinic-kotlin | Kotlin | clean | 0 | 0 |
+| ktor-samples | Kotlin | clean | 0 | 0 |
+| kotlin-spring-realworld | Kotlin | clean | 0 | 0 |
+| kotlin-ktor-realworld | Kotlin | clean | 0 | 0 |
+
+Each of DVWA's blocking findings was read against its source. 29 are real: command injection in
+`exec` low, medium and high and in the API; SQL injection in `sqli`, `sqli_blind`, `brute`, `bac`
+(an `X-Forwarded-For` header written into a log `INSERT`), `authbypass` and the PostgreSQL setup
+script (`PHP_SELF`); and file inclusion in `view_help.php` and `view_source.php`, which put
+`$_GET['id']` into a path unchecked -- `view_help.php` then `eval`s the file. The first pass had 37;
+four were values checked in an `if` -- DVWA's secure ping checks every octet with `is_numeric`, and
+`bac/medium` rejects anything not matching `/^\d+$/` -- so a value checked in the condition of the
+`if` it is used in, by `is_numeric`, `ctype_digit` or a fully anchored `preg_match`, now counts as
+cleaned there. A negated check or an unanchored pattern cleans nothing. Four false positives remain,
+at three lines, and are named in the manifest: `instructions.php` reads a fixed array by the
+requested key, and `upload/source/impossible.php` builds a path from the upload's extension before
+checking it. Taint follows data, not conditions or lookups.
+
+Kotlin has no positive control: no deliberately vulnerable Kotlin web application exists beyond toys
+(Checkmarx's Goatlin is an Android client with a JavaScript server). Its four clean apps, and 905 files
+of Gradle's own Kotlin on the development machine, show the rules do not over-fire; only
+`kotlin.kt.sample` shows them finding injection. The manifest names the gap.
 
 Not covered: authentication (no PHP or Kotlin route reader), builds and test runners (see #12),
 Ktor's client beyond a receiver named `client`, Exposed's raw `exec`, and PHP's `preg_replace` with

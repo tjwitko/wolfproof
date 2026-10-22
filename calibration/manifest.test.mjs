@@ -27,14 +27,14 @@ test("an app listed as having findings has blocking ones; the gaps are named, no
   // Every language the rules block in, minus those with a positive control, is exactly the list of
   // languages the manifest says it cannot vouch for.
   const covered = new Set(positives.map((a) => a.language));
-  const blockingLanguages = ["Python", "JavaScript/TypeScript", "Go", "Java", "Ruby", "C#", "Rust", "C", "C++"];
+  const blockingLanguages = ["Python", "JavaScript/TypeScript", "Go", "Java", "Ruby", "C#", "Rust", "C", "C++", "PHP", "Kotlin"];
   const uncovered = blockingLanguages.filter((l) => !covered.has(l) && !(["C", "C++"].includes(l) && covered.has("C/C++")));
   assert.deepEqual(uncovered.sort(), Object.keys(manifest.noPositiveControl).sort());
 });
 
 test("every language with an app has a clean one, except C++, which is named as having none", () => {
   const clean = new Set(manifest.apps.filter((a) => a.role === "clean").map((a) => a.language));
-  for (const l of ["Python", "JavaScript/TypeScript", "Go", "Java", "Ruby", "C#", "Rust", "C/C++"]) assert.ok(clean.has(l), l);
+  for (const l of ["Python", "JavaScript/TypeScript", "Go", "Java", "Ruby", "C#", "Rust", "C/C++", "PHP", "Kotlin"]) assert.ok(clean.has(l), l);
   assert.match(manifest.noPositiveControl["C++"], /no C\+\+ app at all/);
 });
 

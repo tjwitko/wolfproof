@@ -69,6 +69,29 @@ rules:
       - pattern: escapeshellarg(...)
       - pattern: intval(...)
       - pattern: (int) $X
+      # A value checked in the condition of the if it is used in: is_numeric, ctype_digit, or a fully
+      # anchored preg_match, including the else of a negated preg_match. Taint follows data, not
+      # conditions: without this, DVWA's secure ("impossible") ping, which checks every octet with
+      # is_numeric and rebuilds the address, blocked. A negated is_numeric or an unanchored pattern
+      # cleans nothing.
+      - patterns:
+          - pattern-either:
+              - pattern-inside: if (<... is_numeric($X) ...>) { ... }
+              - pattern-inside: if (<... ctype_digit($X) ...>) { ... }
+              - patterns:
+                  - pattern-inside: if (<... preg_match($RE, $X) ...>) { ... }
+                  - metavariable-regex:
+                      metavariable: $RE
+                      regex: ^(['"])/\^.*\$/[a-zA-Z]*\1$
+              - patterns:
+                  - pattern-inside: |
+                      if (!preg_match($RE, $X)) { ... } else { ... }
+                  - metavariable-regex:
+                      metavariable: $RE
+                      regex: ^(['"])/\^.*\$/[a-zA-Z]*\1$
+          - pattern-not-inside: if (<... !is_numeric($X) ...>) { ... }
+          - pattern-not-inside: if (<... !ctype_digit($X) ...>) { ... }
+          - pattern: $X
 
   - id: php-sql-injection
     mode: taint
@@ -158,6 +181,29 @@ rules:
       - pattern: $DB->real_escape_string(...)
       - pattern: pg_escape_string(...)
       - pattern: pg_escape_literal(...)
+      # A value checked in the condition of the if it is used in: is_numeric, ctype_digit, or a fully
+      # anchored preg_match, including the else of a negated preg_match. Taint follows data, not
+      # conditions: without this, DVWA's secure ("impossible") ping, which checks every octet with
+      # is_numeric and rebuilds the address, blocked. A negated is_numeric or an unanchored pattern
+      # cleans nothing.
+      - patterns:
+          - pattern-either:
+              - pattern-inside: if (<... is_numeric($X) ...>) { ... }
+              - pattern-inside: if (<... ctype_digit($X) ...>) { ... }
+              - patterns:
+                  - pattern-inside: if (<... preg_match($RE, $X) ...>) { ... }
+                  - metavariable-regex:
+                      metavariable: $RE
+                      regex: ^(['"])/\^.*\$/[a-zA-Z]*\1$
+              - patterns:
+                  - pattern-inside: |
+                      if (!preg_match($RE, $X)) { ... } else { ... }
+                  - metavariable-regex:
+                      metavariable: $RE
+                      regex: ^(['"])/\^.*\$/[a-zA-Z]*\1$
+          - pattern-not-inside: if (<... !is_numeric($X) ...>) { ... }
+          - pattern-not-inside: if (<... !ctype_digit($X) ...>) { ... }
+          - pattern: $X
 
   # Code injection includes include and require: given request data they run whatever file it names as
   # PHP, which is how local and remote file inclusion become code execution.
@@ -223,6 +269,29 @@ rules:
     pattern-sanitizers:
       - pattern: basename(...)
       - pattern: intval(...)
+      # A value checked in the condition of the if it is used in: is_numeric, ctype_digit, or a fully
+      # anchored preg_match, including the else of a negated preg_match. Taint follows data, not
+      # conditions: without this, DVWA's secure ("impossible") ping, which checks every octet with
+      # is_numeric and rebuilds the address, blocked. A negated is_numeric or an unanchored pattern
+      # cleans nothing.
+      - patterns:
+          - pattern-either:
+              - pattern-inside: if (<... is_numeric($X) ...>) { ... }
+              - pattern-inside: if (<... ctype_digit($X) ...>) { ... }
+              - patterns:
+                  - pattern-inside: if (<... preg_match($RE, $X) ...>) { ... }
+                  - metavariable-regex:
+                      metavariable: $RE
+                      regex: ^(['"])/\^.*\$/[a-zA-Z]*\1$
+              - patterns:
+                  - pattern-inside: |
+                      if (!preg_match($RE, $X)) { ... } else { ... }
+                  - metavariable-regex:
+                      metavariable: $RE
+                      regex: ^(['"])/\^.*\$/[a-zA-Z]*\1$
+          - pattern-not-inside: if (<... !is_numeric($X) ...>) { ... }
+          - pattern-not-inside: if (<... !ctype_digit($X) ...>) { ... }
+          - pattern: $X
 
   - id: php-sql-string-built
     languages: [php]
@@ -382,6 +451,29 @@ rules:
               metavariable: $P
               regex: ^https?://[^/]+/
       - pattern-regex: '"https?://[^/#"$]+/[^"]*"'
+      # A value checked in the condition of the if it is used in: is_numeric, ctype_digit, or a fully
+      # anchored preg_match, including the else of a negated preg_match. Taint follows data, not
+      # conditions: without this, DVWA's secure ("impossible") ping, which checks every octet with
+      # is_numeric and rebuilds the address, blocked. A negated is_numeric or an unanchored pattern
+      # cleans nothing.
+      - patterns:
+          - pattern-either:
+              - pattern-inside: if (<... is_numeric($X) ...>) { ... }
+              - pattern-inside: if (<... ctype_digit($X) ...>) { ... }
+              - patterns:
+                  - pattern-inside: if (<... preg_match($RE, $X) ...>) { ... }
+                  - metavariable-regex:
+                      metavariable: $RE
+                      regex: ^(['"])/\^.*\$/[a-zA-Z]*\1$
+              - patterns:
+                  - pattern-inside: |
+                      if (!preg_match($RE, $X)) { ... } else { ... }
+                  - metavariable-regex:
+                      metavariable: $RE
+                      regex: ^(['"])/\^.*\$/[a-zA-Z]*\1$
+          - pattern-not-inside: if (<... !is_numeric($X) ...>) { ... }
+          - pattern-not-inside: if (<... !ctype_digit($X) ...>) { ... }
+          - pattern: $X
 
   # Path traversal: request data naming a file the server opens, sends, writes or deletes. basename()
   # takes only the file name.
@@ -454,6 +546,29 @@ rules:
       - pattern: basename(...)
       - pattern: intval(...)
       - pattern: (int) $X
+      # A value checked in the condition of the if it is used in: is_numeric, ctype_digit, or a fully
+      # anchored preg_match, including the else of a negated preg_match. Taint follows data, not
+      # conditions: without this, DVWA's secure ("impossible") ping, which checks every octet with
+      # is_numeric and rebuilds the address, blocked. A negated is_numeric or an unanchored pattern
+      # cleans nothing.
+      - patterns:
+          - pattern-either:
+              - pattern-inside: if (<... is_numeric($X) ...>) { ... }
+              - pattern-inside: if (<... ctype_digit($X) ...>) { ... }
+              - patterns:
+                  - pattern-inside: if (<... preg_match($RE, $X) ...>) { ... }
+                  - metavariable-regex:
+                      metavariable: $RE
+                      regex: ^(['"])/\^.*\$/[a-zA-Z]*\1$
+              - patterns:
+                  - pattern-inside: |
+                      if (!preg_match($RE, $X)) { ... } else { ... }
+                  - metavariable-regex:
+                      metavariable: $RE
+                      regex: ^(['"])/\^.*\$/[a-zA-Z]*\1$
+          - pattern-not-inside: if (<... !is_numeric($X) ...>) { ... }
+          - pattern-not-inside: if (<... !ctype_digit($X) ...>) { ... }
+          - pattern: $X
 
   # XXE: libxml substitutes entities, and loads external DTDs, only when asked to.
   - id: php-xxe

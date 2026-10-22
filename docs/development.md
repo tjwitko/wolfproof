@@ -7,7 +7,7 @@ npm install
 npm test                # unit tests
 npm run corpus          # regression corpus — thirteen frozen projects
 npm run corpus:factory  # the same thirteen, in factory mode, against their own frozen verdicts
-npm run calibration     # the sast rules on 22 real apps, cloned at pinned commits — about 75 minutes
+npm run calibration     # the sast rules on 29 real apps, cloned at pinned commits — about 85 minutes
 node scripts/refresh-eol-data.mjs   # end-of-life dates for the dockerfile check, before a release
 ```
 
@@ -39,7 +39,7 @@ becomes incomplete.
 ## The calibration corpus
 
 The calibration corpus does the same for the `sast` rules on other people's code. Its manifest,
-[`calibration/manifest.json`](../calibration/manifest.json), names 22 applications by repository and
+[`calibration/manifest.json`](../calibration/manifest.json), names 29 applications by repository and
 full commit SHA, with the count each rule gave each one, blocking and advisory, measured with the
 pinned semgrep.
 

@@ -1,7 +1,7 @@
 {
   "about": "Real applications with known sast answers, cloned at these commits and scanned only. See calibration/run.mjs.",
   "semgrep": "1.180.0",
-  "measured": "2026-10-16",
+  "measured": "2026-10-22",
   "toolchain": {
     "node": "26.5.1",
     "go": "1.27.1",
@@ -19,7 +19,8 @@
     "Go": "no deliberately vulnerable Go app is in the set, so nothing shows the Go rules still find injection in real code; gitea shows they do not over-fire",
     "Rust": "no deliberately vulnerable Rust app is in the set; lemmy and meilisearch show only that the Rust rules do not over-fire",
     "C": "dvcp's vulnerabilities are memory safety, which no rule claims, so nothing shows the C rules find injection in real code; curl, git, redis and nginx show only that they do not over-fire",
-    "C++": "no C++ app at all: neither a positive nor a clean control. The C/C++ rules are exercised on C++ only by agent/sast-samples/c.cpp.sample"
+    "C++": "no C++ app at all: neither a positive nor a clean control. The C/C++ rules are exercised on C++ only by agent/sast-samples/c.cpp.sample",
+    "Kotlin": "no deliberately vulnerable Kotlin web application exists beyond toys: Checkmarx Goatlin's Kotlin is an Android client, and its server is JavaScript. The four clean apps show only that the Kotlin rules do not over-fire; agent/sast-samples/kotlin.kt.sample is all that shows them finding injection."
   },
   "apps": [
     {
@@ -513,6 +514,142 @@
       "role": "clean",
       "expected": {
         "files": 411,
+        "blocking": 0,
+        "advisory": 0,
+        "byRule": {}
+      }
+    },
+    {
+      "name": "dvwa",
+      "repo": "https://github.com/digininja/DVWA",
+      "commit": "a1978a2fed195acd093010af6395f86a281537ca",
+      "language": "PHP",
+      "role": "findings",
+      "note": "Damn Vulnerable Web Application. Of its 33 blocking findings, 29 are real: command injection in exec low/medium/high and the API, SQL injection in sqli, sqli_blind, brute, bac (X-Forwarded-For), authbypass and the PostgreSQL setup script (PHP_SELF), and file inclusion through view_help and view_source, which put $_GET['id'] into a path unchecked. Four are known false positives, at three lines: instructions.php reads a fixed array by the requested key, and upload/source/impossible.php builds a path from the upload's extension and checks the extension only afterwards (two taint paths to one line). Taint follows data, not conditions or lookups.",
+      "expected": {
+        "files": 179,
+        "blocking": 33,
+        "advisory": 42,
+        "byRule": {
+          "php-code-injection": {
+            "blocking": 2,
+            "advisory": 0
+          },
+          "php-command-injection": {
+            "blocking": 7,
+            "advisory": 0
+          },
+          "php-path-traversal": {
+            "blocking": 12,
+            "advisory": 0
+          },
+          "php-shell-nonliteral": {
+            "blocking": 0,
+            "advisory": 2
+          },
+          "php-sql-injection": {
+            "blocking": 12,
+            "advisory": 0
+          },
+          "php-sql-string-built": {
+            "blocking": 0,
+            "advisory": 2
+          },
+          "php-sql-text-built": {
+            "blocking": 0,
+            "advisory": 38
+          }
+        }
+      }
+    },
+    {
+      "name": "bookstack",
+      "repo": "https://github.com/BookStackApp/BookStack",
+      "commit": "045c6a98cac21ea86906674bb91d01f375460db6",
+      "language": "PHP",
+      "role": "clean",
+      "note": "A Laravel documentation platform; its controllers read $request throughout.",
+      "expected": {
+        "files": 2220,
+        "blocking": 0,
+        "advisory": 3,
+        "byRule": {
+          "php-sql-string-built": {
+            "blocking": 0,
+            "advisory": 2
+          },
+          "php-sql-text-built": {
+            "blocking": 0,
+            "advisory": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "symfony-demo",
+      "repo": "https://github.com/symfony/demo",
+      "commit": "8d2e2ef75c3e18df173d8bf2379a14abb58c4c31",
+      "language": "PHP",
+      "role": "clean",
+      "note": "Symfony's official demo application.",
+      "expected": {
+        "files": 60,
+        "blocking": 0,
+        "advisory": 0,
+        "byRule": {}
+      }
+    },
+    {
+      "name": "petclinic-kotlin",
+      "repo": "https://github.com/spring-petclinic/spring-petclinic-kotlin",
+      "commit": "c77f77ba5d43c2dbff7fa777c40be1d7ec321e40",
+      "language": "Kotlin",
+      "role": "clean",
+      "note": "Spring PetClinic in Kotlin: annotated handler parameters.",
+      "expected": {
+        "files": 38,
+        "blocking": 0,
+        "advisory": 0,
+        "byRule": {}
+      }
+    },
+    {
+      "name": "ktor-samples",
+      "repo": "https://github.com/ktorio/ktor-samples",
+      "commit": "1c9df7cf102d638eadaf545fcce4c0ec5ccad334",
+      "language": "Kotlin",
+      "role": "clean",
+      "note": "Ktor's own samples: call.parameters and call.receive throughout.",
+      "expected": {
+        "files": 155,
+        "blocking": 0,
+        "advisory": 0,
+        "byRule": {}
+      }
+    },
+    {
+      "name": "kotlin-spring-realworld",
+      "repo": "https://github.com/gothinkster/kotlin-spring-realworld-example-app",
+      "commit": "848c29e3abfe1bd72001cc7d7a3227aebec96e9b",
+      "language": "Kotlin",
+      "role": "clean",
+      "note": "The RealWorld API in Spring Boot and Kotlin.",
+      "expected": {
+        "files": 43,
+        "blocking": 0,
+        "advisory": 0,
+        "byRule": {}
+      }
+    },
+    {
+      "name": "kotlin-ktor-realworld",
+      "repo": "https://github.com/Rudge/kotlin-ktor-realworld-example-app",
+      "commit": "b9e9dec0ec03902073389edd251c4904ccbfef7a",
+      "language": "Kotlin",
+      "role": "clean",
+      "note": "The RealWorld API in Ktor.",
+      "expected": {
+        "files": 32,
         "blocking": 0,
         "advisory": 0,
         "byRule": {}

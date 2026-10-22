@@ -44,6 +44,60 @@ function serverConfig() {
     exec("ls " . $_SERVER['DOCUMENT_ROOT']);
 }
 
+// --- validated in a condition ---------------------------------------------------------------------
+
+function pingChecked() {
+    // DVWA's secure ping: every octet checked with is_numeric, the address rebuilt from them.
+    $octet = explode(".", $_REQUEST['ip']);
+    if (is_numeric($octet[0]) && is_numeric($octet[1]) && is_numeric($octet[2]) && is_numeric($octet[3])) {
+        $target = $octet[0] . '.' . $octet[1] . '.' . $octet[2] . '.' . $octet[3];
+        // ok: php-command-injection
+        // ruleid: php-shell-nonliteral
+        shell_exec('ping -c 4 ' . $target);
+    }
+}
+
+function pingNegated() {
+    if (!is_numeric($_GET['n'])) {
+        // A negated check cleans nothing.
+        // ruleid: php-command-injection, php-shell-nonliteral
+        shell_exec('seq ' . $_GET['n']);
+    }
+}
+
+function userChecked($conn) {
+    if (!preg_match('/^\d+$/', $_GET['user_id'])) {
+        return 'bad id';
+    } else {
+        $id = $_GET['user_id'];
+        // ruleid: php-sql-text-built
+        $q = "SELECT user_id FROM users WHERE user_id = '$id'";
+        // ok: php-sql-injection
+        return mysqli_query($conn, $q);
+    }
+}
+
+function userUnanchored($conn) {
+    if (preg_match('/\d+/', $_GET['user_id'])) {
+        // An unanchored pattern lets "1' OR '1'='1" through.
+        // ruleid: php-sql-text-built
+        $q = "SELECT user_id FROM users WHERE user_id = '" . $_GET['user_id'] . "'";
+        // ruleid: php-sql-injection
+        return mysqli_query($conn, $q);
+    }
+}
+
+function countDigits() {
+    if (ctype_digit($_GET['k'])) {
+        // ok: php-command-injection
+        // ruleid: php-shell-nonliteral
+        shell_exec('seq ' . $_GET['k']);
+    }
+    // Outside the if it was checked in.
+    // ruleid: php-command-injection, php-shell-nonliteral
+    shell_exec('seq ' . $_GET['k']);
+}
+
 // --- SQL injection ----------------------------------------------------------------------------
 
 function userById($conn) {
