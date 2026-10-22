@@ -44,7 +44,7 @@ agent, and it works the same on code people wrote.
 ## Quickstart
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.7.0
+npm install --save-dev github:tjwitko/wolfproof#v1.8.0
 echo "Build an HTTP service. Ship tests someone else can run." > task.txt   # the requirements, in prose
 ./node_modules/.bin/wolfproof init --hook --task task.txt                   # agent instructions + pre-commit hook
 ./node_modules/.bin/wolfproof . task.txt                                    # the verdict
@@ -61,7 +61,7 @@ network request. `npx` looks up a missing command on the public registry and, in
 non-interactive shell, installs whatever it finds without asking.
 [Why this matters](docs/upgrading.md#notes-from-earlier-versions).
 
-To track `main` instead of a release, drop the `#v1.7.0`. `main` moves.
+To track `main` instead of a release, drop the `#v1.8.0`. `main` moves.
 
 ---
 
@@ -225,9 +225,9 @@ jobs:
       - run: npm ci --ignore-scripts
 
       # The scanners, at the versions this release was tested with, each checked after install.
-      - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.7.0
+      - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.8.0
 
-      - uses: tjwitko/wolfproof@v1.7.0
+      - uses: tjwitko/wolfproof@v1.8.0
         with:
           project: .
           task-file: task.txt
