@@ -91,6 +91,14 @@ with a `package.json`, Python test files or a `go.mod` are not affected: the che
 runners first. See [Troubleshooting](troubleshooting.md) for what you can do about it, and what
 each option costs.
 
+**After v1.7.0: every test suite is run or reported.** The `tests` check used to pick one runner per
+project, and a `package.json` meant JavaScript and nothing else, so a suite in another language
+beside it — PHP or Ruby in a Laravel or Rails app with front-end tooling, Python in a service with a
+`package.json` for its tooling — was neither run nor flagged. Now each suite is handled: JavaScript,
+Python and Go suites run, and a Java, Kotlin, C#, Rust, PHP or Ruby suite is exit 3 as above. A
+Laravel or Rails project whose task asks for tests can therefore go from exit 0 to exit 3, and a
+project with JavaScript and Python tests now runs both.
+
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
 

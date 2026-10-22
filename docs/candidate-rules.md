@@ -1221,9 +1221,10 @@ Ktor's client beyond a receiver named `client`, Exposed's raw `exec`, and PHP's 
 - **Toolchains per language** (Java, Rust, PHP builds and test runners). Semgrep (#9) widens coverage
   for less. Still deferred, but no longer silent: test files in Java, Kotlin, C#, Rust and PHP are
   now recognised (`isTestFile` in `agent/source-files.mjs`), and a suite in one of those languages
-  or Ruby, with a task asking for tests, is exit 3 rather than an advisory. Two gaps remain: the
-  runner is chosen per project, so the same suite beside a `package.json` is neither run nor
-  flagged; and C and C++ test files are not recognised at all.
+  or Ruby, with a task asking for tests, is exit 3 rather than an advisory. Every suite in a project
+  is now handled, not the first one found: a `package.json` used to hide a PHP, Ruby, Python or Go
+  suite beside it, which was neither run nor flagged. One gap remains: C and C++ test files are
+  not recognised at all.
 - **`git commit --no-verify`**. By design: the hook is a convenience, and CI with required checks is
   the enforcement point. The README says so.
 

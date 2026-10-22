@@ -44,91 +44,132 @@ export function testTimeout(env = process.env) {
 }
 
 /**
- * Which runner can start this project's tests, as { label, cmd, args, cwd }, or
- * { unavailable } naming what is missing. Never returns a command the project itself authored.
+ * Every suite this project has, one entry each: a runner that can start it, as { label, cmd, args,
+ * cwd }, or { unavailable } naming what is missing. Never returns a command the project itself
+ * authored.
+ *
+ * Every suite, not the first one found. This returned at the first match: a package.json meant a
+ * JavaScript project and nothing else was looked at, so a Python, Go, Java or PHP suite beside it --
+ * a Laravel app with a package.json for its front end, a Python service with one for its tooling --
+ * was neither run nor reported as unrun. A package.json now claims the project only when there are
+ * JavaScript test files, or no other code tests at all.
  */
-export function detectSuite(projectDir) {
+export function detectSuites(projectDir) {
   const files = walk(projectDir, [], projectDir, TEST_EXT);
   const testFiles = files.filter((f) => isTestFile(f.rel, f.text));
-  if (testFiles.length === 0) return { unavailable: "no test files were found" };
+  if (testFiles.length === 0) return [{ unavailable: "no test files were found" }];
 
-  const bin = (name) => path.join(projectDir, "node_modules", ".bin", name);
-  const pkgPath = path.join(projectDir, "package.json");
+  const lang = (f) => TEST_LANGUAGE[path.extname(f.rel)];
+  const code = testFiles.filter(lang);
+  const of = (...names) => code.filter((f) => names.includes(lang(f)));
+  const js = of("JavaScript", "TypeScript");
+  const py = of("Python");
+  const go = of("Go");
+  const other = code.filter((f) => !["JavaScript", "TypeScript", "Python", "Go"].includes(lang(f)));
+  const suites = [];
 
-  if (existsSync(pkgPath)) {
-    let pkg = {};
-    try {
-      pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-    } catch {
-      return { unavailable: "package.json could not be parsed, so no runner could be identified" };
-    }
-    const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
-    const declared = ["jest", "vitest", "mocha", "tap", "ava"].find((r) => deps[r]);
-
-    if (declared) {
-      if (!existsSync(bin(declared))) {
-        // The project's OWN manifest names this runner. Its absence is not a fact about this
-        // machine the way a missing pytest is -- it is the deliverable failing its own declared
-        // requirement, and the task asks for tests someone else can run. Marked so the report
-        // blocks rather than advises.
-        return {
-          declaredRunnerMissing: true,
-          unavailable:
-            `the suite is written for ${declared}, which this project declares in package.json and ` +
-            `which is not installed — node_modules/.bin/${declared} does not exist. Nobody can run ` +
-            `these tests as delivered, including whoever receives this project. Run \`npm install\` ` +
-            `(dependencies are deliberately not installed by this check, because npm install on a ` +
-            `generated manifest executes arbitrary postinstall hooks) and make sure the suite passes`,
-        };
-      }
-      return { label: declared, cmd: bin(declared), args: declared === "jest" ? ["--ci"] : [], cwd: projectDir };
-    }
-
-    // No declared runner: node's own, which needs nothing installed. Note the narrower pattern --
-    // isTestFile matches anything under a test/ directory, which is right for "does this project
-    // have tests" and wrong for "what should I execute". Handing node --test a helper module like
-    // test/fakes.mjs runs it as a test file: harmless when it only exports fakes, and not something
-    // to rely on when the helper has side effects.
-    const nodeTests = testFiles.filter((f) => /\.(test|spec)\.(m|c)?js$|_test\.(m|c)?js$/.test(f.rel));
-    if (nodeTests.length) {
-      return {
-        label: "node --test",
-        cmd: process.execPath,
-        args: ["--test", ...nodeTests.map((f) => f.rel)],
-        cwd: projectDir,
-      };
-    }
-    return { unavailable: "package.json declares no test runner and no runnable JavaScript tests were found" };
+  if (existsSync(path.join(projectDir, "package.json")) && (js.length || !code.length)) {
+    suites.push(javascriptSuite(projectDir, testFiles));
+  } else if (js.length) {
+    // node's own runner needs nothing installed and no manifest.
+    const nodeTests = js.filter((f) => /\.(test|spec)\.(m|c)?js$|_test\.(m|c)?js$/.test(f.rel));
+    suites.push(
+      nodeTests.length
+        ? { label: "node --test", cmd: process.execPath, args: ["--test", ...nodeTests.map((f) => f.rel)], cwd: projectDir }
+        : { unavailable: "there is no package.json and no test file node --test can run" }
+    );
   }
 
-  if (testFiles.some((f) => f.rel.endsWith(".py"))) {
+  if (py.length) {
     const probe = spawnSync("python3", ["-m", "pytest", "--version"], { cwd: projectDir, encoding: "utf8" });
-    if (probe.status !== 0) {
-      return { environmental: true, unavailable: "the tests are Python and pytest is not installed here" };
-    }
-    return { label: "pytest", cmd: "python3", args: ["-m", "pytest", "-q"], cwd: projectDir };
+    suites.push(
+      probe.status !== 0
+        ? { environmental: true, unavailable: "the tests are Python and pytest is not installed here" }
+        : { label: "pytest", cmd: "python3", args: ["-m", "pytest", "-q"], cwd: projectDir }
+    );
   }
 
-  if (existsSync(path.join(projectDir, "go.mod"))) {
-    return { label: "go test", cmd: "go", args: ["test", "./..."], cwd: projectDir };
+  if (existsSync(path.join(projectDir, "go.mod")) && (go.length || !code.length)) {
+    suites.push({ label: "go test", cmd: "go", args: ["test", "./..."], cwd: projectDir });
+  } else if (go.length) {
+    suites.push({ unavailable: "the tests are Go and there is no go.mod, so go test cannot run them" });
   }
 
   // Test files in a language this check has no runner for -- Java, Kotlin, C#, Rust, PHP, Ruby. That
   // is a limit of the gate, not a fact about the project, so the run is incomplete rather than the
   // tests passing by default: measured on a PHP project whose only test fails, with a task asking
-  // for tests, this was an advisory and the run exited 0. Test files that are not code -- YAML
-  // fixtures under tests/, Terraform tests -- leave it as it was.
-  const code = testFiles.filter((f) => TEST_LANGUAGE[path.extname(f.rel)]);
-  if (code.length) {
-    const languages = [...new Set(code.map((f) => TEST_LANGUAGE[path.extname(f.rel)]))].join(", ");
-    return {
+  // for tests, this was an advisory and the run exited 0.
+  if (other.length) {
+    const languages = [...new Set(other.map(lang))].join(", ");
+    suites.push({
       unsupported: true,
       unavailable:
-        `the tests are ${languages} (${code.slice(0, 3).map((f) => f.rel).join(", ")}${code.length > 3 ? `, +${code.length - 3} more` : ""}), ` +
+        `the tests are ${languages} (${other.slice(0, 3).map((f) => f.rel).join(", ")}${other.length > 3 ? `, +${other.length - 3} more` : ""}), ` +
         `and this check runs only node --test, jest, vitest, pytest and go test`,
+    });
+  }
+
+  // Test-named files that are not code -- YAML fixtures under tests/, Terraform tests.
+  if (!suites.length) suites.push({ unavailable: "no runner could be identified for the test files present" });
+  return suites;
+}
+
+/** The first of detectSuites: the suite a single-language project has. */
+export function detectSuite(projectDir) {
+  return detectSuites(projectDir)[0];
+}
+
+/**
+ * The JavaScript suite: the runner package.json declares, or node's own for files named like tests.
+ * `testFiles` is every test file found; node --test is given only the ones named for it.
+ */
+function javascriptSuite(projectDir, testFiles) {
+  const bin = (name) => path.join(projectDir, "node_modules", ".bin", name);
+  const pkgPath = path.join(projectDir, "package.json");
+
+  let pkg = {};
+  try {
+    pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+  } catch {
+    return { unavailable: "package.json could not be parsed, so no runner could be identified" };
+  }
+  const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+  const declared = ["jest", "vitest", "mocha", "tap", "ava"].find((r) => deps[r]);
+
+  if (declared) {
+    if (!existsSync(bin(declared))) {
+      // The project's OWN manifest names this runner. Its absence is not a fact about this
+      // machine the way a missing pytest is -- it is the deliverable failing its own declared
+      // requirement, and the task asks for tests someone else can run. Marked so the report
+      // blocks rather than advises.
+      return {
+        declaredRunnerMissing: true,
+        unavailable:
+          `the suite is written for ${declared}, which this project declares in package.json and ` +
+          `which is not installed — node_modules/.bin/${declared} does not exist. Nobody can run ` +
+          `these tests as delivered, including whoever receives this project. Run \`npm install\` ` +
+          `(dependencies are deliberately not installed by this check, because npm install on a ` +
+          `generated manifest executes arbitrary postinstall hooks) and make sure the suite passes`,
+      };
+    }
+    return { label: declared, cmd: bin(declared), args: declared === "jest" ? ["--ci"] : [], cwd: projectDir };
+  }
+
+  // No declared runner: node's own, which needs nothing installed. Note the narrower pattern --
+  // isTestFile matches anything under a test/ directory, which is right for "does this project
+  // have tests" and wrong for "what should I execute". Handing node --test a helper module like
+  // test/fakes.mjs runs it as a test file: harmless when it only exports fakes, and not something
+  // to rely on when the helper has side effects.
+  const nodeTests = testFiles.filter((f) => /\.(test|spec)\.(m|c)?js$|_test\.(m|c)?js$/.test(f.rel));
+  if (nodeTests.length) {
+    return {
+      label: "node --test",
+      cmd: process.execPath,
+      args: ["--test", ...nodeTests.map((f) => f.rel)],
+      cwd: projectDir,
     };
   }
-  return { unavailable: "no runner could be identified for the test files present" };
+  return { unavailable: "package.json declares no test runner and no runnable JavaScript tests were found" };
 }
 
 const TEST_LANGUAGE = {
@@ -219,16 +260,27 @@ export const parseCountsForTest = parseCounts;
  *  version this machine does not run, and it shipped broken because of that. */
 export const failingNamesForTest = failingNames;
 
-/** Runs the suite. Returns { ran, unavailable, timedOut, counts, failing, exitCode }. */
-export function runTests(projectDir, { timeoutMs, env = process.env } = {}) {
+/**
+ * Runs every suite. Returns one result per suite: { ran, unavailable, timedOut, counts, failing,
+ * exitCode }. Each suite gets the full time limit.
+ */
+export function runSuites(projectDir, { timeoutMs, env = process.env } = {}) {
   let limitNote = "";
   if (timeoutMs === undefined) {
     const t = testTimeout(env);
-    if (t.error) return { ran: false, environmental: true, unavailable: `${t.error}, so the suite was not run` };
+    if (t.error) return [{ ran: false, environmental: true, unavailable: `${t.error}, so the suite was not run` }];
     timeoutMs = t.ms;
     limitNote = t.set ? ", the limit WOLFPROOF_TEST_TIMEOUT sets" : "; WOLFPROOF_TEST_TIMEOUT raises the limit, in seconds";
   }
-  const suite = detectSuite(projectDir);
+  return detectSuites(projectDir).map((suite) => runSuite(suite, timeoutMs, limitNote));
+}
+
+/** Runs the first suite: what a single-language project has. */
+export function runTests(projectDir, opts = {}) {
+  return runSuites(projectDir, opts)[0];
+}
+
+function runSuite(suite, timeoutMs, limitNote) {
   if (suite.unavailable) {
     return {
       ran: false,
@@ -282,7 +334,11 @@ export function runTests(projectDir, { timeoutMs, env = process.env } = {}) {
  */
 export function testExecutionReport(projectDir, { wanted = false } = {}) {
   if (!wanted) return { failures: [], advisories: [] };
-  return verdictFor(runTests(projectDir));
+  // One verdict per suite: a JavaScript suite that passed says nothing about a PHP one beside it.
+  const verdicts = runSuites(projectDir).map(verdictFor);
+  const all = (k) => verdicts.flatMap((v) => v[k] || []);
+  const couldNotRun = all("couldNotRun");
+  return { failures: all("failures"), advisories: all("advisories"), ...(couldNotRun.length ? { couldNotRun } : {}) };
 }
 
 /**

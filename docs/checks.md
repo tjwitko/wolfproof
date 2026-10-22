@@ -117,12 +117,12 @@ neither: the run exits 3. So is a suite in a language the `tests` check has no r
 Kotlin, C#, Rust, PHP, Ruby — when the task asks for tests: the files are found and named, and the
 run says it could not run them rather than passing them unrun.
 
-The `tests` check picks one runner per project, in this order: a `package.json` means the
-JavaScript runners and nothing else; then pytest if there are Python test files; then `go test` if
-there is a `go.mod`. Only a project none of those apply to reaches the exit 3 above. So a Java,
-PHP or Ruby suite in a project that also has a `package.json` — a Rails or Laravel app with
-front-end tooling, say — is neither run nor flagged: the verdict reports on the JavaScript tests
-alone, or reports "NOT EXECUTED" as an advisory if there are none.
+The `tests` check handles every suite it finds, each with its own verdict and the full time limit:
+the JavaScript runners when there is a `package.json` and JavaScript test files (or no other tests);
+`node --test` for JavaScript test files with no `package.json`; pytest for Python test files; `go
+test` when there is a `go.mod`; and the exit 3 above for a suite in any other language. So in a
+Rails or Laravel app with front-end tooling, the Ruby or PHP suite is reported as not run, not
+hidden behind the `package.json`; and a project with both JavaScript and Python tests runs both.
 
 **Covers:** running tests under `node --test`, jest, vitest, pytest and `go test`. Finding test
 files, and whether they assert something, in JavaScript/TypeScript, Python, Go, Ruby, Java, Kotlin,
@@ -274,10 +274,9 @@ Listed so that a clean verdict is read for what it is.
   above the verdict. PHP and Kotlin get the injection check, and their test files are found and
   read for assertions, but no authentication check, build or test run.
 - **Test runs outside JavaScript, Python and Go.** Suites in other languages are found and not run:
-  with a task asking for tests that is exit 3, except in a project with a `package.json`, where
-  they are not run and not flagged (see [Task requirements](#task-requirements)). C and C++ test
-  files are not recognised at all, and nothing reads C or C++ for whether tests exist, so a task
-  asking for tests gets only an advisory.
+  with a task asking for tests that is exit 3, whatever runs beside them (see
+  [Task requirements](#task-requirements)). C and C++ test files are not recognised at all, and
+  nothing reads C or C++ for whether tests exist, so a task asking for tests gets only an advisory.
 - **Injection across a function call.** Request data is followed within one function; Semgrep's
   open-source analysis does not cross calls. A helper that builds a query from its argument is reported
   as an advisory, not a finding: SQL text built from a value is reported where it is built, whichever

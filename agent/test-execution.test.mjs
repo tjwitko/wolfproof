@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import path from "path";
 import { existsSync } from "fs";
 
-import { detectSuite, runTests, testExecutionReport, testTimeout, verdictFor, parseCountsForTest, failingNamesForTest } from "./test-execution.mjs";
+import { detectSuite, detectSuites, runTests, testExecutionReport, testTimeout, verdictFor, parseCountsForTest, failingNamesForTest } from "./test-execution.mjs";
 
 function run(files, fn) {
   const dir = mkdtempSync(path.join(tmpdir(), "testexec-"));
@@ -181,6 +181,57 @@ test("test-named files that are not code -- fixtures under tests/ -- are not a s
   run({ "main.tf": "\n", "tests/fixtures/plan.yaml": "a: 1\n" }, (dir) => {
     const suite = detectSuite(dir);
     assert.equal(suite.unsupported, undefined);
+    assert.equal(testExecutionReport(dir, { wanted: true }).couldNotRun, undefined);
+  });
+});
+
+// A package.json meant a JavaScript project and nothing else was looked at: a PHP, Python or Go suite
+// beside it was neither run nor reported as unrun.
+const PASSING_NODE = 'import test from "node:test";\nimport assert from "node:assert";\ntest("adds", () => assert.equal(1 + 1, 2));\n';
+const PHP_TEST = "<?php\nfinal class AddTest extends TestCase { public function testAdds(): void { $this->assertSame(3, add(1, 2)); } }\n";
+
+test("a package.json for front-end tooling does not hide a PHP suite: it could not be run", () => {
+  run({ "package.json": '{"devDependencies":{"vite":"^5"}}', "resources/js/app.js": "export {};\n", "tests/Feature/AddTest.php": PHP_TEST }, (dir) => {
+    const suites = detectSuites(dir);
+    assert.equal(suites.length, 1, JSON.stringify(suites));
+    assert.equal(suites[0].unsupported, true);
+    const v = testExecutionReport(dir, { wanted: true });
+    assert.deepEqual(v.couldNotRun, ["the tests are PHP (tests/Feature/AddTest.php), and this check runs only node --test, jest, vitest, pytest and go test"]);
+  });
+});
+
+test("a JavaScript suite and a PHP suite: the one that can run runs, and the other could not be run", () => {
+  run({ "package.json": "{}", "src/math.test.mjs": PASSING_NODE, "tests/AddTest.php": PHP_TEST }, (dir) => {
+    assert.deepEqual(detectSuites(dir).map((s) => s.label || (s.unsupported ? "unsupported" : s.unavailable)), ["node --test", "unsupported"]);
+    const v = testExecutionReport(dir, { wanted: true });
+    assert.deepEqual(v.failures, []);
+    assert.ok(v.advisories.some((a) => /^tests: ran under node --test — 1 of 1 passed/.test(a)), JSON.stringify(v.advisories));
+    assert.equal(v.couldNotRun.length, 1, "the PHP suite still makes the run incomplete");
+  });
+});
+
+test("a JavaScript suite and a Python suite are both found", () => {
+  run({ "package.json": "{}", "src/math.test.mjs": PASSING_NODE, "tests/test_add.py": "def test_adds():\n    assert 1 + 1 == 2\n" }, (dir) => {
+    const suites = detectSuites(dir);
+    assert.equal(suites.length, 2, JSON.stringify(suites));
+    assert.equal(suites[0].label, "node --test");
+    // pytest when it is installed here, and otherwise a check that could not run -- never skipped.
+    assert.ok(suites[1].label === "pytest" || /pytest is not installed/.test(suites[1].unavailable), JSON.stringify(suites[1]));
+  });
+});
+
+test("JavaScript tests with no package.json run under node's own runner", () => {
+  run({ "math.test.mjs": PASSING_NODE }, (dir) => {
+    assert.equal(detectSuite(dir).label, "node --test");
+    const v = testExecutionReport(dir, { wanted: true });
+    assert.ok(v.advisories.some((a) => /^tests: ran under node --test — 1 of 1 passed/.test(a)), JSON.stringify(v));
+    assert.equal(v.couldNotRun, undefined);
+  });
+});
+
+test("Go tests with no go.mod say so, as the project's to fix", () => {
+  run({ "add_test.go": "package main\nimport \"testing\"\nfunc TestAdd(t *testing.T) {}\n" }, (dir) => {
+    assert.deepEqual(detectSuite(dir), { unavailable: "the tests are Go and there is no go.mod, so go test cannot run them" });
     assert.equal(testExecutionReport(dir, { wanted: true }).couldNotRun, undefined);
   });
 });
