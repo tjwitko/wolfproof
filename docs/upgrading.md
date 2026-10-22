@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.5.1
+wolfproof 1.6.0
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.5.1
-- uses: tjwitko/wolfproof@v1.5.1
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.6.0
+- uses: tjwitko/wolfproof@v1.6.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.5.1
+npm install --save-dev github:tjwitko/wolfproof#v1.6.0
 ```
 
 ## 3. Refresh what setup wrote
