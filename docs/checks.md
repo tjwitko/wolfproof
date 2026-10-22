@@ -117,10 +117,21 @@ neither: the run exits 3. So is a suite in a language the `tests` check has no r
 Kotlin, C#, Rust, PHP, Ruby — when the task asks for tests: the files are found and named, and the
 run says it could not run them rather than passing them unrun.
 
-**Covers:** running tests under `node --test`, jest, vitest, pytest and `go test`; finding test
-files, and whether they assert something, in those languages and in Java, Kotlin, C#, Rust and PHP
-(Maven's `src/test/java`, `*Test.kt`, `*Tests.cs`, `*Test.php`, Rust's `#[test]`); error
-distinction in Python. Immutability judges only a store that names itself an audit log.
+The `tests` check picks one runner per project, in this order: a `package.json` means the
+JavaScript runners and nothing else; then pytest if there are Python test files; then `go test` if
+there is a `go.mod`. Only a project none of those apply to reaches the exit 3 above. So a Java,
+PHP or Ruby suite in a project that also has a `package.json` — a Rails or Laravel app with
+front-end tooling, say — is neither run nor flagged: the verdict reports on the JavaScript tests
+alone, or reports "NOT EXECUTED" as an advisory if there are none.
+
+**Covers:** running tests under `node --test`, jest, vitest, pytest and `go test`. Finding test
+files, and whether they assert something, in JavaScript/TypeScript, Python, Go, Ruby, Java, Kotlin,
+C#, Rust and PHP — a `test/`, `tests/`, `spec/` or `__tests__` directory (so Maven's
+`src/test/java` and .NET's `MyApp.Tests/`), `*Test.java`, `*Test.kt`, `*Spec.kt`, `*Tests.cs`,
+`*Test.php`, or a Rust file with `#[test]`. Whether a test imports the project's own code, in
+JavaScript/TypeScript, Python and Ruby; a test that imports only other test files does not count.
+C and C++ test files are not recognised. Error distinction in Python. Immutability judges only a
+store that names itself an audit log.
 
 **Why it exists:** these requirements were stated in the task and missed in run after run.
 Across nineteen runs of an "immutable audit log" task, not one deliverable implemented an
@@ -260,7 +271,13 @@ Listed so that a clean verdict is read for what it is.
 
 - **Languages outside the coverage above.** Swift, Scala and the rest get the project-wide scans —
   secrets, dependencies, infrastructure — and nothing that reads the code itself. The run says so
-  above the verdict. PHP and Kotlin get the injection check and no other check that reads code.
+  above the verdict. PHP and Kotlin get the injection check, and their test files are found and
+  read for assertions, but no authentication check, build or test run.
+- **Test runs outside JavaScript, Python and Go.** Suites in other languages are found and not run:
+  with a task asking for tests that is exit 3, except in a project with a `package.json`, where
+  they are not run and not flagged (see [Task requirements](#task-requirements)). C and C++ test
+  files are not recognised at all, and nothing reads C or C++ for whether tests exist, so a task
+  asking for tests gets only an advisory.
 - **Injection across a function call.** Request data is followed within one function; Semgrep's
   open-source analysis does not cross calls. A helper that builds a query from its argument is reported
   as an advisory, not a finding: SQL text built from a value is reported where it is built, whichever

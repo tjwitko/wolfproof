@@ -109,7 +109,8 @@ first row; add the rows for the languages and files you have:
 | Python | `semgrep`, `ruff`; `pytest` if it has tests | injection checks, static checks, the test suite |
 | JavaScript / TypeScript | `semgrep` | injection checks; tests run with the project's own tooling |
 | Go | `semgrep`, `go`, `docker` | injection checks, the build and the tests |
-| Java, Ruby, C#, Rust, C, C++, PHP, Kotlin | `semgrep` | injection checks; a test suite is found but not run, so a task asking for tests is exit 3 |
+| Java, Kotlin, C#, Rust, PHP, Ruby | `semgrep` | injection checks; a test suite is found but not run, so a task asking for tests is exit 3 ([unless there is also a `package.json`](#what-it-does-not-check)) |
+| C, C++ | `semgrep` | injection checks; test files are not recognised, so a task asking for tests gets an advisory |
 | Terraform | `terraform`; `checkov` optional | plan and policy checks; checkov adds advisories |
 | Dockerfile | nothing extra; `checkov` optional | the base-image end-of-life check; checkov adds advisories |
 
@@ -297,7 +298,11 @@ So that a clean verdict is read for what it is:
 
 - **Code in other languages.** Swift, Scala and the rest get only the project-wide scans —
   secrets, dependencies, infrastructure. The run says so above the verdict. PHP and Kotlin get the
-  injection check and nothing else that reads the code: no authentication check, build or test run.
+  injection check, and their test files are found, but no authentication check or build.
+- **Test runs outside JavaScript, Python and Go.** A suite in Java, Kotlin, C#, Rust, PHP or Ruby is
+  found and not run, so a task asking for tests is exit 3 — except in a project with a
+  `package.json`, where only JavaScript tests are run and a suite in another language is neither run
+  nor flagged. C and C++ test files are not recognised.
 - **Injection across a function call**, and cross-site scripting, template injection, LDAP
   injection, open redirect and insecure deserialization.
 - **Memory safety in C and C++**, beyond `gets()`.

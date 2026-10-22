@@ -82,6 +82,15 @@ time. It exits **1** if something of its own could not be refreshed, and says wh
 passing something it should not have, projects relying on that gap start failing. Release notes
 call these out under *expect this to fail*.
 
+**After v1.6.0: a test suite the gate cannot run is exit 3.** In a Java, Kotlin, C#, Rust, PHP or
+Ruby project whose task or baseline asks for tests, the gate now finds the test files, has no
+runner for them, and exits 3 — in the default mode, where it used to exit 0 with the suite unrun,
+and in factory mode, where it used to exit 1. A Java project used to be blocked for having no tests
+at all, because Maven's `src/test/java` was not recognised; it now gets the same exit 3. Projects
+with a `package.json`, Python test files or a `go.mod` are not affected: the check picks those
+runners first. See [Troubleshooting](troubleshooting.md) for what you can do about it, and what
+each option costs.
+
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
 

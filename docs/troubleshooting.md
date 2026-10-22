@@ -11,9 +11,22 @@ Install it and re-run; the verdict before it was installed proves nothing about 
 
 **`exit 3` and "the tests are Java (…), and this check runs only node --test, jest, vitest, pytest
 and go test"** — the task asks for tests, and the project's are in a language the `tests` check
-cannot run. The gate does not pass a suite it has not run. Run the suite in CI yourself and gate
-on that, or take the requirement for tests out of the task; until a runner is added, nothing here
-can say whether these tests pass.
+cannot run. The gate does not pass a suite it has not run, and no setting changes that: nothing
+here can say whether these tests pass until wolfproof has a runner for the language.
+
+The only other way to a clean verdict is to take the requirement for tests out of the task, and
+that is a trade-off, not a fix. Every test check is switched off with it: a project with no tests
+at all, or with tests that reach none of its code, then passes too. If you make that trade, run the
+suite in its own CI step so that something still does. Changing the task is a deliberate commit of
+its own ([At commit time](task-file.md#at-commit-time)), factory mode judges the change against the
+base's text, and a requirement stated in a [baseline](task-file.md#a-baseline) cannot be removed
+from the project at all.
+
+**"tests: NOT EXECUTED — package.json declares no test runner", or a passing JavaScript run, in a
+Java, PHP, Ruby or other project** — the `tests` check takes a `package.json` to mean a JavaScript
+project and looks for nothing else, so a suite in another language beside it is not run and not
+flagged as unrun. The verdict says nothing about those tests. See
+[What it checks → Task requirements](checks.md#task-requirements).
 
 **`exit 3` and "did not finish within 120s and was killed"** — the `tests` check stopped your suite
 at its limit. If the suite is simply slow, set `WOLFPROOF_TEST_TIMEOUT` to a number of seconds it
