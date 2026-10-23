@@ -1343,6 +1343,12 @@ Found and fixed while measuring:
 Not read: plain PHP pages, Slim, Symfony's YAML and docblock routing, Spring interceptors and filters
 registered by hand, Spring's functional router, and Ktor's `method(HttpMethod.X) { handle { } }`.
 
+**A gap this work opened, and closed after it shipped.** The authentication check began skipping .NET
+`*.Tests` projects (in #20) and the JVM's `src/test` source set (here), but factory mode refuses a move
+into a skipped place from its own copy of the list, which knew neither. Moving a Kotlin routing file
+into `src/test/kotlin/`, or a controller into `Api.Tests/`, was skipped by one and allowed by the other:
+measured, factory mode reported nothing. Both now use one exported definition, `skippedTestDir()`.
+
 ### 12. Considered and deferred
 
 - **Split-string secrets** (`"abc" + "def"`). Missed, as the review says. The rest of its claim did not

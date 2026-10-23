@@ -320,8 +320,9 @@ Listed so that a clean verdict is read for what it is.
 
 - **Languages outside the coverage above.** Swift, Scala and the rest get the project-wide scans —
   secrets, dependencies, infrastructure — and nothing that reads the code itself. The run says so
-  above the verdict. PHP and Kotlin get the injection check, and their test files are found and
-  read for assertions, and their suites run, but there is no authentication check for them.
+  above the verdict. Rust and C/C++ get the injection check, but there is no authentication check
+  for them. PHP pages served directly, without Laravel or Symfony routing, have no routes to read,
+  so the authentication check reports that it checked nothing.
 - **C and C++ tests.** C and C++ test files are not recognised at all, and nothing reads C or C++ for
   whether tests exist, so a task asking for tests gets only an advisory.
 - **Injection across a function call.** Request data is followed within one function; Semgrep's

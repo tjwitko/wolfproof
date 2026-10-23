@@ -35,7 +35,7 @@ repository, fetching the base commit itself at depth 1 is all it takes, with no 
 | adds an exemption, opt-out or ignore entry ([below](#exemptions-it-judges)) | honoured, and listed | **blocks**, unless it existed at the base or the allowlist approves it |
 | writes code under an exemption that predates it | not checked | **blocks**, unless the allowlist approves the exemption |
 | writes code where the checks do not look ([below](#where-the-checks-do-not-look)) | not checked | **blocks**, unless the allowlist approves the directory |
-| moves code to a test name or test directory, which the authentication check skips | not checked | **blocks** |
+| moves code to a test name or test directory, which the authentication check skips (including a .NET `*.Tests` project and the JVM's `src/test`) | not checked | **blocks** |
 | writes an HTTP server into a test file that code outside the tests runs ([below](#servers-in-test-files)) | not checked | **blocks**, unless the allowlist approves it |
 | edits the task file, or a baseline inside the project | checked against the edited text (the pre-commit hook blocks the edit) | checked against the base's text, and the edit **blocks** |
 | adds the task file | read | **blocks**: in a factory the requirements predate the change |

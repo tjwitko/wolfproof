@@ -116,7 +116,23 @@ const TEST_PROJECT_DIR = /\.\w*Tests?$/;
 // Maven and Gradle keep tests in their own source set, src/test (and src/integrationTest and the
 // like). Test helpers there declare routes -- a stub controller, a Ktor test module -- without
 // being named *Test.kt.
-const isTestSourceSet = (dir, name) => path.basename(dir) === "src" && /^(?:test|\w+Test)$/.test(name);
+const TEST_SOURCE_SET = /^(?:test|\w+Test)$/;
+
+/**
+ * The directory in a relative path, as "a/b/", that makes this check skip everything under it, or
+ * null. One definition, because factory mode refuses a move into exactly these places: when the two
+ * lists differed, a route moved into src/test/ was skipped here and allowed there.
+ */
+export function skippedTestDir(rel) {
+  const parts = rel.split(/[\\/]/);
+  for (let i = 0; i < parts.length - 1; i++) {
+    const d = parts[i];
+    if (TEST_DIRS.has(d) || TEST_PROJECT_DIR.test(d) || (i > 0 && parts[i - 1] === "src" && TEST_SOURCE_SET.test(d))) {
+      return parts.slice(0, i + 1).join("/") + "/";
+    }
+  }
+  return null;
+}
 
 // Comments are not code, and this check used to read them as code in both directions. Running
 // the gate over its own source blocked on two credential findings, both from comments here that
@@ -1111,13 +1127,7 @@ function walk(dir, acc = [], root = dir) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) {
       // A declared fixture is deliberately unrepresentative; see fixture-markers.mjs.
-      if (
-        !SKIP_DIRS.has(e.name) &&
-        !TEST_DIRS.has(e.name) &&
-        !TEST_PROJECT_DIR.test(e.name) &&
-        !isTestSourceSet(dir, e.name) &&
-        !isDeclaredFixture(full)
-      ) walk(full, acc, root);
+      if (!SKIP_DIRS.has(e.name) && !skippedTestDir(path.relative(root, full) + "/x") && !isDeclaredFixture(full)) walk(full, acc, root);
       continue;
     }
     const rel = path.relative(root, full);
