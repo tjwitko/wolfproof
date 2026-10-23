@@ -1208,7 +1208,7 @@ Kotlin has no positive control: no deliberately vulnerable Kotlin web applicatio
 of Gradle's own Kotlin on the development machine, show the rules do not over-fire; only
 `kotlin.kt.sample` shows them finding injection. The manifest names the gap.
 
-Not covered: authentication (no PHP or Kotlin route reader; C# has one since #20), builds and test runners (see #12),
+Not covered: builds and test runners (see #12) -- authentication has PHP and Kotlin readers since #21,
 Ktor's client beyond a receiver named `client`, Exposed's raw `exec`, and PHP's `preg_replace` with
 `/e`, removed in PHP 7.
 
@@ -1281,6 +1281,67 @@ Not read: authorization written inside the handler, Razor Pages, gRPC services, 
 route method reached other than as `this` (a group passed as an ordinary argument), and a probe named
 `/alive`, which the shared probe list does not include. Widening that list loosens the check for
 every language, so it is left as a decision rather than made here.
+
+### 21. Authentication for PHP and Kotlin — fixed, calibrated
+
+`agent/authentication-php.mjs` (Laravel, Symfony) and `agent/authentication-kotlin.mjs` (Spring,
+Ktor), on a shared masking and bracket reader, `agent/auth-parse.mjs`. Each framework's protection was
+read from the apps before any pattern was written, and three of them are not where a name says:
+
+- **Laravel middleware is judged by what its class does.** BookStack's `'auth'` is its own class (401
+  or a redirect to `/login`), its API routes are protected because `routes/api.php` is required inside
+  a group whose `'api'` middleware group holds `ApiAuthenticate` (403), and its `'guard'` only checks
+  configuration and redirects home. Names are resolved through the Kernel or `bootstrap/app.php` to a
+  class, which counts when it answers 401 or 403, throws an authentication exception, or redirects to
+  the login page. `guest` (`RedirectIfAuthenticated`) does not.
+- **kotlin-spring-realworld authenticates with an annotation of its own,** `@ApiKeySecured`, enforced
+  by an `@Aspect` that answers 401; `mandatory = false` makes it optional. An annotation counts when an
+  aspect's pointcut names it and the aspect rejects with 401 or 403.
+- **Ktor's nesting rule was read from Ktor's source** (`AuthenticationInterceptors.kt`), not
+  assumed: a nested `authenticate` collects every enclosing block's providers, and a request goes
+  through unauthenticated only when none is required. kotlin-ktor-realworld nests
+  `authenticate(optional = true)` inside a required block for two article reads; those are protected.
+
+**Calibrated** (2026-10-23, the seven PHP and Kotlin applications in `calibration/manifest.json`,
+open routes read against their source):
+
+| app | routes | protected | open | exempt |
+|---|---|---|---|---|
+| BookStack (Laravel) | 336 | 302 | 34 | 6 |
+| Symfony demo | 14 | 9 | 5 | 1 |
+| DVWA | none read | | | |
+| spring-petclinic-kotlin | 18 | 0 | 18 | 0 |
+| kotlin-spring-realworld | 19 | 12 | 7 | 0 |
+| kotlin-ktor-realworld | 19 | 15 | 4 | 0 |
+| ktor-samples (25 apps) | 111 | 11 | 100 | 12 |
+
+- **BookStack:** the 34 open routes are public by design: status, robots, manifest, licences,
+  OpenSearch, MFA verification for a signed-out user, social, SAML and OIDC sign-in, registration,
+  invitation and password-reset flows, help pages and public theme files.
+- **Symfony demo:** admin and profile are protected by `#[IsGranted]` on the controller, posting a
+  comment by `#[IsGranted]` on the action; the five public blog pages are open.
+- **DVWA** serves plain PHP pages with no router, so no route is identified and the check reports
+  that it checked nothing, rather than reading every file as an open endpoint.
+- **petclinic** has no security at all; all 18 routes are open. **kotlin-spring-realworld**'s open
+  seven are the `mandatory = false` reads, tags, sign-in and registration. **kotlin-ktor-realworld**'s
+  four are registration, sign-in and two `optional = true` reads.
+- **ktor-samples** is 25 demonstrations, most without authentication. Its sessions-based samples
+  (kweet, youkube) check the session inside the handler, which no reader sees.
+
+Found and fixed while measuring:
+- kotlinx.html's `head { title(...) }` inside a GET handler was read as a `HEAD` route (two samples).
+  Ktor routes now count only in a routing scope, and never inside another route's handler.
+- The `<?php` tag was left unmasked, so attributes right after it, in a file with no `namespace`,
+  were not seen as a class's.
+- The credential-comparison finding reported Laravel's `Password::PASSWORD_RESET` (a class constant),
+  BookStack's `$idTokenSub !== $sub` (an OIDC claim) and its editor's `__mode === IS_TOKEN` (a flag),
+  and its locator took nine seconds on BookStack's minified bundles. Constants reached through `::`,
+  claim suffixes and upper-case flag prefixes are no longer credentials, and a line is only searched
+  when it contains the name. What remains is real: kweet's and httpbin's password comparisons and
+  kotlin-ktor-realworld's `userFound?.password == ...`.
+
+Not read: plain PHP pages, Slim, Symfony's YAML and docblock routing, Spring interceptors and filters
+registered by hand, Spring's functional router, and Ktor's `method(HttpMethod.X) { handle { } }`.
 
 ### 12. Considered and deferred
 

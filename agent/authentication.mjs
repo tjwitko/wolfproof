@@ -24,12 +24,13 @@
 //
 // Recognised now: Python (FastAPI, Flask), JavaScript/TypeScript (Express, Fastify, NestJS), Go
 // (net/http, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra, Rails), C# (ASP.NET Core
-// controllers and minimal APIs, in authentication-csharp.mjs). Each is an entry in
+// controllers and minimal APIs, in authentication-csharp.mjs), PHP (Laravel, Symfony, in
+// authentication-php.mjs), Kotlin (Spring, Ktor, in authentication-kotlin.mjs). Each is an entry in
 // ADAPTERS: it claims file extensions, finds routes, and answers whether a route is protected. The
 // judgment above that -- conventional exemptions, per-route verdicts, how an undetermined answer is
 // reported -- is shared, so a new language is an adapter and not a second policy.
 //
-// NOT recognised, deliberately: PHP, Rust, and every framework whose routing is data rather
+// NOT recognised, deliberately: Rust, plain PHP pages served without a router, and every framework whose routing is data rather
 // than code (an OpenAPI document, a Rails `routes.rb` mapped to controllers, an API-gateway
 // config). Those are not misses to fix casually -- routing declared as data needs the handler
 // resolved before "is this route authenticated" is even answerable, and guessing there produces
@@ -42,6 +43,8 @@ import path from "path";
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { csharpAdapter } from "./authentication-csharp.mjs";
+import { phpAdapter } from "./authentication-php.mjs";
+import { kotlinAdapter } from "./authentication-kotlin.mjs";
 
 // Endpoints that are conventionally open, and should be: a liveness probe that requires a
 // credential is a liveness probe that fails.
@@ -105,11 +108,15 @@ const MAX_FILE_BYTES = 512 * 1024;
 // project -- rule 3's exact failure mode. Matched on the filename rather than the directory,
 // because `test/` and `tests/` sometimes hold real application code, while these suffixes do not.
 export const TEST_FILE =
-  /(\.(test|spec)\.[mc]?[jt]sx?|_test\.go|_test\.py|_spec\.rb|_test\.rb|Test\.java|Tests\.java|Tests?\.cs)$|^test_[^/]*\.py$|^conftest\.py$/i;
+  /(\.(test|spec)\.[mc]?[jt]sx?|_test\.go|_test\.py|_spec\.rb|_test\.rb|Test\.java|Tests\.java|Tests?\.cs|Tests?\.php|Tests?\.kt|Spec\.kt)$|^test_[^/]*\.py$|^conftest\.py$/i;
 export const TEST_DIRS = new Set(["__tests__", "__mocks__", "fixtures", "testdata"]);
 // .NET puts tests in their own project, named for what it tests: Jellyfin.Server.Integration.Tests.
 // Found running the C# reader on Jellyfin, whose integration tests declare a stub controller.
 const TEST_PROJECT_DIR = /\.\w*Tests?$/;
+// Maven and Gradle keep tests in their own source set, src/test (and src/integrationTest and the
+// like). Test helpers there declare routes -- a stub controller, a Ktor test module -- without
+// being named *Test.kt.
+const isTestSourceSet = (dir, name) => path.basename(dir) === "src" && /^(?:test|\w+Test)$/.test(name);
 
 // Comments are not code, and this check used to read them as code in both directions. Running
 // the gate over its own source blocked on two credential findings, both from comments here that
@@ -213,6 +220,7 @@ const VERIFIES_SIGNATURE = [
   /\bhmac\.New\s*\(|hmac\.Equal\s*\(/,        // Go
   /\bMac\.getInstance\s*\(/,                    // Java
   /\bnew\s+HMACSHA(?:1|256|384|512)\b|\bHMACSHA(?:1|256|384|512)\.HashData\s*\(/, // C#
+  /\bhash_hmac\s*\(/,                           // PHP
 ];
 
 function verifiesSignature(all) {
@@ -220,7 +228,7 @@ function verifiesSignature(all) {
 }
 
 // Constant-time comparison, which is the only safe way to check a signature.
-const CONSTANT_TIME_COMPARE = /\b(compare_digest|timingSafeEqual|hmac\.Equal|MessageDigest\.isEqual|secure_compare|FixedTimeEquals)\s*\(/;
+const CONSTANT_TIME_COMPARE = /\b(compare_digest|timingSafeEqual|hmac\.Equal|MessageDigest\.isEqual|secure_compare|FixedTimeEquals|hash_equals)\s*\(/;
 
 // An ordinary equality test against something signature-shaped. `==` returns on the first differing
 // byte, so an attacker who can send repeated callbacks recovers the digest one byte at a time
@@ -365,7 +373,7 @@ const NON_SECRET_OPERAND =
   /^(?:null|undefined|true|false|none|nil|-?\d+(?:\.\d+)?|["'`](?:|string|object|number|boolean|undefined|function|symbol|bigint)["'`])[;,)\]}]*$/i;
 
 const NAMES_ABOUT_A_CREDENTIAL =
-  /(?:Ids?|IDs?|_ids?|Identifier|Type|_type|Kind|Count|_count|Quantity|Length|_length|Result|_result|Status|_status)$|^(?:[uU]se|[hH]as|[iI]s|[cC]an|[sS]hould|[eE]nable|[aA]llow|[rR]equire)(?=[A-Z_])/;
+  /(?:Ids?|IDs?|_ids?|Identifier|Type|_type|Kind|Count|_count|Quantity|Length|_length|Result|_result|Status|_status|Sub|_sub|Subject|_subject|Issuer|_issuer|Audience|_audience|Expiry|_expiry)$|^(?:[uU]se|[hH]as|[iI]s|[cC]an|[sS]hould|[eE]nable|[aA]llow|[rR]equire)(?=[A-Z_])|^(?:USE|HAS|IS|CAN|SHOULD|ENABLE|ALLOW|REQUIRE)_/;
 
 export function leakyCredentialCheck(all) {
   // Deliberately NOT gated on the file containing a constant-time comparison somewhere. That
@@ -390,12 +398,19 @@ export function leakyCredentialCheck(all) {
     // method call is not: `token.Trim()` is still the token.
     let compared = name;
     if (m[6]) {
-      const chain = /^(?:\s*\.\s*\w+)+(?!\s*\(|\w)/.exec(all.slice(m.index + m[0].length));
-      if (chain) compared = chain[0].split(".").pop().trim();
+      // A class constant -- `Password::PASSWORD_RESET`, Laravel's status for a completed reset --
+      // is fixed in the source, not a secret the caller is guessing at. A secret written into a
+      // constant is the secret scan's finding, not this one's.
+      if (/^\s*::/.test(all.slice(m.index + m[0].length, m.index + m[0].length + 4))) continue;
+      // `.` and `?.` in most languages, PHP's `->` and `::` -- `Password::RESET_LINK_SENT` is
+      // Laravel's constant, not a password (found on BookStack).
+      const chain = /^(?:\s*(?:\??\.|\??->|::)\s*\w+)+(?!\s*\(|\w)/.exec(all.slice(m.index + m[0].length));
+      if (chain) compared = chain[0].split(/\??\.|\??->|::/).pop().trim();
       if (!new RegExp(CREDENTIAL_WORD, "i").test(compared)) continue;
     }
     // A name about a credential rather than the credential: its id, its type, a count, the result of
-    // checking it, a flag. Found on Bitwarden, where `secretId`, `apiKeyId`, `passwordResult ==
+    // checking it, a flag, one of its claims (BookStack's `$idTokenSub !== $sub` compares the OIDC
+    // subject, a user id). Found on Bitwarden, where `secretId`, `apiKeyId`, `passwordResult ==
     // PasswordVerificationResult.Failed` and `useResetPassword` were each reported as a secret
     // compared unsafely. Matched on the identifier's own casing, so `apiKey` and `api_key` are still
     // credentials and `apiKeyId` and `api_key_id` are not.
@@ -1078,7 +1093,7 @@ const rubyAdapter = {
   },
 };
 
-const ADAPTERS = [pythonAdapter, jsAdapter, goAdapter, javaAdapter, rubyAdapter, csharpAdapter];
+const ADAPTERS = [pythonAdapter, jsAdapter, goAdapter, javaAdapter, rubyAdapter, csharpAdapter, phpAdapter, kotlinAdapter];
 
 const ADAPTER_BY_EXT = new Map();
 for (const a of ADAPTERS) for (const ext of a.extensions) ADAPTER_BY_EXT.set(ext, a);
@@ -1096,12 +1111,30 @@ function walk(dir, acc = [], root = dir) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) {
       // A declared fixture is deliberately unrepresentative; see fixture-markers.mjs.
-      if (!SKIP_DIRS.has(e.name) && !TEST_DIRS.has(e.name) && !TEST_PROJECT_DIR.test(e.name) && !isDeclaredFixture(full)) walk(full, acc, root);
+      if (
+        !SKIP_DIRS.has(e.name) &&
+        !TEST_DIRS.has(e.name) &&
+        !TEST_PROJECT_DIR.test(e.name) &&
+        !isTestSourceSet(dir, e.name) &&
+        !isDeclaredFixture(full)
+      ) walk(full, acc, root);
+      continue;
+    }
+    const rel = path.relative(root, full);
+    // Configuration an adapter reads alongside the code, such as Symfony's security.yaml. Kept
+    // apart from the code: it declares no routes and is not read for credential comparisons.
+    const configOf = ADAPTERS.find((a) => a.configFiles && a.configFiles.test(rel.split(path.sep).join("/")));
+    if (configOf) {
+      try {
+        if (statSync(full).size <= MAX_FILE_BYTES) acc.push({ rel, text: readFileSync(full, "utf8"), adapter: configOf, config: true });
+      } catch {
+        /* unreadable is not this check's problem */
+      }
       continue;
     }
     if (TEST_FILE.test(e.name)) continue;
     const adapter = ADAPTER_BY_EXT.get(path.extname(e.name));
-    if (!adapter) continue;
+    if (!adapter || (adapter.skip && adapter.skip.test(e.name))) continue;
     try {
       if (statSync(full).size <= MAX_FILE_BYTES) {
         acc.push({ rel: path.relative(root, full), text: codeOnly(readFileSync(full, "utf8"), adapter.comments), adapter });
@@ -1124,8 +1157,10 @@ function locateComparisons(files, names) {
     const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp(`[!=]==?[^\\n]*\\b${n}\\b|\\b${n}\\b[^\\n]*[!=]==?`);
     for (const f of files) {
+      // The cheap test first: on a minified bundle the pattern backtracks across lines of a hundred
+      // thousand characters, and BookStack's took nine seconds to search.
       f.text.split("\n").forEach((line, i) => {
-        if (re.test(line)) at.push(`${f.rel}:${i + 1}`);
+        if (line.includes(name) && re.test(line)) at.push(`${f.rel}:${i + 1}`);
       });
     }
   }
@@ -1134,7 +1169,8 @@ function locateComparisons(files, names) {
 
 /** Per-route authentication state. Returns { ran, routes, languages, unknown }. */
 export function checkAuthentication(projectDir) {
-  const files = walk(projectDir);
+  const walked = walk(projectDir);
+  const files = walked.filter((f) => !f.config);
   if (files.length === 0) {
     return {
       ran: false,
@@ -1163,7 +1199,13 @@ export function checkAuthentication(projectDir) {
     // can judge one file -- C# controllers inherit their prefix and [Authorize] from a base class.
     const texts = adapterFiles.map((f) => f.text);
     const all = texts.join("\n");
-    const global = adapter.globalAuth(all, texts);
+    // Paths, for an adapter that follows one file into another (a Laravel group that requires
+    // routes/api.php), and the configuration files it asked for.
+    const ctx = {
+      rels: adapterFiles.map((f) => f.rel.split(path.sep).join("/")),
+      configs: walked.filter((f) => f.config && f.adapter === adapter),
+    };
+    const global = adapter.globalAuth(all, texts, ctx);
     if (leakySignatureCheck(all)) leakySignature = true;
     const leakyCred = leakyCredentialCheck(all);
     if (leakyCred && !leakyCredential) {
@@ -1175,7 +1217,7 @@ export function checkAuthentication(projectDir) {
     }
     let found = 0;
     for (const file of adapterFiles) {
-      for (const r of adapter.routes(file.text, texts)) {
+      for (const r of adapter.routes(file.text, texts, { ...ctx, rel: file.rel.split(path.sep).join("/") })) {
         // Exempt by path, and recorded rather than dropped. These were skipped silently, so a
         // `/ping` that took a request parameter and passed it to a shell went unmentioned, and the
         // finding counted "1 of 1 endpoint(s)" in a file declaring two. The path is chosen by
@@ -1200,7 +1242,7 @@ export function checkAuthentication(projectDir) {
           line: r.line,
           // A route that declares itself anonymous is open whatever else protects its neighbours:
           // ASP.NET's [AllowAnonymous] overrides a global policy and an [Authorize] on its class.
-          protectedBy: r.anonymous ? null : global || adapter.routeAuth(r, all, texts),
+          protectedBy: r.anonymous ? null : global || adapter.routeAuth(r, all, texts, ctx),
           ...(r.anonymous ? { anonymous: true } : {}),
         });
       }
@@ -1234,6 +1276,8 @@ const CONSTANT_TIME = {
   Java: "MessageDigest.isEqual",
   Ruby: "ActiveSupport::SecurityUtils.secure_compare",
   "C#": "CryptographicOperations.FixedTimeEquals",
+  PHP: "hash_equals",
+  Kotlin: "MessageDigest.isEqual",
 };
 const UNSET = {
   Python: { getter: "os.getenv or os.environ.get, which return None when it is unset", pair: "between two Nones" },

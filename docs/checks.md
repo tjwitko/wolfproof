@@ -40,7 +40,7 @@ endpoints such as `/login` — each one listed.
 
 **Covers:** Python (FastAPI, Flask), JavaScript/TypeScript (Express, Fastify, NestJS), Go
 (`net/http`, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra, Rails), C# (ASP.NET Core
-controllers and minimal APIs).
+controllers and minimal APIs), PHP (Laravel, Symfony), Kotlin (Spring, Ktor).
 
 In C#, a route counts as protected by `[Authorize]` in any form on the action or anywhere in its
 controller's class chain, by an attribute class of the project's that derives from
@@ -51,6 +51,24 @@ authenticated user. `[AllowAnonymous]` or `.AllowAnonymous()` overrides all of t
 ASP.NET, and the finding marks such a route "declared anonymous". `UseAuthorization()` and a
 `DefaultPolicy` protect nothing on their own. Not read: authorization written inside the handler,
 Razor Pages, gRPC services and SignalR hubs.
+
+In PHP, a Laravel route counts as protected by middleware on the route, on a group around it, on the
+group that includes its route file, or in its controller's constructor. A middleware name is resolved
+through the project's aliases and groups (the HTTP Kernel or `bootstrap/app.php`) and counts when it
+is Laravel's own (`auth`, `auth.basic`, `can`, `verified`, `signed`) or a class of the project's
+that answers 401 or 403, throws an authentication or authorization exception, or redirects to the
+login page; `withoutMiddleware` takes one away. A Symfony route counts as protected by
+`#[IsGranted]` on the action or controller, `$this->denyAccessUnlessGranted()` in the action, or an
+`access_control` rule in `security.yaml`. Not read: plain PHP pages served without a router (DVWA),
+Slim, and Symfony's YAML and docblock routing.
+
+In Kotlin, a Spring route counts as protected by `@PreAuthorize`, `@Secured` or `@RolesAllowed` on the
+handler or its class, by an annotation of the project's that an `@Aspect` enforces with 401 or 403
+(unless the use says `mandatory = false`), or by the security configuration's path rules, taken in
+order as Spring takes them. A Ktor route counts as protected when any `authenticate { }` around it is
+required, which is Ktor's own rule: `authenticate(optional = true)` nested inside a required block
+does not open it. Routes in a `fun Route.x()` are judged at every call. Not read: hand-registered
+interceptors and filters, Spring's functional router, and Ktor's `method(HttpMethod.X) { handle { } }`.
 
 **Why it exists:** "no endpoint authenticates" appeared in five of five preserved reviews and was
 still unfixed six runs later. Per route, because one real run authenticated POST and left GET open,

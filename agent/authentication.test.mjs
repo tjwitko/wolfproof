@@ -740,6 +740,353 @@ test("a name about a credential, a property of an object named for one, or a con
 });
 
 // ---------------------------------------------------------------------------------------------
+// PHP: Laravel and Symfony. Shapes measured on BookStack, Symfony demo and DVWA.
+// ---------------------------------------------------------------------------------------------
+
+// BookStack's Kernel, cut down: 'auth' is the project's own class, which answers 401; 'api' is a
+// group whose ApiAuthenticate throws a 403; 'guard' only checks configuration and redirects home.
+const LARAVEL_KERNEL =
+  "<?php\nnamespace App\\Http;\n\nclass Kernel extends HttpKernel\n{\n" +
+  "    protected $middlewareGroups = [\n        'web' => [\n            \\App\\Http\\Middleware\\EncryptCookies::class,\n        ],\n" +
+  "        'api' => [\n            \\App\\Http\\Middleware\\ThrottleApiRequests::class,\n            \\App\\Http\\Middleware\\ApiAuthenticate::class,\n        ],\n    ];\n" +
+  "    protected $middlewareAliases = [\n        'auth'  => \\App\\Http\\Middleware\\Authenticate::class,\n        'guest' => \\App\\Http\\Middleware\\RedirectIfAuthenticated::class,\n" +
+  "        'guard' => \\App\\Http\\Middleware\\CheckGuard::class,\n    ];\n}\n";
+const LARAVEL_MIDDLEWARE = {
+  "app/Http/Middleware/Authenticate.php":
+    "<?php\nclass Authenticate\n{\n    public function handle(Request $request, Closure $next)\n    {\n        if (!user()->hasAppAccess()) {\n" +
+    "            return response('Unauthorized.', 401);\n        }\n        return $next($request);\n    }\n}\n",
+  "app/Http/Middleware/ApiAuthenticate.php":
+    "<?php\nclass ApiAuthenticate\n{\n    public function handle(Request $request, Closure $next)\n    {\n        if (!$this->valid($request)) {\n" +
+    "            throw new ApiAuthException(trans('errors.api_no_token'), 403);\n        }\n        return $next($request);\n    }\n}\n",
+  "app/Http/Middleware/CheckGuard.php":
+    "<?php\nclass CheckGuard\n{\n    public function handle($request, Closure $next, ...$allowedGuards)\n    {\n        if (!in_array(config('auth.method'), $allowedGuards)) {\n" +
+    "            return redirect('/');\n        }\n        return $next($request);\n    }\n}\n",
+  "app/Http/Middleware/RedirectIfAuthenticated.php":
+    "<?php\nclass RedirectIfAuthenticated\n{\n    public function handle(Request $request, Closure $next)\n    {\n        if (Auth::check()) {\n" +
+    "            return redirect(RouteServiceProvider::HOME);\n        }\n        return $next($request);\n    }\n}\n",
+};
+
+test("php: Laravel middleware on the route, on a group, and through a group that includes the route file", () => {
+  const report = run(
+    {
+      "app/Http/Kernel.php": LARAVEL_KERNEL,
+      ...LARAVEL_MIDDLEWARE,
+      "app/Providers/RouteServiceProvider.php":
+        "<?php\nclass RouteServiceProvider extends ServiceProvider\n{\n    protected function mapApiRoutes(): void\n    {\n" +
+        "        Route::group([\n            'middleware' => 'api',\n            'prefix'     => 'api',\n        ], function ($router) {\n" +
+        "            require base_path('routes/api.php');\n        });\n" +
+        "        Route::middleware('web')->group(base_path('routes/web.php'));\n    }\n}\n",
+      "routes/api.php": "<?php\n\nRoute::get('pages', [PageApiController::class, 'list']);\nRoute::delete('pages/{id}', [PageApiController::class, 'delete']);\n",
+      "routes/web.php":
+        "<?php\n\nRoute::get('/status', [StatusController::class, 'show']);\n" +
+        "Route::middleware('auth')->group(function () {\n    Route::get('/books', [BookController::class, 'index']);\n" +
+        "    Route::prefix('settings')->group(function () {\n        Route::post('/{category}', [SettingController::class, 'update']);\n    });\n});\n" +
+        "Route::delete('/mfa/{method}/remove', [MfaController::class, 'remove'])->middleware('auth');\n" +
+        "Route::middleware('guest')->group(function () {\n    Route::get('/mfa/verify', [MfaController::class, 'verify']);\n});\n" +
+        "Route::get('/saml2/metadata', [Saml2Controller::class, 'metadata'])->middleware('guard:saml2');\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "GET /api/pages": "the ApiAuthenticate middleware, in the 'api' middleware group",
+    "DELETE /api/pages/{id}": "the ApiAuthenticate middleware, in the 'api' middleware group",
+    "GET /status": null,
+    "GET /books": "the 'auth' middleware",
+    "POST /settings/{category}": "the 'auth' middleware",
+    "DELETE /mfa/{method}/remove": "the 'auth' middleware",
+    "GET /mfa/verify": null,
+    "GET /saml2/metadata": null,
+  });
+});
+
+test("php: Laravel's own aliases count when the project does not redefine them; withoutMiddleware takes one away", () => {
+  const report = run(
+    {
+      "routes/web.php":
+        "<?php\nRoute::middleware(['auth:sanctum', 'verified'])->group(function () {\n" +
+        "    Route::get('/dashboard', fn () => view('dashboard'));\n" +
+        "    Route::post('/hooks/stripe', [StripeController::class, 'handle'])->withoutMiddleware(['auth:sanctum', 'verified']);\n" +
+        "    Route::get('/feed', fn () => view('feed'))->withoutMiddleware(['auth:sanctum', 'verified']);\n});\n" +
+        "Route::get('/reports', [ReportController::class, 'index'])->middleware('can:view-reports');\n" +
+        "Route::get('/unsubscribe/{user}', [MailController::class, 'unsubscribe'])->middleware('signed');\n" +
+        "Route::get('/about', fn () => view('about'))->middleware('throttle:60,1');\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "GET /dashboard": "the 'auth:sanctum' middleware",
+    "POST /hooks/stripe": null,
+    "GET /feed": null,
+    "GET /reports": "the 'can:view-reports' middleware",
+    "GET /unsubscribe/{user}": "the 'signed' middleware",
+    "GET /about": null,
+  });
+});
+
+test("php: a controller's constructor middleware, with except and only", () => {
+  const report = run(
+    {
+      "app/Http/Controllers/PostController.php":
+        "<?php\nclass PostController extends Controller\n{\n    public function __construct()\n    {\n" +
+        "        $this->middleware('auth')->except(['index', 'show']);\n    }\n" +
+        "    public function index() {}\n    public function show($id) {}\n    public function store() {}\n}\n",
+      "app/Http/Controllers/AdminController.php":
+        "<?php\nclass AdminController extends Controller\n{\n    public function __construct()\n    {\n" +
+        "        $this->middleware('auth', ['only' => ['purge']]);\n    }\n}\n",
+      "routes/web.php":
+        "<?php\nRoute::resource('posts', PostController::class)->only(['index', 'show', 'store']);\n" +
+        "Route::post('/admin/purge', [AdminController::class, 'purge']);\nRoute::get('/admin/stats', 'AdminController@stats');\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "GET /posts": null,
+    "GET /posts/{id}": null,
+    "POST /posts": "the 'auth' middleware",
+    "POST /admin/purge": "the 'auth' middleware",
+    "GET /admin/stats": null,
+  });
+});
+
+test("php: Laravel 11's bootstrap/app.php -- withRouting, a middleware alias and a group", () => {
+  const report = run(
+    {
+      "bootstrap/app.php":
+        "<?php\nreturn Application::configure(basePath: dirname(__DIR__))\n    ->withRouting(\n        web: __DIR__.'/../routes/web.php',\n" +
+        "        api: __DIR__.'/../routes/api.php',\n    )\n    ->withMiddleware(function (Middleware $middleware) {\n" +
+        "        $middleware->alias([\n            'admin' => EnsureAdmin::class,\n        ]);\n" +
+        "        $middleware->appendToGroup('api', [ApiToken::class]);\n    })\n    ->create();\n",
+      "app/Http/Middleware/EnsureAdmin.php":
+        "<?php\nclass EnsureAdmin\n{\n    public function handle($request, $next)\n    {\n        abort_unless($request->user()?->isAdmin(), 403);\n        return $next($request);\n    }\n}\n",
+      "app/Http/Middleware/ApiToken.php":
+        "<?php\nclass ApiToken\n{\n    public function handle($request, $next)\n    {\n        if (!$request->bearerToken()) {\n            throw new AuthenticationException();\n        }\n        return $next($request);\n    }\n}\n",
+      "routes/web.php": "<?php\nRoute::get('/admin', [AdminController::class, 'index'])->middleware('admin');\nRoute::get('/', fn () => view('welcome'));\n",
+      "routes/api.php": "<?php\nRoute::post('/orders', [OrderController::class, 'store']);\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "GET /admin": "the 'admin' middleware",
+    "GET /": null,
+    "POST /api/orders": "the ApiToken middleware, in the 'api' middleware group",
+  });
+});
+
+test("php: Symfony -- #[IsGranted] on the class or the action, denyAccessUnlessGranted, and access_control", () => {
+  const report = run(
+    {
+      "src/Controller/Admin/BlogController.php":
+        "<?php\n#[Route('/admin/post')]\n#[IsGranted(User::ROLE_ADMIN)]\nfinal class BlogController extends AbstractController\n{\n" +
+        "    #[Route('/', name: 'admin_index', methods: ['GET'])]\n    public function index(): Response {}\n" +
+        "    #[Route('/{id:post}/delete', name: 'admin_post_delete', methods: ['POST'])]\n    public function delete(Post $post): Response {}\n}\n",
+      "src/Controller/BlogController.php":
+        "<?php\n#[Route('/blog')]\nfinal class BlogController extends AbstractController\n{\n" +
+        "    #[Route('/', name: 'blog_index', methods: ['GET'])]\n    public function index(): Response {}\n" +
+        "    #[Route('/comment/{postSlug}/new', name: 'comment_new', methods: ['POST'])]\n    #[IsGranted('IS_AUTHENTICATED')]\n    public function commentNew(): Response {}\n" +
+        "    #[Route('/drafts', methods: ['GET'])]\n    public function drafts(): Response\n    {\n        $this->denyAccessUnlessGranted('ROLE_USER');\n        return new Response('');\n    }\n" +
+        "    #[Route('/feed', methods: ['GET'])]\n    #[IsGranted('PUBLIC_ACCESS')]\n    public function feed(): Response {}\n}\n",
+      "src/Controller/ApiController.php":
+        "<?php\nclass ApiController extends AbstractController\n{\n    #[Route('/api/export', methods: ['GET', 'POST'])]\n    public function export(): Response {}\n" +
+        "    #[Route('/api/public/status')]\n    public function status(): Response {}\n}\n",
+      "config/packages/security.yaml":
+        "security:\n    firewalls:\n        main:\n            lazy: true\n    access_control:\n" +
+        "        - { path: ^/api/public, roles: PUBLIC_ACCESS }\n        - { path: ^/api, roles: ROLE_API }\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "GET /admin/post": "an #[IsGranted] attribute on the controller",
+    "POST /admin/post/{id:post}/delete": "an #[IsGranted] attribute on the controller",
+    "GET /blog": null,
+    "POST /blog/comment/{postSlug}/new": "an #[IsGranted] attribute",
+    "GET /blog/drafts": "denyAccessUnlessGranted() in the action",
+    "GET /blog/feed": null,
+    "ANY /api/export": "an access_control rule requiring ROLE_API",
+    "ANY /api/public/status": null,
+  });
+});
+
+test("php: routes in comments, strings, Blade views and plain PHP pages are not read", () => {
+  const report = run(
+    {
+      "routes/web.php":
+        "<?php\n// Route::get('/old', [OldController::class, 'index']);\n# Route::get('/older', fn () => 1);\n" +
+        "/* Route::post('/oldest', fn () => 1); */\n$doc = \"Route::get('/in-a-string', fn () => 1);\";\nRoute::get('/real', fn () => 1);\n",
+      "resources/views/welcome.blade.php": "<?php Route::get('/from-a-view', fn () => 1); ?>\n<p>it's here</p>\n",
+      "vulnerabilities/exec/index.php": "<?php\nrequire_once '../../dvwa/includes/dvwaPage.inc.php';\ndvwaPageStartup( array( 'authenticated' ) );\n",
+      "tests/Feature/RoutesTest.php": "<?php\nRoute::get('/test-only', fn () => 1);\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), { "GET /real": null });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Kotlin: Spring and Ktor. Shapes measured on spring-petclinic-kotlin, kotlin-spring-realworld,
+// kotlin-ktor-realworld and ktor-samples.
+// ---------------------------------------------------------------------------------------------
+
+test("kotlin: Spring mappings, Kotlin array syntax and a class prefix; @PreAuthorize protects", () => {
+  const report = run(
+    {
+      "src/main/kotlin/owner/PetController.kt":
+        '@Controller\n@RequestMapping("/owners/{ownerId}")\nclass PetController(val owners: OwnerRepository) {\n\n' +
+        '    @GetMapping("/pets/new")\n    fun initCreationForm(owner: Owner, model: Model): String = VIEW\n\n' +
+        '    @PostMapping(value = ["/pets/{petId}/edit", "/pets/{petId}/update"])\n    @PreAuthorize("hasRole(\'OWNER\')")\n    fun processUpdateForm(pet: Pet): String {\n        return "redirect:/owners/{ownerId}"\n    }\n\n' +
+        '    @RequestMapping("/pets/{petId}/visits", method = [RequestMethod.POST])\n    @PreAuthorize("permitAll()")\n    fun addVisit(): String = "x"\n}\n',
+      "src/main/kotlin/vet/VetController.kt": '@RestController\nclass VetController {\n    @GetMapping("vets.json", produces = ["application/json"])\n    fun showResources(): Vets = Vets()\n}\n',
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "GET /owners/{ownerId}/pets/new": null,
+    "POST /owners/{ownerId}/pets/{petId}/edit": "a @PreAuthorize annotation",
+    "POST /owners/{ownerId}/pets/{petId}/update": "a @PreAuthorize annotation",
+    "POST /owners/{ownerId}/pets/{petId}/visits": null,
+    "GET /vets.json": null,
+  });
+});
+
+// kotlin-spring-realworld: @ApiKeySecured, enforced by an aspect that answers 401.
+test("kotlin: an annotation an aspect enforces with 401 protects, unless the use switches it off", () => {
+  const report = run(
+    {
+      "src/main/kotlin/jwt/ApiKeySecured.kt":
+        "@Retention(AnnotationRetention.RUNTIME)\n@Target(AnnotationTarget.FUNCTION)\nannotation class ApiKeySecured(val mandatory: Boolean = true)\n",
+      "src/main/kotlin/jwt/ApiKeySecuredAspect.kt":
+        "@Aspect\n@Component\nclass ApiKeySecuredAspect(val userService: UserService) {\n" +
+        '    @Pointcut(value = "execution(@io.realworld.jwt.ApiKeySecured * *.*(..))")\n    fun securedApiPointcut() {\n    }\n\n' +
+        '    @Around("securedApiPointcut()")\n    fun around(joinPoint: ProceedingJoinPoint): Any? {\n' +
+        "        if (request.getHeader(\"Authorization\") == null) {\n            response.status = HttpServletResponse.SC_UNAUTHORIZED\n            return null\n        }\n        return joinPoint.proceed()\n    }\n}\n",
+      "src/main/kotlin/jwt/Audited.kt": "annotation class Audited\n",
+      "src/main/kotlin/jwt/AuditAspect.kt":
+        '@Aspect\nclass AuditAspect {\n    @Before("@annotation(io.realworld.jwt.Audited)")\n    fun log() { println("x") }\n}\n',
+      "src/main/kotlin/web/ArticleHandler.kt":
+        "@RestController\nclass ArticleHandler(val repository: ArticleRepository) {\n" +
+        '    @ApiKeySecured(mandatory = false)\n    @GetMapping("/api/articles")\n    fun articles(): Any = repository.findAll()\n\n' +
+        '    @ApiKeySecured\n    @PostMapping("/api/articles")\n    fun newArticle(): Any = 1\n\n' +
+        '    @Audited\n    @DeleteMapping("/api/articles/{slug}")\n    fun deleteArticle(): Any = 1\n}\n',
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "GET /api/articles": null,
+    "POST /api/articles": "@ApiKeySecured, which an aspect enforces",
+    "DELETE /api/articles/{slug}": null,
+  });
+});
+
+test("kotlin: Spring security rules are taken in order, so permitAll before anyRequest stays open", () => {
+  const controller =
+    '@RestController\nclass Api {\n    @GetMapping("/api/public/tags")\n    fun tags() = 1\n    @PostMapping("/api/articles")\n    fun create() = 1\n' +
+    '    @GetMapping("/api/articles/{slug}")\n    fun read() = 1\n}\n';
+  for (const config of [
+    // the Kotlin DSL
+    "@Bean\nfun filterChain(http: HttpSecurity): SecurityFilterChain {\n    http {\n        authorizeHttpRequests {\n" +
+      '            authorize("/api/public/**", permitAll)\n            authorize(HttpMethod.GET, "/api/articles/**", permitAll)\n            authorize(anyRequest, authenticated)\n        }\n    }\n    return http.build()\n}\n',
+    // the lambda style
+    "@Bean\nfun filterChain(http: HttpSecurity): SecurityFilterChain = http\n    .authorizeHttpRequests {\n" +
+      '        it.requestMatchers("/api/public/**").permitAll()\n            .requestMatchers(HttpMethod.GET, "/api/articles/**").permitAll()\n            .anyRequest().authenticated()\n    }\n    .build()\n',
+  ]) {
+    const report = run({ "src/main/kotlin/Api.kt": controller, "src/main/kotlin/SecurityConfig.kt": "@Configuration\nclass SecurityConfig {\n" + config + "}\n" }, checkAuthentication);
+    assert.deepEqual(routesOf(report), {
+      "GET /api/public/tags": null,
+      "POST /api/articles": "a security rule requiring authenticated",
+      "GET /api/articles/{slug}": null,
+    });
+  }
+});
+
+// kotlin-ktor-realworld's Router.kt, cut down.
+test("kotlin: Ktor nesting decides path and protection; optional inside required stays required", () => {
+  const report = run(
+    {
+      "src/main/kotlin/web/Router.kt":
+        'fun Routing.users(userController: UserController) {\n    route("users") {\n        post { userController.register(this.context) }\n' +
+        '        post("login") { userController.login(this.context) }\n    }\n    route("user") {\n        authenticate {\n' +
+        "            get { userController.getCurrent(this.context) }\n            put { userController.update(this.context) }\n        }\n    }\n}\n\n" +
+        'fun Routing.articles(articleController: ArticleController) {\n    route("articles") {\n        authenticate {\n' +
+        '            route("{slug}") {\n                authenticate(optional = true) {\n                    get { articleController.get(this.context) }\n                }\n' +
+        "                delete { articleController.delete(this.context) }\n            }\n        }\n        authenticate(optional = true) {\n" +
+        "            get { articleController.findBy(this.context) }\n        }\n    }\n}\n",
+      "src/main/kotlin/config/AppConfig.kt": "fun Application.module() {\n    install(Routing) {\n        users(userController)\n        articles(articleController)\n    }\n}\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "POST /users": null,
+    "POST /users/login": null,
+    "GET /user": "an enclosing authenticate block",
+    "PUT /user": "an enclosing authenticate block",
+    "GET /articles/{slug}": "an enclosing authenticate block",
+    "DELETE /articles/{slug}": "an enclosing authenticate block",
+    "GET /articles": null,
+  });
+});
+
+test("kotlin: a Ktor route function is judged at every call; one unprotected call opens it", () => {
+  const routes =
+    'fun Route.adminRoutes() {\n    post("purge") { call.respond(HttpStatusCode.NoContent) }\n}\n\n' +
+    'fun Route.reportRoutes() {\n    get("reports") { call.respond("x") }\n}\n';
+  const report = run(
+    {
+      "src/main/kotlin/Routes.kt": routes,
+      "src/main/kotlin/Application.kt":
+        'fun Application.module() {\n    routing {\n        authenticate("admin") {\n            route("admin") {\n                adminRoutes()\n            }\n' +
+        "            reportRoutes()\n        }\n        reportRoutes()\n    }\n}\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "POST /admin/purge": "an enclosing authenticate block, around every call of adminRoutes()",
+    "GET /reports": null,
+  });
+});
+
+test("kotlin: typed Ktor routes take their path from @Resource; HTML builders and client calls are not routes", () => {
+  const report = run(
+    {
+      "src/main/kotlin/Resources.kt": '@Resource("/video/{id}")\nclass VideoStream(val id: Long)\n\n@Resource("/login")\nclass Login(val userName: String = "")\n',
+      "src/main/kotlin/Videos.kt":
+        "fun Route.videos() {\n    get<VideoStream> {\n        call.respondHtml {\n            head { title(\"x\") }\n            body { p { +\"x\" } }\n        }\n    }\n" +
+        "    resource<Login> {\n        authenticate(\"form\") {\n            post { call.respondRedirect(\"/\") }\n        }\n    }\n}\n",
+      "src/main/kotlin/Client.kt": 'suspend fun fetch(client: HttpClient) {\n    val r = client.get("https://example.com/x") { header("A", "b") }\n}\n',
+      "src/main/kotlin/Layout.kt": 'fun HTML.layout() {\n    head {\n        title("YouKube")\n    }\n}\n',
+      "src/main/kotlin/App.kt": "fun Application.module() {\n    routing {\n        videos()\n    }\n}\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), { "GET /video/{id}": null });
+  assert.deepEqual(report.exempt.map((e) => `${e.method} ${e.route}`), ["POST /login"]);
+});
+
+test("kotlin: the src/test source set is not the service", () => {
+  const report = run(
+    {
+      "src/main/kotlin/App.kt": 'fun Application.module() {\n    routing {\n        authenticate {\n            get("/me") { call.respond("x") }\n        }\n    }\n}\n',
+      "src/test/kotlin/TestModule.kt": 'fun Application.testModule() {\n    routing {\n        get("/debug") { call.respond("x") }\n    }\n}\n',
+      "src/integrationTest/kotlin/Stub.kt": 'fun Application.stub() {\n    routing {\n        get("/stub") { call.respond("x") }\n    }\n}\n',
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), { "GET /me": "an enclosing authenticate block" });
+});
+
+// Each was reported as a credential compared unsafely when the PHP reader was first run on BookStack.
+test("a class constant, a token's claim and a constant flag are not credentials", () => {
+  for (const line of [
+    "if ($response === Password::RESET_LINK_SENT) {}",
+    "return $response === Password::PASSWORD_RESET;",
+    "if ($idTokenSub !== $sub) {}",
+    "return self.__mode === IS_TOKEN;",                   // BookStack's editor: a mode flag
+  ]) {
+    assert.equal(leakyCredentialCheck(line), false, line);
+  }
+  assert.equal(leakyCredentialCheck("if ($user->password == $given) {}"), "password");
+  assert.equal(leakyCredentialCheck("if (userFound?.password == encrypt(given)) {}"), "password");
+});
+
+// ---------------------------------------------------------------------------------------------
 // Cross-cutting
 // ---------------------------------------------------------------------------------------------
 
@@ -860,7 +1207,7 @@ test("credential-issuing endpoints are exempt, but paths beneath them are not", 
 
 test("an unrecognised language is undetermined, not a pass", () => {
   const { failures, advisories } = run(
-    { "src/main.php": "<?php Route::post('/logs', 'LogController@create');\n" },
+    { "src/main.rs": "let app = Router::new().route(\"/logs\", post(create));\n" },
     authenticationFailures
   );
   assert.deepEqual(failures, []);

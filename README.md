@@ -284,7 +284,7 @@ Controls that are present and do not work. Each row below blocks.
 | task requirements | when the task states them: an "immutable" store that can be altered; records deleted before the stated retention period; a secret cached so that it cannot rotate; client errors reported as 500s; tests that fail when run, or do not exist; a deliverable the task names that is not there |
 | evidence | a file that exists but is empty, which every check reading it would pass; work not committed; a commit that edits the task file |
 
-Authentication covers Python, JavaScript/TypeScript, Go, Java, Ruby and C#; error distinction covers
+Authentication covers Python, JavaScript/TypeScript, Go, Java, Ruby, C#, PHP and Kotlin; error distinction covers
 Python. The task-gated checks are narrow on purpose — immutability, for instance, only judges a
 store that names itself an audit log — because a blocking check that fires on correct code gets
 switched off.
@@ -307,9 +307,9 @@ The checks you would expect, still necessary:
 So that a clean verdict is read for what it is:
 
 - **Code in other languages.** Swift, Scala and the rest get only the project-wide scans —
-  secrets, dependencies, infrastructure. The run says so above the verdict. PHP and Kotlin get the
-  injection check and their test suites run, but there is no authentication check for them. C and
-  C++ test files are not recognised.
+  secrets, dependencies, infrastructure. The run says so above the verdict. Rust and C/C++ get the
+  injection check, but there is no authentication check for them, and C and C++ test files are not
+  recognised. Plain PHP pages served without a router (no Laravel or Symfony) have no routes to read.
 - **Injection across a function call**, and cross-site scripting, template injection, LDAP
   injection, open redirect and insecure deserialization.
 - **Memory safety in C and C++**, beyond `gets()`.

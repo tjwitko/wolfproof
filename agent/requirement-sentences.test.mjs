@@ -238,16 +238,18 @@ test("covered only where the check reads the project's code, and only when it ra
   assert.match(alwaysOnCoverage(sql, withSwift).notCoveredBecause, /sast would cover it, but reads no Swift code/);
   assert.match(alwaysOnCoverage(auth, withSwift).notCoveredBecause, /authentication would cover it, but reads no Swift code/);
   assert.deepEqual(alwaysOnCoverage(secrets, withSwift), { coveredBy: "scan_path" }, "secret scanning reads every file");
-  // sast reads PHP and Kotlin; authentication reads neither.
-  for (const language of ["PHP", "Kotlin"]) {
+  // sast reads Rust and C/C++; authentication reads neither.
+  for (const language of ["Rust", "C/C++"]) {
     const withIt = { ...EVERYTHING_RAN, languages: { "JavaScript/TypeScript": 3, [language]: 2 } };
     assert.deepEqual(alwaysOnCoverage(sql, withIt), { coveredBy: "sast" }, language);
-    assert.match(alwaysOnCoverage(auth, withIt).notCoveredBecause, new RegExp(`authentication would cover it, but reads no ${language} code`));
+    assert.match(alwaysOnCoverage(auth, withIt).notCoveredBecause, new RegExp(`authentication would cover it, but reads no ${language.replace(/[+]/g, "\\+")} code`));
   }
-  // Both read C#.
-  const withCs = { ...EVERYTHING_RAN, languages: { "C#": 4 } };
-  assert.deepEqual(alwaysOnCoverage(sql, withCs), { coveredBy: "sast" });
-  assert.deepEqual(alwaysOnCoverage(auth, withCs), { coveredBy: "authentication" });
+  // Both read C#, PHP and Kotlin.
+  for (const language of ["C#", "PHP", "Kotlin"]) {
+    const withIt = { ...EVERYTHING_RAN, languages: { [language]: 4 } };
+    assert.deepEqual(alwaysOnCoverage(sql, withIt), { coveredBy: "sast" }, language);
+    assert.deepEqual(alwaysOnCoverage(auth, withIt), { coveredBy: "authentication" }, language);
+  }
   // A check that could not run holds the project to nothing.
   const noSemgrep = { ...EVERYTHING_RAN, couldNotRun: ["sast: semgrep is not installed, so 3 file(s) were not checked"] };
   assert.equal(alwaysOnCoverage(sql, noSemgrep).notCoveredBecause, "sast did not run here");

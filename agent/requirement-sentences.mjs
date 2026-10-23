@@ -74,11 +74,11 @@ export function unjudgedSentences(text = "") {
 //     and critical ones the dependency scan blocks on; a sentence naming LDAP or template injection
 //     alongside SQL asks for more than the injection rules read. Each of those stays unread.
 //  2. Covered only where the check reads the project's code, and only when it ran. authentication
-//     reads six languages and sast ten; a project with PHP in it is not covered for authentication,
+//     reads eight languages and sast ten; a project with Rust in it is not covered for authentication,
 //     and the sentence says why instead.
 
 const SAST_LANGUAGES = ["Python", "JavaScript/TypeScript", "Go", "Java", "Ruby", "C#", "Rust", "C/C++", "PHP", "Kotlin"];
-const AUTH_LANGUAGES = ["Python", "JavaScript/TypeScript", "Go", "Java", "Ruby", "C#"];
+const AUTH_LANGUAGES = ["Python", "JavaScript/TypeScript", "Go", "Java", "Ruby", "C#", "PHP", "Kotlin"];
 
 const NEGATED = /\b(?:not|never|no|without|free of|must not|mustn't|cannot)\b/i;
 const CREDENTIAL = /\b(?:credentials?|secrets?|api[- ]keys?|passwords?|tokens?|private keys?|access keys?|keys)\b/i;
