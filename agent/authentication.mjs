@@ -23,12 +23,13 @@
 // one language while the work happens in another is an advisory with extra steps.
 //
 // Recognised now: Python (FastAPI, Flask), JavaScript/TypeScript (Express, Fastify, NestJS), Go
-// (net/http, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra, Rails). Each is an entry in
+// (net/http, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra, Rails), C# (ASP.NET Core
+// controllers and minimal APIs, in authentication-csharp.mjs). Each is an entry in
 // ADAPTERS: it claims file extensions, finds routes, and answers whether a route is protected. The
 // judgment above that -- conventional exemptions, per-route verdicts, how an undetermined answer is
 // reported -- is shared, so a new language is an adapter and not a second policy.
 //
-// NOT recognised, deliberately: PHP, C#, Rust, and every framework whose routing is data rather
+// NOT recognised, deliberately: PHP, Rust, and every framework whose routing is data rather
 // than code (an OpenAPI document, a Rails `routes.rb` mapped to controllers, an API-gateway
 // config). Those are not misses to fix casually -- routing declared as data needs the handler
 // resolved before "is this route authenticated" is even answerable, and guessing there produces
@@ -40,6 +41,7 @@ import path from "path";
 
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
+import { csharpAdapter } from "./authentication-csharp.mjs";
 
 // Endpoints that are conventionally open, and should be: a liveness probe that requires a
 // credential is a liveness probe that fails.
@@ -103,8 +105,11 @@ const MAX_FILE_BYTES = 512 * 1024;
 // project -- rule 3's exact failure mode. Matched on the filename rather than the directory,
 // because `test/` and `tests/` sometimes hold real application code, while these suffixes do not.
 export const TEST_FILE =
-  /(\.(test|spec)\.[mc]?[jt]sx?|_test\.go|_test\.py|_spec\.rb|_test\.rb|Test\.java|Tests\.java)$|^test_[^/]*\.py$|^conftest\.py$/i;
+  /(\.(test|spec)\.[mc]?[jt]sx?|_test\.go|_test\.py|_spec\.rb|_test\.rb|Test\.java|Tests\.java|Tests?\.cs)$|^test_[^/]*\.py$|^conftest\.py$/i;
 export const TEST_DIRS = new Set(["__tests__", "__mocks__", "fixtures", "testdata"]);
+// .NET puts tests in their own project, named for what it tests: Jellyfin.Server.Integration.Tests.
+// Found running the C# reader on Jellyfin, whose integration tests declare a stub controller.
+const TEST_PROJECT_DIR = /\.\w*Tests?$/;
 
 // Comments are not code, and this check used to read them as code in both directions. Running
 // the gate over its own source blocked on two credential findings, both from comments here that
@@ -207,6 +212,7 @@ const VERIFIES_SIGNATURE = [
   /\bOpenSSL::HMAC\b/,                            // Ruby
   /\bhmac\.New\s*\(|hmac\.Equal\s*\(/,        // Go
   /\bMac\.getInstance\s*\(/,                    // Java
+  /\bnew\s+HMACSHA(?:1|256|384|512)\b|\bHMACSHA(?:1|256|384|512)\.HashData\s*\(/, // C#
 ];
 
 function verifiesSignature(all) {
@@ -214,7 +220,7 @@ function verifiesSignature(all) {
 }
 
 // Constant-time comparison, which is the only safe way to check a signature.
-const CONSTANT_TIME_COMPARE = /\b(compare_digest|timingSafeEqual|hmac\.Equal|MessageDigest\.isEqual|secure_compare)\s*\(/;
+const CONSTANT_TIME_COMPARE = /\b(compare_digest|timingSafeEqual|hmac\.Equal|MessageDigest\.isEqual|secure_compare|FixedTimeEquals)\s*\(/;
 
 // An ordinary equality test against something signature-shaped. `==` returns on the first differing
 // byte, so an attacker who can send repeated callbacks recovers the digest one byte at a time
@@ -358,6 +364,9 @@ const LEAKY_CREDENTIAL_COMPARE = new RegExp(
 const NON_SECRET_OPERAND =
   /^(?:null|undefined|true|false|none|nil|-?\d+(?:\.\d+)?|["'`](?:|string|object|number|boolean|undefined|function|symbol|bigint)["'`])[;,)\]}]*$/i;
 
+const NAMES_ABOUT_A_CREDENTIAL =
+  /(?:Ids?|IDs?|_ids?|Identifier|Type|_type|Kind|Count|_count|Quantity|Length|_length|Result|_result|Status|_status)$|^(?:[uU]se|[hH]as|[iI]s|[cC]an|[sS]hould|[eE]nable|[aA]llow|[rR]equire)(?=[A-Z_])/;
+
 export function leakyCredentialCheck(all) {
   // Deliberately NOT gated on the file containing a constant-time comparison somewhere. That
   // file-wide bail-out is what made this check miss the case it was written for: webhook-5 used
@@ -375,6 +384,25 @@ export function leakyCredentialCheck(all) {
     // `typeof cred === ...` asks what kind of thing arrived, never what it is.
     if (typeofPrefix) continue;
     if (NON_SECRET_OPERAND.test(other)) continue;
+    // The word can name the object rather than the value: `b.email == passwordResetRequest.email`
+    // compares e-mail addresses, and was reported as a password compared unsafely -- found running
+    // the C# reader over dvcsharp-api. A property access is judged by the property it ends in. A
+    // method call is not: `token.Trim()` is still the token.
+    let compared = name;
+    if (m[6]) {
+      const chain = /^(?:\s*\.\s*\w+)+(?!\s*\(|\w)/.exec(all.slice(m.index + m[0].length));
+      if (chain) compared = chain[0].split(".").pop().trim();
+      if (!new RegExp(CREDENTIAL_WORD, "i").test(compared)) continue;
+    }
+    // A name about a credential rather than the credential: its id, its type, a count, the result of
+    // checking it, a flag. Found on Bitwarden, where `secretId`, `apiKeyId`, `passwordResult ==
+    // PasswordVerificationResult.Failed` and `useResetPassword` were each reported as a secret
+    // compared unsafely. Matched on the identifier's own casing, so `apiKey` and `api_key` are still
+    // credentials and `apiKeyId` and `api_key_id` are not.
+    if (NAMES_ABOUT_A_CREDENTIAL.test(compared)) continue;
+    // A confirmation field is the caller's own input typed twice. `password != passwordConfirmation`
+    // is in every registration handler, and there is no secret on either side to leak.
+    if (/confirm/i.test(compared) || /confirm/i.test(other)) continue;
     // A signature compared loosely is the OTHER check's finding; reporting it here too would give
     // one defect two names.
     if (/signature|digest|hmac/i.test(name)) continue;
@@ -1050,7 +1078,7 @@ const rubyAdapter = {
   },
 };
 
-const ADAPTERS = [pythonAdapter, jsAdapter, goAdapter, javaAdapter, rubyAdapter];
+const ADAPTERS = [pythonAdapter, jsAdapter, goAdapter, javaAdapter, rubyAdapter, csharpAdapter];
 
 const ADAPTER_BY_EXT = new Map();
 for (const a of ADAPTERS) for (const ext of a.extensions) ADAPTER_BY_EXT.set(ext, a);
@@ -1068,7 +1096,7 @@ function walk(dir, acc = [], root = dir) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) {
       // A declared fixture is deliberately unrepresentative; see fixture-markers.mjs.
-      if (!SKIP_DIRS.has(e.name) && !TEST_DIRS.has(e.name) && !isDeclaredFixture(full)) walk(full, acc, root);
+      if (!SKIP_DIRS.has(e.name) && !TEST_DIRS.has(e.name) && !TEST_PROJECT_DIR.test(e.name) && !isDeclaredFixture(full)) walk(full, acc, root);
       continue;
     }
     if (TEST_FILE.test(e.name)) continue;
@@ -1131,8 +1159,11 @@ export function checkAuthentication(projectDir) {
   let leakyCredential = false;   // { name, language, at } once found
   const vacuous = new Map();     // env name -> { language, at }
   for (const [adapter, adapterFiles] of byAdapter) {
-    const all = adapterFiles.map((f) => f.text).join("\n");
-    const global = adapter.globalAuth(all);
+    // `texts` is the same source file by file, for an adapter that has to index the project before it
+    // can judge one file -- C# controllers inherit their prefix and [Authorize] from a base class.
+    const texts = adapterFiles.map((f) => f.text);
+    const all = texts.join("\n");
+    const global = adapter.globalAuth(all, texts);
     if (leakySignatureCheck(all)) leakySignature = true;
     const leakyCred = leakyCredentialCheck(all);
     if (leakyCred && !leakyCredential) {
@@ -1144,7 +1175,7 @@ export function checkAuthentication(projectDir) {
     }
     let found = 0;
     for (const file of adapterFiles) {
-      for (const r of adapter.routes(file.text)) {
+      for (const r of adapter.routes(file.text, texts)) {
         // Exempt by path, and recorded rather than dropped. These were skipped silently, so a
         // `/ping` that took a request parameter and passed it to a shell went unmentioned, and the
         // finding counted "1 of 1 endpoint(s)" in a file declaring two. The path is chosen by
@@ -1167,7 +1198,10 @@ export function checkAuthentication(projectDir) {
           method: r.method,
           route: r.route,
           line: r.line,
-          protectedBy: global || adapter.routeAuth(r, all),
+          // A route that declares itself anonymous is open whatever else protects its neighbours:
+          // ASP.NET's [AllowAnonymous] overrides a global policy and an [Authorize] on its class.
+          protectedBy: r.anonymous ? null : global || adapter.routeAuth(r, all, texts),
+          ...(r.anonymous ? { anonymous: true } : {}),
         });
       }
     }
@@ -1199,6 +1233,7 @@ const CONSTANT_TIME = {
   Go: "subtle.ConstantTimeCompare from crypto/subtle",
   Java: "MessageDigest.isEqual",
   Ruby: "ActiveSupport::SecurityUtils.secure_compare",
+  "C#": "CryptographicOperations.FixedTimeEquals",
 };
 const UNSET = {
   Python: { getter: "os.getenv or os.environ.get, which return None when it is unset", pair: "between two Nones" },
@@ -1277,7 +1312,9 @@ export function authenticationFailures(projectDir) {
   const open = report.routes.filter((r) => !r.protectedBy);
   if (open.length === 0) return { failures: timing, advisories: exemptAdvisories };
 
-  const list = open.map((r) => `${r.method} ${r.route} (${r.file}:${r.line})`).join(", ");
+  // A route declared anonymous was opened on purpose, and says so: the reader's question there is
+  // whether it should be, not where the [Authorize] went.
+  const list = open.map((r) => `${r.method} ${r.route} (${r.file}:${r.line}${r.anonymous ? ", declared anonymous" : ""})`).join(", ");
   const someProtected = report.routes.some((r) => r.protectedBy);
   const idioms = [...new Set(report.languages.map((n) => ADAPTERS.find((a) => a.name === n).idiom))];
 

@@ -26,6 +26,7 @@ happened to produce, so the next project's ordinary idiom reads as a violation.
 | IRSA annotation (first cut) | a well-formed ARN as the parse gate | `<ROLE_ARN>` placeholders | false negative |
 | vacuous credentials | any string default counts as validation | `os.getenv(X, "")` | false negative |
 | credential timing | its own word list, not the header check's | `authorization` | false negative |
+| credential timing | a credential word anywhere in the identifier | `secretId`, `passwordResetRequest.email` | false positive |
 | immutability (scope) | "any table/bucket" once the task requires it | a Terraform state backend | false positive ×4 |
 | every manifest check | reads content, never asks if there is any | five zero-byte YAML files | false negative ×3 |
 | advisory parser | only lines starting "- " | a review written as prose | silent discard |
@@ -1207,9 +1208,79 @@ Kotlin has no positive control: no deliberately vulnerable Kotlin web applicatio
 of Gradle's own Kotlin on the development machine, show the rules do not over-fire; only
 `kotlin.kt.sample` shows them finding injection. The manifest names the gap.
 
-Not covered: authentication (no PHP or Kotlin route reader), builds and test runners (see #12),
+Not covered: authentication (no PHP or Kotlin route reader; C# has one since #20), builds and test runners (see #12),
 Ktor's client beyond a receiver named `client`, Exposed's raw `exec`, and PHP's `preg_replace` with
 `/e`, removed in PHP 7.
+
+### 20. Authentication for C# — fixed, calibrated
+
+`agent/authentication-csharp.mjs`: ASP.NET Core controllers (`[HttpGet]`, `[Route]`, `[controller]` and
+`[action]` tokens, conventionally routed actions) and minimal APIs (`MapGet` and its siblings,
+`MapGroup`). C# needed two things no other reader did, both found on the first real app:
+
+- **The project is indexed before a file is judged.** Jellyfin's controllers inherit `[Route]` from
+  one base class in another file, and Bitwarden's inherit `[Authorize]`. The core now hands an adapter
+  the language's files one by one as well as joined.
+- **`[AllowAnonymous]` beats everything**, as in ASP.NET: class `[Authorize]`, a fallback policy, a
+  group's `RequireAuthorization()`. Routes carry an `anonymous` flag the core honours, and the finding
+  marks them "declared anonymous".
+
+Minimal APIs put protection in four places and the four apps use all of them: chained on the call,
+on the group (as a chain or a statement of its own), at the call site of the method that maps the
+routes and returns the group (eShop's `orders.MapOrdersApiV1().RequireAuthorization()`), and inside a
+project helper that does one of those to its parameter (Bitwarden's `WithPamDefaults()`, through an
+overload). Receivers are resolved through local variables and every call site; one unprotected call
+site makes the route open. Writing it surfaced one false pass before it shipped:
+`app.MapOrdersApi().RequireAuthorization()` was read as protecting `app`, which would have passed
+every other route mapped on it. Any `Map*` call now ends a receiver's conventions.
+
+**Calibrated** (2026-10-23, the four C# applications already in `calibration/manifest.json`, every
+open route read against its source):
+
+| app | routes | protected | open | of which declared anonymous |
+|---|---|---|---|---|
+| dvcsharp-api | 16 | 5 | 11 | 0 |
+| Jellyfin | 420 | 355 | 65 | 1 |
+| eShop | 45 (+1 exempt) | 18 | 27 | 7 |
+| Bitwarden | 777 | 695 | 82 | 55 |
+
+- **dvcsharp-api:** all 11 are controllers with no authorization: products, imports, and the API's
+  own registration, token and password-reset endpoints.
+- **Jellyfin:** no global policy (`AddMvc` adds formatters; `MapControllers()` has nothing chained),
+  so the stream, image, branding, public system-info, QuickConnect and sign-in routes are open as
+  written. One `[AllowAnonymous]` plugin image overrides its class's `[Authorize]`.
+- **eShop:** Catalog.API maps its API with nothing chained and has no authorization anywhere, so its
+  17 routes, including `PUT`, `POST` and `DELETE` on `/api/catalog/items`, are open. Ordering and
+  Webhooks are protected at the call site, Identity.API's account pages declare `[AllowAnonymous]`.
+- **Bitwarden:** of the 27 open without a declaration, 22 are public by design: sign-in flows, SAML
+  metadata, the admin error page, `/alive`, `/now`, public config, `app-id.json` and the icon
+  service. One is a finding worth its place: `POST /jobs/run/{jobName}` is gated to non-production
+  environments and to no caller. **Four are protected by code inside the handler**, which this
+  reader does not see: the Apple, BitPay and PayPal webhooks compare a query key with
+  `FixedTimeEquals`, and sponsorship sync-status checks `OrganizationOwner` and throws. The JavaScript
+  reader's in-handler rule needs a credential header and a 401 or 403, so it would not credit these
+  either. That is the open question this leaves.
+
+Two false positives found here were fixed rather than recorded. Bitwarden's `[InjectProvider]` is
+an action filter that answers 401 to a non-admin, so seven billing routes read as open; a project
+attribute that turns a caller away with 401 or 403 now counts, and its neighbours that answer 400 or
+404 (`[SelfHosted]`, `[RequireLowerEnvironment]`) still do not. `[NoopAuthorize]`, which derives from
+plain `Attribute`, does not count either, as its own documentation says it should not.
+
+**The credential-comparison finding** runs over every language's text, so C# switched it on for
+these apps. Read line by line, most of what it first reported compared no secret: `secretId`,
+`apiKeyId`, `Identifier == TokenIdentifier`, `passwordResult == PasswordVerificationResult.Failed`,
+`useResetPassword`, `secretsManagerSeatQuantity`, `b.email == passwordResetRequest.email` and
+`password != passwordConfirmation`. A name ending in an id, type, count or result suffix, or starting
+with a flag prefix, a property judged by its own name rather than its object's, and a confirmation
+field are no longer credentials, in every language. What remains is real: eShop's two webhook token
+comparisons, Jellyfin's QuickConnect secret and its API-key lookups (the shape the check reports in
+every language), and Bitwarden's `MasterPasswordAuthenticationHash ==`.
+
+Not read: authorization written inside the handler, Razor Pages, gRPC services, SignalR hubs, a
+route method reached other than as `this` (a group passed as an ordinary argument), and a probe named
+`/alive`, which the shared probe list does not include. Widening that list loosens the check for
+every language, so it is left as a decision rather than made here.
 
 ### 12. Considered and deferred
 

@@ -389,6 +389,357 @@ test("ruby: a get call inside a body is not a route declaration", () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// C# (ASP.NET Core). Each shape below is one measured on dvcsharp-api, Jellyfin, eShop or
+// Bitwarden; the comment names which.
+// ---------------------------------------------------------------------------------------------
+
+const routesOf = (report) =>
+  Object.fromEntries(report.routes.map((r) => [`${r.method} ${r.route}`, r.protectedBy || (r.anonymous ? "ANONYMOUS" : null)]));
+
+test("c#: a controller action without [Authorize] fails, under its class route", () => {
+  const { failures } = run(
+    {
+      "Controllers/ProductsController.cs":
+        'namespace App.Controllers\n{\n   [Route("api/[controller]")]\n   public class ProductsController : Controller\n   {\n' +
+        '      [HttpGet]\n      public IActionResult Get() { return Ok(); }\n\n' +
+        '      [HttpPost("import")]\n      public IActionResult Import([FromBody] string xml) { return Ok(); }\n   }\n}\n',
+    },
+    authenticationFailures
+  );
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /2 of 2 endpoint\(s\)/);
+  assert.match(failures[0], /GET \/api\/Products \(Controllers\/ProductsController\.cs:6\)/);
+  assert.match(failures[0], /POST \/api\/Products\/import/);
+  assert.match(failures[0], /\[Authorize\]/, "the advice names the C# idiom");
+});
+
+test("c#: [Authorize] on the class or the action protects; [AllowAnonymous] on the action overrides it", () => {
+  const report = run(
+    {
+      "PluginsController.cs":
+        '[Authorize]\n[Route("[controller]")]\npublic class PluginsController : ControllerBase\n{\n' +
+        '    [HttpGet]\n    public ActionResult List() => Ok();\n' +
+        '    [HttpGet("{id}/Image")]\n    [AllowAnonymous]\n    public ActionResult Image(Guid id) => Ok();\n}\n',
+      "UsersController.cs":
+        '[Route("api/users")]\npublic class UsersController : Controller\n{\n' +
+        '    [Authorize(Policy = Policies.RequiresElevation)]\n    [HttpDelete("{id}")]\n    public IActionResult Delete(int id) => Ok();\n' +
+        '    [HttpGet("{id}")]\n    public IActionResult Get(int id) => Ok();\n}\n',
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "GET /Plugins": "an [Authorize] attribute",
+    "GET /Plugins/{id}/Image": "ANONYMOUS",
+    "DELETE /api/users/{id}": "an [Authorize] attribute",
+    "GET /api/users/{id}": null,
+  });
+});
+
+// Jellyfin: every controller derives from one base that carries [ApiController] and
+// [Route("[controller]")]. Without the project indexed, every prefix was lost.
+test("c#: the route prefix and [Authorize] are inherited from a base class in another file", () => {
+  const report = run(
+    {
+      "Api/BaseApiController.cs": '[ApiController]\n[Route("[controller]")]\npublic class BaseApiController : ControllerBase\n{\n}\n',
+      "Api/SecureBase.cs": "[Authorize]\npublic abstract class SecureBase : BaseApiController\n{\n}\n",
+      "Api/Controllers/AudioController.cs":
+        'public class AudioController : BaseApiController\n{\n    [HttpGet("{itemId}/stream")]\n    [HttpHead("{itemId}/stream")]\n    public ActionResult Stream(Guid itemId) => Ok();\n}\n',
+      "Api/Controllers/ItemsController.cs":
+        'public class ItemsController : SecureBase\n{\n    [HttpPost("{id}")]\n    public ActionResult Update(Guid id) => Ok();\n}\n',
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "GET /Audio/{itemId}/stream": null,
+    "HEAD /Audio/{itemId}/stream": null,
+    "POST /Items/{id}": "an [Authorize] attribute",
+  });
+});
+
+test("c#: an attribute class that authorizes counts; one that only validates does not", () => {
+  const report = run(
+    {
+      "Auth/AdminOnlyAttribute.cs": "public class AdminOnlyAttribute : AuthorizeAttribute\n{\n    public AdminOnlyAttribute() { Roles = \"admin\"; }\n}\n",
+      // Bitwarden's [InjectProvider]: an action filter that answers 401 to a non-admin.
+      "Auth/InjectProviderAttribute.cs":
+        "public class InjectProviderAttribute : ActionFilterAttribute\n{\n    public override async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)\n    {\n" +
+        '        if (!await IsAdmin(context))\n        {\n            context.Result = new UnauthorizedObjectResult(new ErrorResponseModel("Unauthorized."));\n            return;\n        }\n        await next();\n    }\n}\n',
+      // Bitwarden's [SelfHosted]: a 400/404 gate on the environment, not on the caller.
+      "Auth/SelfHostedAttribute.cs":
+        "public class SelfHostedAttribute : ActionFilterAttribute\n{\n    public override void OnActionExecuting(ActionExecutingContext context)\n    {\n        context.Result = new BadRequestResult();\n    }\n}\n",
+      // Bitwarden's [NoopAuthorize] documents a choice and enforces nothing.
+      "Auth/NoopAuthorizeAttribute.cs": "public class NoopAuthorizeAttribute : Attribute;\n",
+      "BillingController.cs":
+        '[Route("billing")]\npublic class BillingController : Controller\n{\n' +
+        '    [HttpGet("a")]\n    [AdminOnly]\n    public IActionResult A() => Ok();\n' +
+        '    [HttpGet("b")]\n    [InjectProvider(ProviderUserType.ProviderAdmin)]\n    public IActionResult B() => Ok();\n' +
+        '    [HttpGet("c")]\n    [SelfHosted(NotSelfHostedOnly = true)]\n    public IActionResult C() => Ok();\n' +
+        '    [HttpGet("d")]\n    [NoopAuthorize]\n    public IActionResult D() => Ok();\n}\n',
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "GET /billing/a": "an [AdminOnly] attribute",
+    "GET /billing/b": "an [InjectProvider] attribute",
+    "GET /billing/c": null,
+    "GET /billing/d": null,
+  });
+});
+
+test("c#: a fallback policy protects everything without [AllowAnonymous]; a default policy and UseAuthorization do not", () => {
+  const controller =
+    '[Route("api/logs")]\npublic class LogsController : Controller\n{\n    [HttpPost]\n    public IActionResult Create() => Ok();\n' +
+    '    [HttpGet("public")]\n    [AllowAnonymous]\n    public IActionResult Public() => Ok();\n}\n';
+  const minimal = 'app.MapGet("/api/items", () => Results.Ok());\n';
+  const fallback = run(
+    {
+      "LogsController.cs": controller,
+      "Program.cs":
+        "builder.Services.AddAuthorization(options =>\n{\n    options.FallbackPolicy = new AuthorizationPolicyBuilder()\n        .RequireAuthenticatedUser()\n        .Build();\n});\n" + minimal,
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(fallback), {
+    "POST /api/logs": "a fallback authorization policy requiring an authenticated user",
+    "GET /api/logs/public": "ANONYMOUS",
+    "GET /api/items": "a fallback authorization policy requiring an authenticated user",
+  });
+  // Jellyfin sets a DefaultPolicy, which only applies where [Authorize] already is.
+  const notGlobal = run(
+    {
+      "LogsController.cs": controller,
+      "Program.cs":
+        "builder.Services.AddAuthorization(options =>\n{\n    options.DefaultPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();\n});\n" +
+        "app.UseAuthentication();\napp.UseAuthorization();\n" + minimal,
+    },
+    checkAuthentication
+  );
+  assert.equal(notGlobal.routes.filter((r) => r.protectedBy).length, 0);
+});
+
+test("c#: MapControllers().RequireAuthorization() and a global AuthorizeFilter protect controllers, not minimal APIs", () => {
+  for (const setup of [
+    "app.MapControllers().RequireAuthorization();\n",
+    "builder.Services.AddControllers(o => o.Filters.Add(new AuthorizeFilter()));\n",
+  ]) {
+    const report = run(
+      {
+        "LogsController.cs": '[Route("api/logs")]\npublic class LogsController : Controller\n{\n    [HttpPost]\n    public IActionResult Create() => Ok();\n}\n',
+        "Program.cs": setup + 'app.MapGet("/api/items", () => Results.Ok());\n',
+      },
+      checkAuthentication
+    );
+    assert.deepEqual(routesOf(report), { "POST /api/logs": "authorization required on every controller", "GET /api/items": null }, setup);
+  }
+});
+
+test("c#: a controller with no route attributes is read as conventionally routed", () => {
+  const report = run(
+    {
+      "AccountController.cs":
+        "[AllowAnonymous]\npublic class AccountController : Controller\n{\n    [HttpGet]\n    public async Task<IActionResult> LoginAsync(string returnUrl) => View();\n}\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), { "GET /Account/Login": "ANONYMOUS" });
+});
+
+test("c#: minimal APIs -- RequireAuthorization on the endpoint, on the group, or as a statement on the group", () => {
+  const report = run(
+    {
+      "Program.cs":
+        'app.MapGet("/open", () => "x");\n' +
+        'app.MapPost("/chained", (Item i) => Results.Ok()).RequireAuthorization();\n' +
+        'var api = app.MapGroup("/api").RequireAuthorization("Application");\n' +
+        'api.MapPut("/items/{id}", (int id) => Results.Ok());\n' +
+        'api.MapGet("/status", () => "ok").AllowAnonymous();\n' +
+        'var admin = app.MapGroup("/admin");\n' +
+        'admin.WithTags("Admin");\n' +
+        'admin.RequireAuthorization(Policies.Admin);\n' +
+        'admin.MapDelete("/users/{id}", (int id) => Results.NoContent());\n' +
+        'app.MapGet("/attr", [Authorize] (ClaimsPrincipal user) => user.Identity.Name);\n' +
+        'app.MapMethods("/check", [HttpMethods.Options], () => Results.Ok());\n',
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "GET /open": null,
+    "POST /chained": "RequireAuthorization() on the endpoint",
+    "PUT /api/items/{id}": "RequireAuthorization() on its group",
+    "GET /api/status": "ANONYMOUS",
+    "DELETE /admin/users/{id}": "RequireAuthorization() on its group",
+    "GET /attr": "an [Authorize] attribute on the handler",
+    "OPTIONS /check": null,
+  });
+});
+
+// eShop: the method that maps the routes returns its group, and the caller protects it.
+test("c#: RequireAuthorization at the call site of a method that returns the group", () => {
+  const ordersApi =
+    "public static class OrdersApi\n{\n    public static RouteGroupBuilder MapOrdersApiV1(this IEndpointRouteBuilder app)\n    {\n" +
+    '        var api = app.MapGroup("api/orders").HasApiVersion(1.0);\n        api.MapPut("/cancel", CancelOrderAsync);\n        api.MapGet("{orderId:int}", GetOrderAsync);\n        return api;\n    }\n}\n';
+  const catalogApi =
+    "public static class CatalogApi\n{\n    public static IEndpointRouteBuilder MapCatalogApi(this IEndpointRouteBuilder app)\n    {\n" +
+    '        var api = app.MapGroup("api/catalog");\n        api.MapDelete("/items/{id:int}", DeleteItemById);\n        return app;\n    }\n}\n';
+  const report = run(
+    {
+      "Ordering/Apis/OrdersApi.cs": ordersApi,
+      "Ordering/Program.cs": 'var orders = app.NewVersionedApi("Orders");\n\norders.MapOrdersApiV1()\n      .RequireAuthorization();\n',
+      "Catalog/Apis/CatalogApi.cs": catalogApi,
+      "Catalog/Program.cs": "app.MapCatalogApi();\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "PUT /api/orders/cancel": "RequireAuthorization() on the call to MapOrdersApiV1()",
+    "GET /api/orders/{orderId:int}": "RequireAuthorization() on the call to MapOrdersApiV1()",
+    "DELETE /api/catalog/items/{id:int}": null,
+  });
+});
+
+// Found while writing the reader: `app.MapOrdersApi().RequireAuthorization()` was read as a
+// convention on `app`, which would have passed every other route mapped on app.
+test("c#: RequireAuthorization on what a mapping call returns does not protect its receiver", () => {
+  const report = run(
+    {
+      "OrdersApi.cs":
+        "public static class OrdersApi\n{\n    public static RouteGroupBuilder MapOrdersApi(this IEndpointRouteBuilder app)\n    {\n" +
+        '        var api = app.MapGroup("api/orders");\n        api.MapPost("/", Create);\n        return api;\n    }\n}\n',
+      "Program.cs": 'app.MapOrdersApi().RequireAuthorization();\napp.MapPost("/api/admin/reset", () => Results.Ok());\n',
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "POST /api/orders": "RequireAuthorization() on the call to MapOrdersApi()",
+    "POST /api/admin/reset": null,
+  });
+});
+
+test("c#: a route is protected only if every call site of its mapping method is", () => {
+  const report = run(
+    {
+      "LeaseEndpoints.cs":
+        "public static class LeaseEndpoints\n{\n    public static RouteGroupBuilder MapLeaseEndpoints(this RouteGroupBuilder group)\n    {\n" +
+        '        group.MapPost("{id:guid}/revoke", (Guid id) => Results.NoContent());\n        return group;\n    }\n}\n',
+      "Program.cs":
+        'app.MapGroup("/leases").RequireAuthorization().MapLeaseEndpoints();\napp.MapGroup("/legacy/leases").MapLeaseEndpoints();\n',
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), { "POST /leases/{id:guid}/revoke": null });
+});
+
+// Bitwarden: WithPamDefaults() delegates to an overload that calls group.RequireAuthorization(policy).
+test("c#: a project helper that requires authorization on its group counts, through an overload", () => {
+  const extensions =
+    "public static class PamEndpointsExtensions\n{\n    public static void MapPamEndpoints(this IEndpointRouteBuilder endpoints)\n    {\n" +
+    '        endpoints.MapGroup("/leases").WithPamDefaults().MapLeaseEndpoints();\n        endpoints.MapGroup("/open").WithTagsOnly().MapLeaseEndpoints2();\n    }\n\n' +
+    "    private static RouteGroupBuilder WithPamDefaults(this RouteGroupBuilder group) =>\n        group.WithPamDefaults(Policies.Application, FeatureFlagKeys.Pam);\n\n" +
+    "    private static RouteGroupBuilder WithPamDefaults(this RouteGroupBuilder group, string policy, string flag)\n    {\n" +
+    "        group.RequireAuthorization(policy);\n        group.RequireFeature(flag);\n        return group;\n    }\n\n" +
+    '    private static RouteGroupBuilder WithTagsOnly(this RouteGroupBuilder group)\n    {\n        group.WithTags("x");\n        return group;\n    }\n}\n';
+  const leases =
+    "internal static class LeaseEndpoints\n{\n    public static RouteGroupBuilder MapLeaseEndpoints(this RouteGroupBuilder group)\n    {\n" +
+    '        group.MapGet("active", (ClaimsPrincipal user) => Results.Ok());\n        return group;\n    }\n\n' +
+    "    public static RouteGroupBuilder MapLeaseEndpoints2(this RouteGroupBuilder group)\n    {\n" +
+    '        group.MapGet("all", () => Results.Ok());\n        return group;\n    }\n}\n';
+  const report = run({ "Pam/PamEndpointsExtensions.cs": extensions, "Pam/LeaseEndpoints.cs": leases }, checkAuthentication);
+  assert.deepEqual(routesOf(report), {
+    "GET /leases/active": "WithPamDefaults() on its group, which requires authorization",
+    "GET /open/all": null,
+  });
+});
+
+test("c#: [Authorize] in a comment or a string is not protection", () => {
+  const report = run(
+    {
+      "LogsController.cs":
+        '[Route("api/logs")]\npublic class LogsController : Controller\n{\n' +
+        '    // [Authorize]\n    [HttpPost]\n    public IActionResult Create() => Ok();\n' +
+        '    /* [Authorize] */ [HttpGet]\n    public IActionResult List() => Ok("[Authorize]");\n' +
+        '    [HttpGet("{id}")]\n    public IActionResult Get(int id) { var s = "}"; return Ok(s); }\n' +
+        '    [HttpDelete("{id}")]\n    public IActionResult Delete(int id) => Ok();\n}\n',
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), {
+    "POST /api/logs": null,
+    "GET /api/logs": null,
+    "GET /api/logs/{id}": null,
+    "DELETE /api/logs/{id}": null,
+  }, "a brace inside a string does not end the class early either");
+});
+
+test("c#: test projects and test files are not the service", () => {
+  const report = run(
+    {
+      "src/Api/LogsController.cs": '[Authorize]\n[Route("logs")]\npublic class LogsController : Controller\n{\n    [HttpGet]\n    public IActionResult Get() => Ok();\n}\n',
+      "tests/Api.Integration.Tests/Controllers/EncoderController.cs":
+        '[Route("enc")]\npublic class EncoderController : Controller\n{\n    [HttpGet]\n    public IActionResult Get() => Ok();\n}\n',
+      "test/Api.Test/FakeController.cs": '[Route("fake")]\npublic class FakeController : Controller\n{\n    [HttpGet]\n    public IActionResult Get() => Ok();\n}\n',
+      "src/Api/LogsControllerTests.cs": '[Route("t")]\npublic class T : Controller\n{\n    [HttpGet]\n    public IActionResult Get() => Ok();\n}\n',
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(routesOf(report), { "GET /logs": "an [Authorize] attribute" });
+});
+
+test("c#: a probe and a credential-issuing route are exempt, as in every language", () => {
+  const report = run(
+    { "Program.cs": 'app.MapGet("/health", () => "ok");\napp.MapPost("/api/login", (Login l) => Results.Ok());\napp.MapPost("/health", () => Purge());\n' },
+    checkAuthentication
+  );
+  assert.deepEqual(report.exempt.map((e) => `${e.method} ${e.route}`), ["GET /health", "POST /api/login"]);
+  assert.deepEqual(routesOf(report), { "POST /health": null });
+});
+
+test("c#: an open route declared anonymous says so in the finding", () => {
+  const { failures } = run(
+    { "Program.cs": 'app.MapPost("/api/items", (Item i) => Results.Ok()).AllowAnonymous();\n' },
+    authenticationFailures
+  );
+  assert.match(failures[0], /POST \/api\/items \(Program\.cs:1, declared anonymous\)/);
+});
+
+test("c#: a credential compared with == is reported, with the C# constant-time call as the fix", () => {
+  const { failures } = run(
+    {
+      "Endpoints.cs":
+        'var tokenToValidate = configuration["WebhookClientOptions:Token"];\n' +
+        'app.MapPost("/webhook-received", (WebhookData hook, HttpRequest request) =>\n{\n    var token = request.Headers["X-eshop-whtoken"];\n' +
+        "    if (tokenToValidate == token) { return Results.Ok(); }\n    return Results.BadRequest();\n}).RequireAuthorization();\n",
+    },
+    authenticationFailures
+  );
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /`tokenToValidate` is compared with an ordinary equality operator/);
+  assert.match(failures[0], /CryptographicOperations\.FixedTimeEquals/);
+});
+
+// Each of these was reported as a credential compared unsafely when the C# reader was first run on
+// dvcsharp-api and Bitwarden. None compares a secret.
+test("a name about a credential, a property of an object named for one, or a confirmation is not a credential", () => {
+  for (const line of [
+    "if (b.email == passwordResetRequest.email) {}",                 // dvcsharp: the receiver's name
+    "if (password != passwordConfirmation) {}",                       // dvcsharp: the caller's input, twice
+    "var s = q.Where(s => s.SecretId == secretId);",                  // Bitwarden: an id
+    "if (apiKey.Id == apiKeyId) {}",
+    "if (passwordResult == PasswordVerificationResult.Failed) {}",  // Bitwarden: a result
+    "return Identifier == TokenIdentifier;",                          // Bitwarden: a constant name
+    "if (useResetPassword == organization.UseResetPassword) {}",      // Bitwarden: a flag
+    "if (secretsManagerSeatQuantity != seats) {}",                    // Bitwarden: a count
+    "if (token_type == expected_type) {}",
+  ]) {
+    assert.equal(leakyCredentialCheck(line), false, line);
+  }
+  // Still credentials: the value itself, and a method called on it.
+  assert.equal(leakyCredentialCheck("if (apiKey == expected) {}"), "apiKey");
+  assert.equal(leakyCredentialCheck("if (req.apiToken == provided) {}"), "apiToken");
+  assert.equal(leakyCredentialCheck("if (provided == apiToken.Trim()) {}"), "apiToken");
+  assert.equal(leakyCredentialCheck("if (req.headers.token === provided) {}"), "token");
+});
+
+// ---------------------------------------------------------------------------------------------
 // Cross-cutting
 // ---------------------------------------------------------------------------------------------
 

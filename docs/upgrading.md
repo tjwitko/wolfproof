@@ -116,6 +116,14 @@ whose summaries no pattern read. `go test` now runs with `-v`, and mocha, ava an
 own formats, so their suites are counted; a run that still names no test could not run. tap exits 1
 when it generates no coverage report, so a passing tap suite used to block; it now passes.
 
+**After v1.9.0: C# routes are checked for authentication.** A project whose only routes are
+ASP.NET Core controllers or minimal APIs used to get "not checked" from the authentication check;
+its unauthenticated routes now block. The credential-comparison finding reads C# as well, and is
+narrower in every language: a name about a credential rather than the credential (`secretId`,
+`tokenType`, `passwordResult`, `useResetPassword`), a property of an object named for one
+(`request.email` on a `passwordResetRequest`), and a password compared with its confirmation are no
+longer reported.
+
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
 

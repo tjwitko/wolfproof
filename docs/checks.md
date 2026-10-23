@@ -39,7 +39,18 @@ Validator: `authentication`.
 endpoints such as `/login` — each one listed.
 
 **Covers:** Python (FastAPI, Flask), JavaScript/TypeScript (Express, Fastify, NestJS), Go
-(`net/http`, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra, Rails).
+(`net/http`, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra, Rails), C# (ASP.NET Core
+controllers and minimal APIs).
+
+In C#, a route counts as protected by `[Authorize]` in any form on the action or anywhere in its
+controller's class chain, by an attribute class of the project's that derives from
+`AuthorizeAttribute` or turns the caller away with 401 or 403, by `RequireAuthorization()` on the
+endpoint, on its group, or on the call of the method that mapped it, by `MapControllers().RequireAuthorization()`
+or a global `AuthorizeFilter` (controllers only), and by a `FallbackPolicy` that requires an
+authenticated user. `[AllowAnonymous]` or `.AllowAnonymous()` overrides all of them, as it does in
+ASP.NET, and the finding marks such a route "declared anonymous". `UseAuthorization()` and a
+`DefaultPolicy` protect nothing on their own. Not read: authorization written inside the handler,
+Razor Pages, gRPC services and SignalR hubs.
 
 **Why it exists:** "no endpoint authenticates" appeared in five of five preserved reviews and was
 still unfixed six runs later. Per route, because one real run authenticated POST and left GET open,

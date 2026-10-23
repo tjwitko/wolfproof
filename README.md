@@ -284,7 +284,7 @@ Controls that are present and do not work. Each row below blocks.
 | task requirements | when the task states them: an "immutable" store that can be altered; records deleted before the stated retention period; a secret cached so that it cannot rotate; client errors reported as 500s; tests that fail when run, or do not exist; a deliverable the task names that is not there |
 | evidence | a file that exists but is empty, which every check reading it would pass; work not committed; a commit that edits the task file |
 
-Authentication covers Python, JavaScript/TypeScript, Go, Java and Ruby; error distinction covers
+Authentication covers Python, JavaScript/TypeScript, Go, Java, Ruby and C#; error distinction covers
 Python. The task-gated checks are narrow on purpose — immutability, for instance, only judges a
 store that names itself an audit log — because a blocking check that fires on correct code gets
 switched off.

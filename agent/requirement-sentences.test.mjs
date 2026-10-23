@@ -244,10 +244,10 @@ test("covered only where the check reads the project's code, and only when it ra
     assert.deepEqual(alwaysOnCoverage(sql, withIt), { coveredBy: "sast" }, language);
     assert.match(alwaysOnCoverage(auth, withIt).notCoveredBecause, new RegExp(`authentication would cover it, but reads no ${language} code`));
   }
-  // sast reads C#; authentication does not.
+  // Both read C#.
   const withCs = { ...EVERYTHING_RAN, languages: { "C#": 4 } };
   assert.deepEqual(alwaysOnCoverage(sql, withCs), { coveredBy: "sast" });
-  assert.match(alwaysOnCoverage(auth, withCs).notCoveredBecause, /reads no C# code/);
+  assert.deepEqual(alwaysOnCoverage(auth, withCs), { coveredBy: "authentication" });
   // A check that could not run holds the project to nothing.
   const noSemgrep = { ...EVERYTHING_RAN, couldNotRun: ["sast: semgrep is not installed, so 3 file(s) were not checked"] };
   assert.equal(alwaysOnCoverage(sql, noSemgrep).notCoveredBecause, "sast did not run here");
