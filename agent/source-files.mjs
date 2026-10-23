@@ -38,8 +38,15 @@ const TEST_CLASS = /(^|\/)(\w*(Test|Tests|IT)|\w+Spec)\.(java|kt|cs|php)$|(^|\/)
 // Rust keeps unit tests in the file they test, under #[cfg(test)].
 const RUST_TEST = /#\[(?:tokio::|async_std::)?test\]/;
 
+// Where package managers and builds put other people's code: Composer's and Bundler's vendor/,
+// .bundle/, and Maven's and Cargo's target/. A Ruby project whose gems Bundler installed into
+// vendor/bundle had Minitest's own 379 tests found as its own, and run. Not bin/: .NET builds .dll files
+// there, and this repository's own tests live in one.
+const DEPENDENCY_DIR = /(^|\/)(vendor|\.bundle|target)\//;
+
 /** Whether `rel` is a test file. `text` is needed only for Rust, whose tests are named by attribute. */
 export function isTestFile(rel, text = "") {
+  if (DEPENDENCY_DIR.test(rel)) return false;
   return TEST_PATH.test(rel) || TEST_CLASS.test(rel) || (rel.endsWith(".rs") && RUST_TEST.test(text));
 }
 

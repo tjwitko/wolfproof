@@ -9,18 +9,25 @@ somewhere stale. See [Configuration](configuration.md#where-the-controls-come-fr
 **`exit 3` and "COULD NOT RUN"** — a scanner is missing from `PATH`. The message names the binary.
 Install it and re-run; the verdict before it was installed proves nothing about your code.
 
-**`exit 3` and "the tests are Java (…), and this check runs only node --test, jest, vitest, pytest
-and go test"** — the task asks for tests, and the project's are in a language the `tests` check
-cannot run. The gate does not pass a suite it has not run, and no setting changes that: nothing
-here can say whether these tests pass until wolfproof has a runner for the language.
+**`exit 3` and "… could not resolve this project's dependencies, which this check never
+downloads"** — the tests run offline, and the job did not install the project's dependencies. Add the
+step the message names before the gate: `mvn -B test-compile`, `gradle testClasses`, `dotnet
+restore`, `cargo fetch` or `bundle install`. Maven's `dependency:go-offline` alone is often not
+enough: it can miss the JUnit provider the test run needs.
 
-The only other way to a clean verdict is to take the requirement for tests out of the task, and
-that is a trade-off, not a fix. Every test check is switched off with it: a project with no tests
-at all, or with tests that reach none of its code, then passes too. If you make that trade, run the
-suite in its own CI step so that something still does. Changing the task is a deliberate commit of
-its own ([At commit time](task-file.md#at-commit-time)), factory mode judges the change against the
-base's text, and a requirement stated in a [baseline](task-file.md#a-baseline) cannot be removed
-from the project at all.
+**`exit 3` and "the tests are Java and Maven is not installed here"** (or Gradle, the .NET SDK,
+cargo, php, bundle) — the toolchain is not on `PATH` in the job. Install it there, for example with
+`actions/setup-java`, `actions/setup-dotnet` or `ruby/setup-ruby`.
+
+**`exit 3` and "there is no pom.xml or build.gradle"** (or "composer.json declares neither
+phpunit/phpunit nor pestphp/pest", "package.json declares no test runner", "there is no Cargo.toml",
+"there is no go.mod") — the project has tests and nothing that says how to run them. Add the build file,
+or declare the runner as a dev dependency, so that anyone — the gate included — can run the suite as
+delivered.
+
+**`exit 3` and "… exited 0 and reported no test summary"** — the runner ran and named no test, so
+nothing is known to have run. For `dotnet test` the usual cause is packages that were never restored:
+without them a test project is not recognised as one. Run `dotnet restore` first.
 
 **`exit 3` and "did not finish within 120s and was killed"** — the `tests` check stopped your suite
 at its limit. If the suite is simply slow, set `WOLFPROOF_TEST_TIMEOUT` to a number of seconds it

@@ -25,6 +25,7 @@ import path from "path";
 import { spawnSync } from "child_process";
 
 import { isTestFile, TEST_EXT, walk } from "./source-files.mjs";
+import { jvmSuites, dotnetSuites, cargoSuites, phpSuites, rubySuites, COUNTS, FAILING } from "./test-runners.mjs";
 import { setting } from "../lib/settings.mjs";
 
 const DEFAULT_TIMEOUT_S = 120;
@@ -65,7 +66,6 @@ export function detectSuites(projectDir) {
   const js = of("JavaScript", "TypeScript");
   const py = of("Python");
   const go = of("Go");
-  const other = code.filter((f) => !["JavaScript", "TypeScript", "Python", "Go"].includes(lang(f)));
   const suites = [];
 
   if (existsSync(path.join(projectDir, "package.json")) && (js.length || !code.length)) {
@@ -76,7 +76,7 @@ export function detectSuites(projectDir) {
     suites.push(
       nodeTests.length
         ? { label: "node --test", cmd: process.execPath, args: ["--test", ...nodeTests.map((f) => f.rel)], cwd: projectDir }
-        : { unavailable: "there is no package.json and no test file node --test can run" }
+        : { noRunner: true, unavailable: "there is no package.json and no test file node --test can run" }
     );
   }
 
@@ -92,22 +92,17 @@ export function detectSuites(projectDir) {
   if (existsSync(path.join(projectDir, "go.mod")) && (go.length || !code.length)) {
     suites.push({ label: "go test", cmd: "go", args: ["test", "./..."], cwd: projectDir });
   } else if (go.length) {
-    suites.push({ unavailable: "the tests are Go and there is no go.mod, so go test cannot run them" });
+    suites.push({ noRunner: true, unavailable: "the tests are Go and there is no go.mod, so go test cannot run them" });
   }
 
-  // Test files in a language this check has no runner for -- Java, Kotlin, C#, Rust, PHP, Ruby. That
-  // is a limit of the gate, not a fact about the project, so the run is incomplete rather than the
-  // tests passing by default: measured on a PHP project whose only test fails, with a task asking
-  // for tests, this was an advisory and the run exited 0.
-  if (other.length) {
-    const languages = [...new Set(other.map(lang))].join(", ");
-    suites.push({
-      unsupported: true,
-      unavailable:
-        `the tests are ${languages} (${other.slice(0, 3).map((f) => f.rel).join(", ")}${other.length > 3 ? `, +${other.length - 3} more` : ""}), ` +
-        `and this check runs only node --test, jest, vitest, pytest and go test`,
-    });
-  }
+  // Java, Kotlin, C#, Rust, PHP and Ruby: agent/test-runners.mjs, offline, against dependencies the
+  // project's CI installed. Java and Kotlin share a build, so they share a runner.
+  const jvm = of("Java", "Kotlin");
+  if (jvm.length) suites.push(...jvmSuites(projectDir, jvm, [...new Set(jvm.map(lang))].join(" and ")));
+  if (of("C#").length) suites.push(...dotnetSuites(projectDir, of("C#")));
+  if (of("Rust").length) suites.push(...cargoSuites(projectDir, of("Rust")));
+  if (of("PHP").length) suites.push(...phpSuites(projectDir, of("PHP")));
+  if (of("Ruby").length) suites.push(...rubySuites(projectDir, of("Ruby")));
 
   // Test-named files that are not code -- YAML fixtures under tests/, Terraform tests.
   if (!suites.length) suites.push({ unavailable: "no runner could be identified for the test files present" });
@@ -131,7 +126,7 @@ function javascriptSuite(projectDir, testFiles) {
   try {
     pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
   } catch {
-    return { unavailable: "package.json could not be parsed, so no runner could be identified" };
+    return { noRunner: true, unavailable: "package.json could not be parsed, so no runner could be identified" };
   }
   const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
   const declared = ["jest", "vitest", "mocha", "tap", "ava"].find((r) => deps[r]);
@@ -169,7 +164,7 @@ function javascriptSuite(projectDir, testFiles) {
       cwd: projectDir,
     };
   }
-  return { unavailable: "package.json declares no test runner and no runnable JavaScript tests were found" };
+  return { noRunner: true, unavailable: "package.json declares no test runner and no runnable JavaScript tests were found" };
 }
 
 const TEST_LANGUAGE = {
@@ -206,8 +201,11 @@ const COUNTERS = [
 // "Tests" and its count defeats anchoring.
 const ANSI = /\u001B\[[0-9;]*[A-Za-z]/g;
 
-function parseCounts(rawOutput) {
+function parseCounts(rawOutput, parser) {
   const output = rawOutput.replace(ANSI, "");
+  // A runner with its own summary format is read by that alone: the shared patterns below misread
+  // other runners' summaries rather than missing them.
+  if (parser && COUNTS[parser]) return COUNTS[parser](output);
   for (const c of COUNTERS) {
     const m = c.re.exec(output);
     if (m) return c.map(m);
@@ -218,8 +216,9 @@ function parseCounts(rawOutput) {
 // The names matter more than the count. Three failures that are all "could not connect" is an
 // environment problem; three failures that name the task's own acceptance criteria is a broken
 // deliverable, and only the reader can tell those apart.
-function failingNames(output) {
+function failingNames(output, parser) {
   output = output.replace(ANSI, "");
+  if (parser && FAILING[parser]) return [...new Set([...output.matchAll(FAILING[parser])].map((m) => m[1].trim()))].slice(0, 12);
   const names = new Set();
   for (const re of [
     /^\s*[✕✖x×]\s+(.+?)(?:\s+\(\d+(?:\.\d+)?\s*m?s\))?$/gim, // node --test spec, vitest
@@ -287,7 +286,7 @@ function runSuite(suite, timeoutMs, limitNote) {
       unavailable: suite.unavailable,
       declaredRunnerMissing: !!suite.declaredRunnerMissing,
       environmental: !!suite.environmental,
-      unsupported: !!suite.unsupported,
+      noRunner: !!suite.noRunner,
     };
   }
 
@@ -302,7 +301,7 @@ function runSuite(suite, timeoutMs, limitNote) {
     // passed was reported as "the summary could not be parsed". The same would happen to anyone
     // running the validator from inside a test harness, which is exactly where a gate gets used.
     env: (() => {
-      const env = { ...process.env, CI: "1", NODE_ENV: process.env.NODE_ENV || "test" };
+      const env = { ...process.env, CI: "1", NODE_ENV: process.env.NODE_ENV || "test", ...(suite.env || {}) };
       delete env.NODE_TEST_CONTEXT;
       delete env.NODE_OPTIONS;
       return env;
@@ -317,12 +316,38 @@ function runSuite(suite, timeoutMs, limitNote) {
     return { ran: false, timedOut: true, environmental: true, label: suite.label, unavailable: `${suite.label} did not finish within ${timeoutMs / 1000}s and was killed${limitNote}` };
   }
 
+  // Dependencies the project's CI did not install: the run says so, and this check runs offline.
+  if (suite.missingDeps && r.status !== 0 && suite.missingDeps.re.test(output.replace(ANSI, ""))) {
+    return {
+      ran: false,
+      environmental: true,
+      label: suite.label,
+      unavailable: `${suite.label} could not resolve this project's dependencies, which this check never downloads -- ${suite.missingDeps.fix}`,
+    };
+  }
+
+  const reports = suite.countsFrom ? suite.countsFrom(suite.cwd) : null;
+  const counts = reports ? { passed: reports.passed, failed: reports.failed, total: reports.total } : parseCounts(output, suite.parser);
+  const failing = [...new Set([...(reports?.names || []), ...failingNames(output, suite.parser)])].slice(0, 12);
+
+  // The runners in test-runners.mjs: a run that exits 0 and names no test ran no test. dotnet test on
+  // an unrestored solution builds nothing, tests nothing and exits 0 with no output; that must not
+  // read as a pass. A run that fails before its summary -- a compile error -- still blocks below.
+  if (suite.parser && r.status === 0 && (!counts || counts.total === 0)) {
+    return {
+      ran: false,
+      environmental: true,
+      label: suite.label,
+      unavailable: `${suite.label} exited 0 and reported ${counts ? "0 tests" : "no test summary"}${suite.noSummaryHint || ""}, so no test is known to have run`,
+    };
+  }
+
   return {
     ran: true,
     label: suite.label,
     exitCode: r.status,
-    counts: parseCounts(output),
-    failing: failingNames(output),
+    counts,
+    failing,
     output: output.slice(-4000),
   };
 }
@@ -366,11 +391,15 @@ export function verdictFor(r) {
     // with no Go toolchain, and their suites had never compiled. The corpus froze the non-answer
     // as the answer, and only a run on a machine that HAD Go found the defect.
     //
-    // A suite in a language this check has no runner for is the same: the gate could not run it.
-    if (r.environmental || r.unsupported) return { failures: [], advisories: [line], couldNotRun: [r.unavailable] };
+    // So are tests that nothing in the project says how to run -- a composer.json that declares no
+    // runner, Java with no pom.xml or build.gradle, Rust with no Cargo.toml, a package.json with no
+    // runner. The fix is in the project, but no test ran, and a suite that did not run does not pass:
+    // decided 2026-10-22, after a Laravel-shaped project with a failing test and no runner declared
+    // exited 0 on an advisory.
+    if (r.environmental || r.noRunner) return { failures: [], advisories: [line], couldNotRun: [r.unavailable] };
 
-    // Everything left is a fact about the project, not the machine: no test files (code quality
-    // blocks on that), a package.json with test files and no runner, an unparseable manifest.
+    // Everything left: no test files at all, which code quality blocks on, and test-named files that
+    // are not code.
     return { failures: [], advisories: [line] };
   }
 

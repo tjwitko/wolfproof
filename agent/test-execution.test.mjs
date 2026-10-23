@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { existsSync } from "fs";
@@ -152,30 +152,6 @@ test("a suite that hangs is killed and reported, not treated as passing", () => 
   );
 });
 
-// The tests check said "no test files were found" for a PHP project with a tests/ directory, because it
-// read no .php file at all; then, once it found them, an advisory -- and a PHP project whose only test
-// failed, with a task asking for tests, exited 0. A suite this check cannot run is a check that could
-// not run.
-test("a suite in a language with no runner here could not be run, and says which language and which runners", () => {
-  for (const [name, body, language] of [
-    ["tests/AddTest.php", "<?php\nfinal class AddTest extends TestCase {}\n", "PHP"],
-    ["src/test/java/app/AddTest.java", "class AddTest {}\n", "Java"],
-    ["App.Tests/AddTests.cs", "public class AddTests {}\n", "C#"],
-    ["src/lib.rs", "#[cfg(test)]\nmod tests {\n  #[test]\n  fn adds() {}\n}\n", "Rust"],
-    ["spec/add_spec.rb", "describe 'add' do\n  it { expect(1).to eq(1) }\nend\n", "Ruby"],
-  ]) {
-    run({ [name]: body }, (dir) => {
-      const suite = detectSuite(dir);
-      assert.equal(suite.unsupported, true, name);
-      assert.equal(suite.unavailable, `the tests are ${language} (${name}), and this check runs only node --test, jest, vitest, pytest and go test`);
-      // Through the report the gate calls: runTests once rebuilt this result and dropped the flag, and a
-      // test of verdictFor alone passed while the gate still exited 0.
-      const v = testExecutionReport(dir, { wanted: true });
-      assert.deepEqual(v.failures, [], "not the project's fault");
-      assert.deepEqual(v.couldNotRun, [suite.unavailable], "the run is incomplete, not passed");
-    });
-  }
-});
 
 test("test-named files that are not code -- fixtures under tests/ -- are not a suite that could not run", () => {
   run({ "main.tf": "\n", "tests/fixtures/plan.yaml": "a: 1\n" }, (dir) => {
@@ -190,24 +166,214 @@ test("test-named files that are not code -- fixtures under tests/ -- are not a s
 const PASSING_NODE = 'import test from "node:test";\nimport assert from "node:assert";\ntest("adds", () => assert.equal(1 + 1, 2));\n';
 const PHP_TEST = "<?php\nfinal class AddTest extends TestCase { public function testAdds(): void { $this->assertSame(3, add(1, 2)); } }\n";
 
-test("a package.json for front-end tooling does not hide a PHP suite: it could not be run", () => {
-  run({ "package.json": '{"devDependencies":{"vite":"^5"}}', "resources/js/app.js": "export {};\n", "tests/Feature/AddTest.php": PHP_TEST }, (dir) => {
-    const suites = detectSuites(dir);
-    assert.equal(suites.length, 1, JSON.stringify(suites));
-    assert.equal(suites[0].unsupported, true);
-    const v = testExecutionReport(dir, { wanted: true });
-    assert.deepEqual(v.couldNotRun, ["the tests are PHP (tests/Feature/AddTest.php), and this check runs only node --test, jest, vitest, pytest and go test"]);
+
+
+// The runners for Java, Kotlin, C#, Rust, PHP and Ruby (agent/test-runners.mjs) need their toolchains,
+// which neither CI nor most machines have. Each is exercised here through a stub of its command on PATH
+// that prints what the real one printed -- every output below is from a real run, trimmed to the lines
+// that are read -- and answers --version.
+function withStubs(stubs, fn) {
+  const bin = mkdtempSync(path.join(tmpdir(), "stubs-"));
+  for (const [name, output] of Object.entries(stubs)) {
+    const exit = output.exit ?? 0;
+    const text = output.text ?? output;
+    writeFileSync(path.join(bin, `${name}.out`), typeof text === "string" ? text : "");
+    writeFileSync(
+      path.join(bin, name),
+      `#!/bin/sh\ncase "$1" in --version|-v|-version) echo "${name} 1.0"; exit 0;; esac\ncat "${path.join(bin, `${name}.out`)}"\nexit ${exit}\n`
+    );
+    chmodSync(path.join(bin, name), 0o755);
+  }
+  const saved = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${saved}`;
+  try {
+    return fn();
+  } finally {
+    process.env.PATH = saved;
+    rmSync(bin, { recursive: true, force: true });
+  }
+}
+
+const REAL = {
+  mavenFail:
+    "[ERROR] Tests run: 2, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.029 s <<< FAILURE! -- in app.AddTest\n" +
+    "[ERROR] app.AddTest.adds -- Time elapsed: 0.016 s <<< FAILURE!\n[ERROR] Failures: \n[ERROR]   AddTest.adds:5 expected: <3> but was: <-1>\n" +
+    "[INFO] \n[ERROR] Tests run: 2, Failures: 1, Errors: 0, Skipped: 0\n[INFO] \n[ERROR] BUILD FAILURE\n",
+  mavenPass: "[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.025 s -- in app.AddTest\n[INFO] \n[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0\n[INFO] BUILD SUCCESS\n",
+  mavenOffline:
+    "[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.5.2:test (default-test) on project app: The following " +
+    "artifacts could not be resolved: org.apache.maven.surefire:surefire-junit-platform:jar:3.5.2 (absent): Cannot access central (https://repo.maven.apache.org/maven2) in offline mode\n",
+  gradleFail: "> Task :test FAILED\n\nAddTest > adds() FAILED\n    org.opentest4j.AssertionFailedError at AddTest.kt:4\n\n2 tests completed, 1 failed\n\nBUILD FAILED in 998ms\n",
+  gradleOffline: "* What went wrong:\nPlugin [id: 'org.jetbrains.kotlin.jvm', version: '2.4.10'] was not found in any of the following sources:\n",
+  dotnetFail: "  Failed AddTests.Adds [1 ms]\nFailed!  - Failed:     1, Passed:     1, Skipped:     0, Total:     2, Duration: 16 ms - App.Tests.dll (net10.0)\n",
+  dotnetPass: "Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 11 ms - App.Tests.dll (net10.0)\n",
+  cargoFail:
+    "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\ntest adds ... FAILED\n\nfailures:\n    adds\n\n" +
+    "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n",
+  cargoOffline: "error: no matching package named `itoa` found\nnote: offline mode (via `--offline`) can sometimes cause surprising resolution failures\n",
+  phpunitFail: "There was 1 failure:\n\n1) AddTest::testAdds\nFailed asserting that -1 is identical to 3.\n\nFAILURES!\nTests: 2, Assertions: 2, Failures: 1.\n",
+  phpunitPass: "OK (2 tests, 2 assertions)\n",
+  pestFail: "   FAIL  Tests\\AddTest\n  ⨯ adds\n  ✓ zero\n   FAILED  Tests\\AddTest > adds\n  Tests:    1 failed, 1 passed (2 assertions)\n",
+  rspecFail: "Failures:\n\n  1) add adds\n\n2 examples, 1 failure\n\nFailed examples:\n\nrspec ./spec/add_spec.rb:3 # add adds\n",
+  rspecMissing: "bundler: command not found: rspec\nInstall missing gem executables with `bundle install`\n",
+  minitestFail: "  1) Failure:\nAddTest#test_adds [test/add_test.rb:4]:\nExpected: 3\n  Actual: -1\n\n2 runs, 2 assertions, 1 failures, 0 errors, 0 skips\n",
+};
+
+test("each runner's summary and failing names are read from its own format", () => {
+  for (const [parser, out, counts, names] of [
+    ["maven", REAL.mavenFail, { total: 2, failed: 1, passed: 1 }, ["app.AddTest.adds"]],
+    ["maven", REAL.mavenPass, { total: 2, failed: 0, passed: 2 }, []],
+    ["gradle", REAL.gradleFail, { total: 2, failed: 1, passed: 1 }, ["AddTest > adds()"]],
+    ["dotnet", REAL.dotnetFail, { total: 2, failed: 1, passed: 1 }, ["AddTests.Adds"]],
+    ["cargo", REAL.cargoFail, { total: 2, failed: 1, passed: 1 }, ["adds"]],
+    ["phpunit", REAL.phpunitFail, { total: 2, failed: 1, passed: 1 }, ["AddTest::testAdds"]],
+    ["phpunit", REAL.phpunitPass, { total: 2, failed: 0, passed: 2 }, []],
+    ["pest", REAL.pestFail, { total: 2, failed: 1, passed: 1 }, ["Tests\\AddTest > adds"]],
+    ["rspec", REAL.rspecFail, { total: 2, failed: 1, passed: 1 }, ["add adds"]],
+    ["minitest", REAL.minitestFail, { total: 2, failed: 1, passed: 1 }, ["AddTest#test_adds"]],
+  ]) {
+    assert.deepEqual(parseCountsForTest(out, parser), counts, parser);
+    assert.deepEqual(failingNamesForTest(out, parser), names, parser);
+  }
+  // The shared pytest pattern reads cargo's FAILED line as 0 passed and nothing failed; cargo's own does not.
+  assert.equal(parseCountsForTest(REAL.cargoFail, "cargo").failed, 1);
+});
+
+test("each language goes to its runner, with the build file that says how to run it", () => {
+  withStubs({ mvn: REAL.mavenPass, gradle: "", dotnet: REAL.dotnetPass, cargo: "", php: REAL.phpunitPass, bundle: "" }, () => {
+    for (const [files, label] of [
+      [{ "pom.xml": "<project/>", "src/test/java/app/AddTest.java": "class AddTest {}\n" }, "mvn test"],
+      [{ "build.gradle.kts": "", "src/test/kotlin/AddTest.kt": "class AddTest\n" }, "gradle test"],
+      [{ "App.slnx": "<Solution/>", "App.Tests/AddTests.cs": "public class AddTests {}\n" }, "dotnet test App.slnx"],
+      [{ "Cargo.toml": "[package]\n", "src/lib.rs": "#[test]\nfn adds() {}\n" }, "cargo test"],
+      [{ "composer.json": '{"require-dev":{"phpunit/phpunit":"^12"}}', "vendor/bin/phpunit": "", "tests/AddTest.php": "<?php\n" }, "phpunit"],
+      [{ "Gemfile": "", "spec/add_spec.rb": "describe 'add' do end\n" }, "rspec"],
+      [{ "Gemfile": "", "test/add_test.rb": "class AddTest; end\n" }, "minitest"],
+    ]) {
+      run(files, (dir) => assert.deepEqual(detectSuites(dir).map((x) => x.label), [label], label));
+    }
   });
 });
 
-test("a JavaScript suite and a PHP suite: the one that can run runs, and the other could not be run", () => {
-  run({ "package.json": "{}", "src/math.test.mjs": PASSING_NODE, "tests/AddTest.php": PHP_TEST }, (dir) => {
-    assert.deepEqual(detectSuites(dir).map((s) => s.label || (s.unsupported ? "unsupported" : s.unavailable)), ["node --test", "unsupported"]);
-    const v = testExecutionReport(dir, { wanted: true });
-    assert.deepEqual(v.failures, []);
-    assert.ok(v.advisories.some((a) => /^tests: ran under node --test — 1 of 1 passed/.test(a)), JSON.stringify(v.advisories));
-    assert.equal(v.couldNotRun.length, 1, "the PHP suite still makes the run incomplete");
+// Decided 2026-10-22: the fix is in the project, but no test ran, and a suite that did not run does not
+// pass. A Laravel-shaped project with a failing test and no runner in composer.json exited 0.
+test("tests with nothing that says how to run them could not run", () => {
+  for (const [files, msg] of [
+    [{ "src/test/java/app/AddTest.java": "class AddTest {}\n" }, /there is no pom\.xml or build\.gradle/],
+    [{ "tests/AddTest.php": "<?php\n" }, /there is no composer\.json/],
+    [{ "composer.json": "{}", "tests/AddTest.php": "<?php\n" }, /declares neither phpunit\/phpunit nor pestphp\/pest/],
+    [{ "src/lib.rs": "#[test]\nfn adds() {}\n" }, /there is no Cargo\.toml/],
+    [{ "App.Tests/AddTests.cs": "public class AddTests {}\n" }, /there is no \.sln, \.slnx or \.csproj/],
+    [{ "spec/add.rb": "describe 'add' do end\n" }, /none is named for RSpec or Minitest/],
+    [{ "package.json": "{}", "test/helpers.js": "export {};\n" }, /package\.json declares no test runner/],
+    [{ "package.json": "{\n", "src/a.test.js": "" }, /package\.json could not be parsed/],
+  ]) {
+    run(files, (dir) => {
+      assert.match(detectSuite(dir).unavailable, msg);
+      const v = testExecutionReport(dir, { wanted: true });
+      assert.deepEqual(v.failures, [], String(msg));
+      assert.equal(v.couldNotRun.length, 1, String(msg));
+      assert.match(v.couldNotRun[0], msg);
+    });
+  }
+  // Not code -- YAML fixtures under tests/ -- and no tests at all stay as they were.
+  run({ "main.tf": "\n", "tests/fixtures/plan.yaml": "a: 1\n" }, (dir) => assert.equal(testExecutionReport(dir, { wanted: true }).couldNotRun, undefined));
+  run({ "src/app.js": "export {};\n" }, (dir) => assert.equal(testExecutionReport(dir, { wanted: true }).couldNotRun, undefined));
+});
+
+test("the Laravel shape that exited 0 -- a composer.json with no runner, a failing test, a front-end package.json -- could not run", () => {
+  run(
+    { "package.json": '{"devDependencies":{"vite":"^5"}}', "composer.json": '{"name":"a/b"}', "app/add.php": "<?php\n", "tests/Feature/AddTest.php": "<?php\n" },
+    (dir) => assert.deepEqual(testExecutionReport(dir, { wanted: true }).couldNotRun, ["composer.json declares neither phpunit/phpunit nor pestphp/pest, so no runner could be identified"])
+  );
+});
+
+test("a toolchain that is not installed, or dependencies that were not, could not run; a declared PHP runner not installed blocks", () => {
+  run({ "pom.xml": "<project/>", "src/test/java/app/AddTest.java": "class AddTest {}\n" }, (dir) => {
+    const saved = process.env.PATH;
+    process.env.PATH = "/nonexistent";
+    try {
+      assert.deepEqual(testExecutionReport(dir, { wanted: true }).couldNotRun, ["the tests are Java and Maven is not installed here (mvn is not on PATH)"]);
+    } finally {
+      process.env.PATH = saved;
+    }
   });
+  for (const [stub, files, fix] of [
+    [{ mvn: { text: REAL.mavenOffline, exit: 1 } }, { "pom.xml": "<project/>", "src/test/java/app/AddTest.java": "" }, /mvn -B test-compile/],
+    [{ gradle: { text: REAL.gradleOffline, exit: 1 } }, { "build.gradle": "", "src/test/java/app/AddTest.java": "" }, /gradle --no-daemon testClasses/],
+    [{ cargo: { text: REAL.cargoOffline, exit: 101 } }, { "Cargo.toml": "", "tests/it.rs": "#[test]\nfn x() {}\n" }, /cargo fetch/],
+    [{ bundle: { text: REAL.rspecMissing, exit: 127 } }, { "Gemfile": "", "spec/add_spec.rb": "" }, /bundle install/],
+  ]) {
+    withStubs(stub, () =>
+      run(files, (dir) => {
+        const v = testExecutionReport(dir, { wanted: true });
+        assert.deepEqual(v.failures, []);
+        assert.equal(v.couldNotRun.length, 1);
+        assert.match(v.couldNotRun[0], /could not resolve this project's dependencies, which this check never downloads/);
+        assert.match(v.couldNotRun[0], fix);
+      })
+    );
+  }
+  withStubs({ php: REAL.phpunitPass }, () =>
+    run({ "composer.json": '{"require-dev":{"phpunit/phpunit":"^12"}}', "tests/AddTest.php": "<?php\n" }, (dir) => {
+      const v = testExecutionReport(dir, { wanted: true });
+      assert.equal(v.failures.length, 1, "declared in composer.json, not installed: as for a JavaScript runner");
+      assert.match(v.failures[0], /written for phpunit, which this project declares in composer\.json and which is not installed/);
+    })
+  );
+});
+
+// Measured: dotnet test --no-restore on a solution whose packages were never restored built nothing,
+// ran nothing, printed nothing and exited 0.
+test("a runner that exits 0 and names no test could not run; one that fails before its summary blocks", () => {
+  withStubs({ dotnet: "" }, () =>
+    run({ "App.slnx": "<Solution/>", "App.Tests/App.Tests.csproj": "<Project/>", "App.Tests/AddTests.cs": "" }, (dir) => {
+      const v = testExecutionReport(dir, { wanted: true });
+      assert.deepEqual(v.failures, []);
+      assert.match(v.couldNotRun[0], /^dotnet test App\.slnx exited 0 and reported no test summary; obj\/project\.assets\.json is missing/);
+    })
+  );
+  withStubs({ cargo: { text: "error[E0425]: cannot find function `ad` in this scope\n", exit: 101 } }, () =>
+    run({ "Cargo.toml": "", "tests/it.rs": "#[test]\nfn x() {}\n" }, (dir) => {
+      const v = testExecutionReport(dir, { wanted: true });
+      assert.equal(v.failures.length, 1, "a compile error blocks, as for go test");
+      assert.match(v.failures[0], /^tests: the suite exited 101 and its summary could not be parsed under cargo test/);
+    })
+  );
+});
+
+test("a package.json for front-end tooling does not hide a PHP suite, and a failing one blocks", () => {
+  withStubs({ php: { text: REAL.phpunitFail, exit: 1 } }, () =>
+    run(
+      {
+        "package.json": '{"devDependencies":{"vite":"^5"}}',
+        "resources/js/app.js": "export {};\n",
+        "composer.json": '{"require-dev":{"phpunit/phpunit":"^12"}}',
+        "vendor/bin/phpunit": "",
+        "tests/Feature/AddTest.php": "<?php\n",
+      },
+      (dir) => {
+        assert.deepEqual(detectSuites(dir).map((x) => x.label), ["phpunit"]);
+        const v = testExecutionReport(dir, { wanted: true });
+        assert.match(v.failures[0], /^tests: 1 of 2 test\(s\) FAILED under phpunit\.\n  AddTest::testAdds/);
+      }
+    )
+  );
+});
+
+test("a JavaScript suite and a PHP suite both run, each with its own verdict", () => {
+  withStubs({ php: REAL.phpunitPass }, () =>
+    run(
+      { "package.json": "{}", "src/math.test.mjs": PASSING_NODE, "composer.json": '{"require-dev":{"phpunit/phpunit":"^12"}}', "vendor/bin/phpunit": "", "tests/AddTest.php": "<?php\n" },
+      (dir) => {
+        assert.deepEqual(detectSuites(dir).map((x) => x.label), ["node --test", "phpunit"]);
+        const v = testExecutionReport(dir, { wanted: true });
+        assert.deepEqual(v.failures, []);
+        assert.ok(v.advisories.some((a) => /^tests: ran under node --test — 1 of 1 passed/.test(a)), JSON.stringify(v.advisories));
+        assert.ok(v.advisories.some((a) => /^tests: ran under phpunit — 2 of 2 passed/.test(a)), JSON.stringify(v.advisories));
+      }
+    )
+  );
 });
 
 test("a JavaScript suite and a Python suite are both found", () => {
@@ -229,10 +395,10 @@ test("JavaScript tests with no package.json run under node's own runner", () => 
   });
 });
 
-test("Go tests with no go.mod say so, as the project's to fix", () => {
+test("Go tests with no go.mod could not run, and say why", () => {
   run({ "add_test.go": "package main\nimport \"testing\"\nfunc TestAdd(t *testing.T) {}\n" }, (dir) => {
-    assert.deepEqual(detectSuite(dir), { unavailable: "the tests are Go and there is no go.mod, so go test cannot run them" });
-    assert.equal(testExecutionReport(dir, { wanted: true }).couldNotRun, undefined);
+    assert.deepEqual(detectSuite(dir), { noRunner: true, unavailable: "the tests are Go and there is no go.mod, so go test cannot run them" });
+    assert.deepEqual(testExecutionReport(dir, { wanted: true }).couldNotRun, ["the tests are Go and there is no go.mod, so go test cannot run them"]);
   });
 });
 

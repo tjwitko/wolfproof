@@ -109,7 +109,11 @@ first row; add the rows for the languages and files you have:
 | Python | `semgrep`, `ruff`; `pytest` if it has tests | injection checks, static checks, the test suite |
 | JavaScript / TypeScript | `semgrep` | injection checks; tests run with the project's own tooling |
 | Go | `semgrep`, `go`, `docker` | injection checks, the build and the tests |
-| Java, Kotlin, C#, Rust, PHP, Ruby | `semgrep` | injection checks; a test suite is found but not run, so a task asking for tests is exit 3 |
+| Java, Kotlin | `semgrep`; `mvn` or `gradle` | injection checks; tests under Maven or Gradle |
+| C# | `semgrep`; the .NET SDK | injection checks; tests under `dotnet test` |
+| Rust | `semgrep`; `cargo` | injection checks; tests under `cargo test` |
+| PHP | `semgrep`; `php` | injection checks; tests under the PHPUnit or Pest in `vendor/` |
+| Ruby | `semgrep`; `ruby`, `bundle` | injection checks; tests under RSpec or Minitest |
 | C, C++ | `semgrep` | injection checks; test files are not recognised, so a task asking for tests gets an advisory |
 | Terraform | `terraform`; `checkov` optional | plan and policy checks; checkov adds advisories |
 | Dockerfile | nothing extra; `checkov` optional | the base-image end-of-life check; checkov adds advisories |
@@ -124,6 +128,12 @@ python3 -m pip install pytest                         # only if the project has 
 
 Install `pytest` with `pip`, not `pipx`: the gate runs `python3 -m pytest`, so the module must be
 importable by that interpreter. A `pytest` command on `PATH` is not enough.
+
+**The tests run offline, against dependencies you installed.** The gate never downloads a project's
+dependencies — a Maven plugin, a crate's `build.rs` or an npm postinstall hook is code that would run —
+so install them in the job before the gate, as `npm ci` does for JavaScript: `mvn -B test-compile`,
+`gradle testClasses`, `dotnet restore`, `cargo fetch`, `composer install` or `bundle install`. A
+dependency that is not installed is exit 3, naming the step.
 
 ---
 
@@ -298,9 +308,7 @@ So that a clean verdict is read for what it is:
 
 - **Code in other languages.** Swift, Scala and the rest get only the project-wide scans —
   secrets, dependencies, infrastructure. The run says so above the verdict. PHP and Kotlin get the
-  injection check, and their test files are found, but no authentication check or build.
-- **Test runs outside JavaScript, Python and Go.** A suite in Java, Kotlin, C#, Rust, PHP or Ruby is
-  found and not run, so a task asking for tests is exit 3, whatever other suites run beside it. C and
+  injection check and their test suites run, but there is no authentication check for them. C and
   C++ test files are not recognised.
 - **Injection across a function call**, and cross-site scripting, template injection, LDAP
   injection, open redirect and insecure deserialization.

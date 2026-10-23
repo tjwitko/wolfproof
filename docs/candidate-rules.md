@@ -1218,13 +1218,12 @@ Ktor's client beyond a receiver named `client`, Exposed's raw `exec`, and PHP's 
   entropy rule, and identity-guard flagged the password a second time. No static scanner catches
   concatenation reliably; a narrow rule for credential-named variables built from literals is
   possible later.
-- **Toolchains per language** (Java, Rust, PHP builds and test runners). Semgrep (#9) widens coverage
-  for less. Still deferred, but no longer silent: test files in Java, Kotlin, C#, Rust and PHP are
-  now recognised (`isTestFile` in `agent/source-files.mjs`), and a suite in one of those languages
-  or Ruby, with a task asking for tests, is exit 3 rather than an advisory. Every suite in a project
-  is now handled, not the first one found: a `package.json` used to hide a PHP, Ruby, Python or Go
-  suite beside it, which was neither run nor flagged. One gap remains: C and C++ test files are
-  not recognised at all.
+- **Toolchains per language** — test runners done: Maven and Gradle (Java, Kotlin), `dotnet test`,
+  `cargo test`, PHPUnit and Pest, RSpec and Minitest (`agent/test-runners.mjs`), each offline against
+  dependencies the project's CI installed, each measured on a real project passing, failing, and with
+  its dependencies missing. Every suite in a project is handled, not the first one found. Remaining:
+  C and C++ test files are not recognised at all, and builds other than Go's are still not a check
+  of their own (a compile error surfaces only through the test run).
 - **`git commit --no-verify`**. By design: the hook is a convenience, and CI with required checks is
   the enforcement point. The README says so.
 

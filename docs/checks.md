@@ -112,19 +112,39 @@ phrasings that switch each one on.
 describes, or an expiry whose horizon cannot be read; a backup window offered as record retention;
 an immutability answer that cannot be determined when the task does not demand it.
 
-A test suite that cannot be started on this machine — no toolchain, killed at the time limit — is
-neither: the run exits 3. So is a suite in a language the `tests` check has no runner for — Java,
-Kotlin, C#, Rust, PHP, Ruby — when the task asks for tests: the files are found and named, and the
-run says it could not run them rather than passing them unrun.
+A test suite that cannot be started on this machine — no toolchain, dependencies not installed,
+killed at the time limit — is neither: the run exits 3. So is a run that exits 0 and names no test:
+`dotnet test` on a solution whose packages were never restored builds nothing, tests nothing and
+exits 0, and that is not a pass.
 
 The `tests` check handles every suite it finds, each with its own verdict and the full time limit:
-the JavaScript runners when there is a `package.json` and JavaScript test files (or no other tests);
-`node --test` for JavaScript test files with no `package.json`; pytest for Python test files; `go
-test` when there is a `go.mod`; and the exit 3 above for a suite in any other language. So in a
-Rails or Laravel app with front-end tooling, the Ruby or PHP suite is reported as not run, not
-hidden behind the `package.json`; and a project with both JavaScript and Python tests runs both.
 
-**Covers:** running tests under `node --test`, jest, vitest, pytest and `go test`. Finding test
+| suite | run with |
+|---|---|
+| JavaScript, with a `package.json` | the runner it declares, or `node --test` |
+| JavaScript, without one | `node --test` |
+| Python | `python3 -m pytest` |
+| Go, with a `go.mod` | `go test ./...` |
+| Java, Kotlin | `mvn -B -o test` with a `pom.xml`, or `gradle --offline test` with a `build.gradle` |
+| C# | `dotnet test --no-restore`, on the solution or each test project |
+| Rust | `cargo test --offline --no-fail-fast` |
+| PHP | `vendor/bin/phpunit` or `vendor/bin/pest`, whichever `composer.json` declares |
+| Ruby | `bundle exec rspec` for `*_spec.rb`, and Minitest for `*_test.rb`, each file loaded directly |
+
+Every runner works offline, against dependencies the project's CI installed: the check never
+downloads them, because a Maven plugin, a crate's `build.rs` and an MSBuild target all run code at
+build time. Nor does it run a command the project authored — not `./gradlew`, which downloads the
+Gradle the project names, and not `npm test`, `rake` or `bin/rails`. A runner the project declares
+and has not installed (`jest` in `package.json`, PHPUnit in `composer.json`) blocks: nobody can run
+the tests as delivered. Tests with nothing that says how to run them — Java with no `pom.xml` or
+`build.gradle`, a `composer.json` or `package.json` that declares no runner, Rust with no
+`Cargo.toml`, Go with no `go.mod` — are exit 3 too: the fix is in the project, but no test ran, and a
+suite that did not run does not pass. In a Rails or
+Laravel app with front-end tooling, the Ruby or PHP suite runs; it is not hidden behind the
+`package.json`.
+
+**Covers:** running tests under `node --test`, jest, vitest, pytest, `go test`, Maven, Gradle,
+`dotnet test`, `cargo test`, PHPUnit, Pest, RSpec and Minitest. Finding test
 files, and whether they assert something, in JavaScript/TypeScript, Python, Go, Ruby, Java, Kotlin,
 C#, Rust and PHP — a `test/`, `tests/`, `spec/` or `__tests__` directory (so Maven's
 `src/test/java` and .NET's `MyApp.Tests/`), `*Test.java`, `*Test.kt`, `*Spec.kt`, `*Tests.cs`,
@@ -272,11 +292,9 @@ Listed so that a clean verdict is read for what it is.
 - **Languages outside the coverage above.** Swift, Scala and the rest get the project-wide scans —
   secrets, dependencies, infrastructure — and nothing that reads the code itself. The run says so
   above the verdict. PHP and Kotlin get the injection check, and their test files are found and
-  read for assertions, but no authentication check, build or test run.
-- **Test runs outside JavaScript, Python and Go.** Suites in other languages are found and not run:
-  with a task asking for tests that is exit 3, whatever runs beside them (see
-  [Task requirements](#task-requirements)). C and C++ test files are not recognised at all, and
-  nothing reads C or C++ for whether tests exist, so a task asking for tests gets only an advisory.
+  read for assertions, and their suites run, but there is no authentication check for them.
+- **C and C++ tests.** C and C++ test files are not recognised at all, and nothing reads C or C++ for
+  whether tests exist, so a task asking for tests gets only an advisory.
 - **Injection across a function call.** Request data is followed within one function; Semgrep's
   open-source analysis does not cross calls. A helper that builds a query from its argument is reported
   as an advisory, not a finding: SQL text built from a value is reported where it is built, whichever

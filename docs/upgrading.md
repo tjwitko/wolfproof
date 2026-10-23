@@ -99,6 +99,16 @@ Python and Go suites run, and a Java, Kotlin, C#, Rust, PHP or Ruby suite is exi
 Laravel or Rails project whose task asks for tests can therefore go from exit 0 to exit 3, and a
 project with JavaScript and Python tests now runs both.
 
+**After v1.8.0: tests in Java, Kotlin, C#, Rust, PHP and Ruby run.** These suites were found and
+exit 3. Now they run, under Maven or Gradle, `dotnet test`, `cargo test`, PHPUnit or Pest, and RSpec or
+Minitest — offline, against dependencies the job installed. A passing suite passes, a failing one
+blocks (exit 1), and a project whose dependencies or toolchain are not installed in the job is still
+exit 3, now naming the step to add. A PHP project that declares PHPUnit or Pest in `composer.json`
+and has no `vendor/` blocks, as a JavaScript project does without `node_modules`. And tests with
+nothing that says how to run them — no `pom.xml` or `build.gradle`, a `composer.json` or `package.json`
+that declares no runner — are exit 3 in every language; a JavaScript project like that used to pass
+on an advisory.
+
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
 
