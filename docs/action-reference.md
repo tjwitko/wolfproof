@@ -38,7 +38,7 @@ For a requirement every project must meet, set it in a workflow the project cann
 organisation ruleset requires, for instance:
 
 ```yaml
-      - uses: tjwitko/wolfproof@v1.8.0
+      - uses: tjwitko/wolfproof@v1.9.0
         with:
           task-file: task.txt
           baseline: |
@@ -52,7 +52,7 @@ organisation ruleset requires, for instance:
 [Configuration](configuration.md#test-timeout). In the Action, set it on the step:
 
 ```yaml
-      - uses: tjwitko/wolfproof@v1.8.0
+      - uses: tjwitko/wolfproof@v1.9.0
         env:
           WOLFPROOF_TEST_TIMEOUT: "300"
 ```

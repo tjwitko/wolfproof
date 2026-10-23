@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.8.0
+wolfproof 1.9.0
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.8.0
-- uses: tjwitko/wolfproof@v1.8.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.9.0
+- uses: tjwitko/wolfproof@v1.9.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.8.0
+npm install --save-dev github:tjwitko/wolfproof#v1.9.0
 ```
 
 ## 3. Refresh what setup wrote
@@ -99,7 +99,7 @@ Python and Go suites run, and a Java, Kotlin, C#, Rust, PHP or Ruby suite is exi
 Laravel or Rails project whose task asks for tests can therefore go from exit 0 to exit 3, and a
 project with JavaScript and Python tests now runs both.
 
-**After v1.8.0: tests in Java, Kotlin, C#, Rust, PHP and Ruby run.** These suites were found and
+**In v1.9.0: tests in Java, Kotlin, C#, Rust, PHP and Ruby run.** These suites were found and
 exit 3. Now they run, under Maven or Gradle, `dotnet test`, `cargo test`, PHPUnit or Pest, and RSpec or
 Minitest — offline, against dependencies the job installed. A passing suite passes, a failing one
 blocks (exit 1), and a project whose dependencies or toolchain are not installed in the job is still
