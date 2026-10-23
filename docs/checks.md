@@ -124,7 +124,7 @@ The `tests` check handles every suite it finds, each with its own verdict and th
 | JavaScript, with a `package.json` | the runner it declares, or `node --test` |
 | JavaScript, without one | `node --test` |
 | Python | `python3 -m pytest` |
-| Go, with a `go.mod` | `go test ./...` |
+| Go, with a `go.mod` | `go test -v ./...` |
 | Java, Kotlin | `mvn -B -o test` with a `pom.xml`, or `gradle --offline test` with a `build.gradle` |
 | C# | `dotnet test --no-restore`, on the solution or each test project |
 | Rust | `cargo test --offline --no-fail-fast` |

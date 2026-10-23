@@ -109,6 +109,13 @@ nothing that says how to run them — no `pom.xml` or `build.gradle`, a `compose
 that declares no runner — are exit 3 in every language; a JavaScript project like that used to pass
 on an advisory.
 
+**After v1.9.0: a test run that names no test is exit 3, under every runner.** A run that exited 0
+with no summary the gate could read used to pass, with an advisory saying so. That was most often
+`go test`, which without `-v` prints no count at all, and the declared runners mocha, ava and tap,
+whose summaries no pattern read. `go test` now runs with `-v`, and mocha, ava and tap are read in their
+own formats, so their suites are counted; a run that still names no test could not run. tap exits 1
+when it generates no coverage report, so a passing tap suite used to block; it now passes.
+
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
 

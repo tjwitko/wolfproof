@@ -311,6 +311,39 @@ export const COUNTS = {
     const m = /^(\d+) runs, \d+ assertions, (\d+) failures, (\d+) errors/m.exec(out);
     return m ? { total: +m[1], failed: +m[2] + +m[3], passed: +m[1] - +m[2] - +m[3] } : null;
   },
+  // go test -v: one "--- PASS:" or "--- FAIL:" line per test, subtests indented beneath. Without -v
+  // a passing run prints only "ok  app 0.356s", which carries no count at all. A package that does not
+  // compile prints no test line at all, only "FAIL  pkg [build failed]", and counts as a failure: in
+  // webhook-haiku-8 one package failed to build while five tests elsewhere passed, and counting only
+  // the test lines read that as 5 of 5 passed.
+  go: (out) => {
+    const passed = (out.match(/^--- PASS: /gm) || []).length;
+    const failed = (out.match(/^--- FAIL: /gm) || []).length + (out.match(/^FAIL\s+\S+\s+\[(?:build|setup) failed\]/gm) || []).length;
+    return passed + failed ? { passed, failed, total: passed + failed } : null;
+  },
+  // JavaScript runners a package.json declares, whose summaries none of the shared patterns read.
+  // mocha: "2 passing (2ms)" and "1 failing"; pending tests did not run and are not counted.
+  mocha: (out) => {
+    const passed = /^\s*(\d+) passing\b/m.exec(out);
+    if (!passed) return null;
+    const failed = +((/^\s*(\d+) failing\b/m.exec(out) || [])[1] || 0);
+    return { passed: +passed[1], failed, total: +passed[1] + failed };
+  },
+  // ava: "2 tests passed", and on failure only "1 test failed", so the passes are counted from the ✔ marks.
+  ava: (out) => {
+    const passed = /^\s*(\d+) tests? passed\b/m.exec(out);
+    const failed = /^\s*(\d+) tests? failed\b/m.exec(out);
+    if (!passed && !failed) return null;
+    const p = passed ? +passed[1] : (out.match(/^\s*✔ /gm) || []).length;
+    const f = failed ? +failed[1] : 0;
+    return { passed: p, failed: f, total: p + f };
+  },
+  // tap: "# { total: 2, pass: 1, fail: 1 }". It exits 1 when it generates no coverage report, even with
+  // every test passing; with the counts read, the verdict goes by the tests, not by that exit.
+  tap: (out) => {
+    const m = /^# \{ total: (\d+), pass: (\d+)(?:, fail: (\d+))?/m.exec(out);
+    return m ? { total: +m[1], passed: +m[2], failed: +(m[3] || 0) } : null;
+  },
 };
 
 function sum(out, re, map) {
@@ -332,4 +365,8 @@ export const FAILING = {
   pest: /^\s*FAILED\s+(.+?)\s*$/gm, // FAILED  Tests\AddTest > adds
   rspec: /^rspec \S+ # (.+)$/gm, // rspec ./spec/add_spec.rb:3 # add adds
   minitest: /^(\w[\w:]*#\w+) \[/gm, // AddTest#test_adds [test/add_test.rb:4]:
+  go: /^(?:--- FAIL: (\S+)|FAIL\s+(\S+\s+\[(?:build|setup) failed\]))/gm, // --- FAIL: TestAdd, FAIL pkg [build failed]
+  // The run listing, indented under its describe; the details below it repeat the describe's own name.
+  mocha: /^\s{4,}\d+\) (.+)$/gm, //     1) adds
+  ava: /^\s*✘ \[fail\]: (.+)$/gm, // ✘ [fail]: adds
 };

@@ -217,6 +217,19 @@ const REAL = {
   rspecFail: "Failures:\n\n  1) add adds\n\n2 examples, 1 failure\n\nFailed examples:\n\nrspec ./spec/add_spec.rb:3 # add adds\n",
   rspecMissing: "bundler: command not found: rspec\nInstall missing gem executables with `bundle install`\n",
   minitestFail: "  1) Failure:\nAddTest#test_adds [test/add_test.rb:4]:\nExpected: 3\n  Actual: -1\n\n2 runs, 2 assertions, 1 failures, 0 errors, 0 skips\n",
+  goFail:
+    "=== RUN   TestAdd\n    add_test.go:7: bad\n--- FAIL: TestAdd (0.00s)\n=== RUN   TestZero\n=== RUN   TestZero/sub\n--- PASS: TestZero (0.00s)\n" +
+    "    --- PASS: TestZero/sub (0.00s)\nFAIL\nFAIL\tapp\t0.282s\n?   \tapp/sub\t[no test files]\nFAIL\n",
+  goPlainPass: "ok  \tapp\t0.356s\n?   \tapp/sub\t[no test files]\n",
+  // webhook-haiku-8 (corpus): one package does not compile while five tests elsewhere pass.
+  goBuildFailed:
+    "--- PASS: TestVerifyValidSignature (0.00s)\n--- PASS: TestVerifyInvalidSignature (0.00s)\n--- PASS: TestVerifyWithRotatedSecret (0.00s)\n" +
+    "--- PASS: TestVerifyEmptySignature (0.00s)\n--- PASS: TestVerifyTamperedBody (0.00s)\nPASS\nok  \twebhook-receiver/internal/signature\t0.222s\n" +
+    "?   \twebhook-receiver/internal/storage\t[no test files]\nFAIL\twebhook-receiver/internal/webhook [build failed]\nFAIL\n",
+  mochaFail: "  add\n    1) adds\n    ✔ zero\n\n  1 passing (3ms)\n  1 pending\n  1 failing\n\n  1) add\n       adds:\n     AssertionError\n",
+  avaFail: "  ✘ [fail]: adds\n  ✔ zero\n  ─\n\n  adds\n  test/add.test.js:2\n  ─\n\n  1 test failed\n",
+  avaPass: "  ✔ adds\n  ✔ zero\n  ─\n\n  2 tests passed\n",
+  tapPass: "ok 1 - test/add.test.js # time=17.058ms\n# No coverage generated\n# { total: 2, pass: 2 }\n# time=637.642ms\n",
 };
 
 test("each runner's summary and failing names are read from its own format", () => {
@@ -231,6 +244,13 @@ test("each runner's summary and failing names are read from its own format", () 
     ["pest", REAL.pestFail, { total: 2, failed: 1, passed: 1 }, ["Tests\\AddTest > adds"]],
     ["rspec", REAL.rspecFail, { total: 2, failed: 1, passed: 1 }, ["add adds"]],
     ["minitest", REAL.minitestFail, { total: 2, failed: 1, passed: 1 }, ["AddTest#test_adds"]],
+    ["go", REAL.goFail, { total: 2, failed: 1, passed: 1 }, ["TestAdd"]],
+    // Counting only the test lines read this as 5 of 5 passed, and the corpus finding was lost.
+    ["go", REAL.goBuildFailed, { total: 6, failed: 1, passed: 5 }, ["webhook-receiver/internal/webhook [build failed]"]],
+    ["mocha", REAL.mochaFail, { total: 2, failed: 1, passed: 1 }, ["adds"]],
+    ["ava", REAL.avaFail, { total: 2, failed: 1, passed: 1 }, ["adds"]],
+    ["ava", REAL.avaPass, { total: 2, failed: 0, passed: 2 }, []],
+    ["tap", REAL.tapPass, { total: 2, failed: 0, passed: 2 }, []],
   ]) {
     assert.deepEqual(parseCountsForTest(out, parser), counts, parser);
     assert.deepEqual(failingNamesForTest(out, parser), names, parser);
@@ -338,6 +358,31 @@ test("a runner that exits 0 and names no test could not run; one that fails befo
       const v = testExecutionReport(dir, { wanted: true });
       assert.equal(v.failures.length, 1, "a compile error blocks, as for go test");
       assert.match(v.failures[0], /^tests: the suite exited 101 and its summary could not be parsed under cargo test/);
+    })
+  );
+});
+
+// The same rule for the runners that came first. go test without -v printed only "ok  app 0.356s", no
+// count, and an exit-0 run with no readable summary passed on an advisory. Under every runner now, a
+// run that names no test could not run.
+test("under the original runners too, an exit-0 run that names no test could not run", () => {
+  withStubs({ go: REAL.goPlainPass }, () =>
+    run({ "go.mod": "module app\n", "add_test.go": "package app\n" }, (dir) => {
+      const v = testExecutionReport(dir, { wanted: true });
+      assert.deepEqual(v.failures, []);
+      assert.deepEqual(v.couldNotRun, ["go test exited 0 and reported no test summary, so no test is known to have run"]);
+    })
+  );
+  // A runner with no reader of its own -- jest here -- whose output says nothing countable.
+  run({ "package.json": '{"devDependencies":{"jest":"^29"}}', "node_modules/.bin/jest": "#!/bin/sh\necho 'done'\n", "src/a.test.js": "" }, (dir) => {
+    chmodSync(path.join(dir, "node_modules/.bin/jest"), 0o755);
+    assert.equal(detectSuite(dir).parser, undefined);
+    assert.deepEqual(testExecutionReport(dir, { wanted: true }).couldNotRun, ["jest exited 0 and reported no test summary, so no test is known to have run"]);
+  });
+  // tap exits 1 when it generates no coverage report, every test passing: with its counts read, it passes.
+  withStubs({}, () =>
+    run({ "package.json": '{"devDependencies":{"tap":"^21"}}', "node_modules/.bin/tap": "", "test/add.test.js": "" }, (dir) => {
+      assert.equal(detectSuite(dir).parser, "tap");
     })
   );
 });

@@ -90,7 +90,8 @@ export function detectSuites(projectDir) {
   }
 
   if (existsSync(path.join(projectDir, "go.mod")) && (go.length || !code.length)) {
-    suites.push({ label: "go test", cmd: "go", args: ["test", "./..."], cwd: projectDir });
+    // -v, because only it prints a line per test: without it a passing run carries no count.
+    suites.push({ label: "go test", cmd: "go", args: ["test", "-v", "./..."], cwd: projectDir, parser: "go" });
   } else if (go.length) {
     suites.push({ noRunner: true, unavailable: "the tests are Go and there is no go.mod, so go test cannot run them" });
   }
@@ -147,7 +148,9 @@ function javascriptSuite(projectDir, testFiles) {
           `generated manifest executes arbitrary postinstall hooks) and make sure the suite passes`,
       };
     }
-    return { label: declared, cmd: bin(declared), args: declared === "jest" ? ["--ci"] : [], cwd: projectDir };
+    // mocha, ava and tap print summaries the shared patterns do not read; jest and vitest are read there.
+    const parser = ["mocha", "ava", "tap"].includes(declared) ? declared : undefined;
+    return { label: declared, cmd: bin(declared), args: declared === "jest" ? ["--ci"] : [], cwd: projectDir, parser };
   }
 
   // No declared runner: node's own, which needs nothing installed. Note the narrower pattern --
@@ -218,7 +221,7 @@ function parseCounts(rawOutput, parser) {
 // deliverable, and only the reader can tell those apart.
 function failingNames(output, parser) {
   output = output.replace(ANSI, "");
-  if (parser && FAILING[parser]) return [...new Set([...output.matchAll(FAILING[parser])].map((m) => m[1].trim()))].slice(0, 12);
+  if (parser && FAILING[parser]) return [...new Set([...output.matchAll(FAILING[parser])].map((m) => (m[1] ?? m[2]).trim()))].slice(0, 12);
   const names = new Set();
   for (const re of [
     /^\s*[✕✖x×]\s+(.+?)(?:\s+\(\d+(?:\.\d+)?\s*m?s\))?$/gim, // node --test spec, vitest
@@ -330,10 +333,12 @@ function runSuite(suite, timeoutMs, limitNote) {
   const counts = reports ? { passed: reports.passed, failed: reports.failed, total: reports.total } : parseCounts(output, suite.parser);
   const failing = [...new Set([...(reports?.names || []), ...failingNames(output, suite.parser)])].slice(0, 12);
 
-  // The runners in test-runners.mjs: a run that exits 0 and names no test ran no test. dotnet test on
-  // an unrestored solution builds nothing, tests nothing and exits 0 with no output; that must not
-  // read as a pass. A run that fails before its summary -- a compile error -- still blocks below.
-  if (suite.parser && r.status === 0 && (!counts || counts.total === 0)) {
+  // A run that exits 0 and names no test ran no test, under every runner. It used to pass, with an
+  // advisory saying the summary could not be parsed: dotnet test on an unrestored solution builds
+  // nothing, tests nothing and exits 0 with no output, and go test without -v prints no count at all.
+  // A run that fails before its summary -- a compile error -- still blocks below. (node --test counts a
+  // test file with no tests in it as one passing test; that is the runner's own answer, and stands.)
+  if (r.status === 0 && (!counts || counts.total === 0)) {
     return {
       ran: false,
       environmental: true,
