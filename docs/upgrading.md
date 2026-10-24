@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.9.0
+wolfproof 1.10.0
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.9.0
-- uses: tjwitko/wolfproof@v1.9.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.10.0
+- uses: tjwitko/wolfproof@v1.10.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.9.0
+npm install --save-dev github:tjwitko/wolfproof#v1.10.0
 ```
 
 ## 3. Refresh what setup wrote
@@ -109,14 +109,14 @@ nothing that says how to run them — no `pom.xml` or `build.gradle`, a `compose
 that declares no runner — are exit 3 in every language; a JavaScript project like that used to pass
 on an advisory.
 
-**After v1.9.0: a test run that names no test is exit 3, under every runner.** A run that exited 0
+**In v1.10.0: a test run that names no test is exit 3, under every runner.** A run that exited 0
 with no summary the gate could read used to pass, with an advisory saying so. That was most often
 `go test`, which without `-v` prints no count at all, and the declared runners mocha, ava and tap,
 whose summaries no pattern read. `go test` now runs with `-v`, and mocha, ava and tap are read in their
 own formats, so their suites are counted; a run that still names no test could not run. tap exits 1
 when it generates no coverage report, so a passing tap suite used to block; it now passes.
 
-**After v1.9.0: C#, PHP and Kotlin routes are checked for authentication.** A project whose only
+**In v1.10.0: C#, PHP and Kotlin routes are checked for authentication.** A project whose only
 routes are ASP.NET Core, Laravel, Symfony, Spring (Kotlin) or Ktor used to get "not checked" from the
 authentication check; its unauthenticated routes now block. The credential-comparison finding reads C# as well, and is
 narrower in every language: a name about a credential rather than the credential (`secretId`,
