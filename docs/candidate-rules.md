@@ -1113,7 +1113,8 @@ Not covered: Rocket, Warp and other Rust frameworks; ASP.NET WebForms; insecure 
 
 Trivy for the packages inside a built image, and CodeQL for taint that crosses functions and files, both
 as optional Action steps. Neither belongs in the core gate: one needs a build, the other a database and,
-for private code, a licence.
+for private code, a licence. Two other routes to cross-function taint are #22 (one-hop helper sinks,
+inside open-source Semgrep) and #23 (Semgrep's Pro engine, opt-in).
 
 ### 18. The unit suite is CPU-bound near the gate's own test limit — fixed
 
@@ -1348,6 +1349,62 @@ registered by hand, Spring's functional router, and Ktor's `method(HttpMethod.X)
 into a skipped place from its own copy of the list, which knew neither. Moving a Kotlin routing file
 into `src/test/kotlin/`, or a controller into `Api.Tests/`, was skipped by one and allowed by the other:
 measured, factory mode reported nothing. Both now use one exported definition, `skippedTestDir()`.
+
+### 22. Injection through a project helper: one-hop sinks in open-source Semgrep — open
+
+**The gap.** Open-source Semgrep's taint analysis stays inside one function, so request data passed
+to a project helper that builds and runs a query is not traced. #9 measured it: the taint rules
+caught five of seven realistic shapes, and both misses crossed a function. WebGoat's SQL lessons pass
+the parameter through two helpers before executing it. The pattern advisories (SQL or a shell command
+built from a non-literal, reported where it is built) catch the construction, so these are reported,
+but as advisories: a real injection through a helper does not block.
+
+**The idea: find the helpers that are sinks, then treat calls to them as sinks.** Two Semgrep passes,
+both open-source and offline:
+
+1. *Helper summaries.* A taint rule per category whose source is a function's own parameter
+   (`pattern-inside` the function definition, the parameter as the source) and whose sinks are the
+   existing ones. Each result names a function and the parameter position that reaches a shell, SQL,
+   an evaluator, an outbound host or a file path.
+2. *Generated sinks.* Rules generated from those results, with the existing request sources and a
+   call to that function, argument at that position, as the sink. A finding blocks under the same
+   category, and names both the call and the sink inside the helper.
+
+Repeating step 1 with the generated sinks reaches helpers of helpers; WebGoat needs two hops, so the
+iteration should run to a small fixed bound rather than stop at one.
+
+**What to watch.**
+- *Resolution is by name.* Two classes with a method of the same name, or overloads, make a call
+  site ambiguous. Ambiguous names should not generate a blocking sink; reporting them as advisories is
+  the safe default (rule 3 in `authentication.mjs`: a false positive is worse than a miss).
+- *Sanitizers inside the helper.* A helper that validates its argument before the sink (an
+  `is_numeric` guard, a parameterised query) must not be summarised as a sink. The existing sanitizer
+  lists apply inside step 1, so that should follow, but it needs measuring.
+- *Cost.* Two or three Semgrep passes over the project, where #18 already found the suite CPU-bound.
+  Time it on Bitwarden, the largest calibration app.
+
+**How to measure.** The calibration set: the deliberately vulnerable apps for findings (WebGoat's
+SQL lessons should move from advisory to blocking; RailsGoat's controller-to-model command injection
+likewise), and the clean apps for false positives (no new blocking finding in any of them, read by
+hand if there is one). Corpus verdicts must not move.
+
+### 23. Semgrep's Pro engine as an opt-in for cross-file taint — open
+
+Semgrep's commercial engine follows taint across functions (`--pro-intrafile`) and across files
+(`--pro`). The rules this gate already ships would run unchanged under it, which makes it the
+cheapest upgrade in rule-writing terms. It also cuts against the gate's design: it needs a Semgrep
+account token (`SEMGREP_APP_TOKEN`) and a plan that includes the engine, and the gate otherwise runs
+offline, with no account, in CI and in pre-commit hooks alike.
+
+**Shape, if taken up.** Off by default. Turned on by configuration (a setting in `.wolfproof.json`,
+and an Action input) only when a token is present. When it is requested and cannot run -- no token,
+an expired plan, the engine unavailable -- that is exit 3 naming why, never a silent fallback to the
+open-source engine, which would report a clean result on the analysis that was not done. The
+control line prints which engine ran, as it does for every control's version.
+
+**How to measure.** Run the same calibration set under both engines and diff the findings. The new
+blocking ones each need reading against their source, as every new rule does; the clean apps must stay
+at zero blocking. Needs a token to measure at all, so it is the user's call when to try.
 
 ### 12. Considered and deferred
 
