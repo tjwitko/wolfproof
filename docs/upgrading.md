@@ -11,7 +11,7 @@ wolfproof 1.10.0
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
-  identity-guard   v1.0.2  node_modules @tjwitko/identity-guard-mcp
+  identity-guard   v1.0.3  node_modules @tjwitko/identity-guard-mcp
 tools on PATH
   node             26.5.1
   go               1.27.1
@@ -123,6 +123,10 @@ these languages as well, and is narrower in every language: a name about a crede
 `tokenType`, `passwordResult`, `useResetPassword`, `IS_TOKEN`, an OIDC `idTokenSub`), a property of
 an object named for one (`request.email` on a `passwordResetRequest`), a class constant
 (`Password::PASSWORD_RESET`), and a password compared with its confirmation are no longer reported.
+
+**After v1.10.0: identity-guard v1.0.3.** Its HTTP Basic rule no longer blocks a JavaScript,
+TypeScript or Kotlin variable named `auth` assigned a parenthesised expression; it needs a credential
+tuple, `auth=(user, password)`, in a keyword-argument or statement position.
 
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
