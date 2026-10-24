@@ -44,10 +44,23 @@ tags (`node:lts`, `python:3`) and other publishers' images (`bitnami/node`) are 
 dates are refreshed with each release, so a release newer than the table is simply not judged yet.
 
 **`sast: command injection` / `SQL injection` / `code injection`** — data from an HTTP request reaches
-a shell, a SQL statement or an evaluator in the same function. The finding names each line and the
-fix. The check follows data within a function, not across calls, so a request value passed to a helper
-that builds the query shows up as an advisory about the helper instead ("built by string formatting…
-not blocking").
+a shell, a SQL statement or an evaluator. The finding names each line and the fix.
+
+**A `sast` finding that ends `(via injectableQuery() at …)`** — the request value is passed to a
+function of your project's that does the injecting: the line named is the call, and the chain after
+`via` is the helper, then the helper it calls, if any, ending where the value is used. Fix it in the
+helper — a parameterised query, an argument list instead of a shell string — which fixes every caller
+at once, or convert the value at the call (`int(...)`, `Integer.parseInt(...)`) if the helper is not
+yours to change. A helper that validates its argument before using it is not reported.
+
+**The same, as an advisory: "the call is through an object whose type is not known here…"** — the
+call might reach that helper or another function with the same name: a method called on an object
+(`repo.find(x)`), a name defined more than once, a call into another Go package, or a JavaScript
+helper called through its module (`db.findUser(x)`). Such calls are never blocking. Read the helper
+the advisory names; if the call really reaches it, fix it as above. Some of these come from Semgrep
+assuming that a function's result carries its argument's taint — a query built with bindings from a
+value, an Arel predicate — and are not injections at all. There is no way yet to mark one as reviewed
+(`docs/candidate-rules.md`, #13's open question).
 
 **"were not read" or "MOST OF THIS PROJECT'S SOURCE WAS NOT READ" above the verdict** — part of the
 project is in a language no language-aware check reads (Swift, Scala, Elixir, Dart, Lua, Perl, Vue,

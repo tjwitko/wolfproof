@@ -336,7 +336,14 @@ Listed so that a clean verdict is read for what it is.
   the project defines the name once — and up to three calls deep, every link held to the same test.
   A call through an object whose type is not known here, a name defined more than once, and SSRF
   through any helper (whether the caller fixed the host cannot be seen across the call) are
-  advisories. Data that only reaches a helper through a call on an object is not followed.
+  advisories. Measured per language: in Go a call into another package (`store.Find(x)`) is an
+  advisory, as is a method call; in JavaScript and TypeScript a helper called through its module
+  object (`db.findUser(x)`) is an advisory, and the same helper imported and called bare blocks when
+  the project defines that name once; in C and C++ only bare calls are followed. Not followed at all:
+  a Python helper called with the value as a keyword argument (`run_query(db, name=x)`), and data that
+  reaches a helper only through a call on an object. Some advisories are not injections: Semgrep
+  assumes a function's result carries its arguments' taint, so a helper that builds a query with
+  bindings from a value, or an Arel predicate, can be summarised as a sink.
 - **Other classes of injection.** Shell, SQL, evaluators, SSRF and path traversal are covered, and
   an XML parser configured to resolve external entities is an advisory. Cross-site scripting is not:
   templates escape by default, so what is worth checking is the escape hatches (`|safe`, `Markup()`,

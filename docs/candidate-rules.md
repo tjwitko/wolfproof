@@ -1408,6 +1408,12 @@ hand if there is one). Corpus verdicts must not move.
   the whole check could-not-run on the first pass. Generated rules Semgrep rejects are now dropped and
   the pass re-run.
 
+Measured limits, each documented in `docs/checks.md`: in Go a call into another package is an
+advisory (only same-package calls resolve); in JavaScript and TypeScript a helper called through its
+module object is an advisory, and called bare after a destructuring import it blocks when its name is
+unique; C and C++ follow bare calls only; a Python helper called with the value as a keyword argument
+is not followed at all — the call patterns are positional, a candidate for a follow-up.
+
 Tried and rejected: Semgrep's `taint_assume_safe_functions` on the generated rules. It removed
 Lemmy's false findings and also RailsGoat's real ones — in Ruby, `params[:x]` is itself a method call.
 

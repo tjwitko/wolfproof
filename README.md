@@ -295,7 +295,7 @@ The checks you would expect, still necessary:
 
 | concern | blocks on |
 |---|---|
-| injection | request data reaching a shell, SQL, an evaluator, an outbound request's host (SSRF) or a file path — in Python, JavaScript/TypeScript, Go, Java, Ruby, C#, Rust, C, C++, PHP and Kotlin |
+| injection | request data reaching a shell, SQL, an evaluator, an outbound request's host (SSRF) or a file path, directly or through the project's own helpers — in Python, JavaScript/TypeScript, Go, Java, Ruby, C#, Rust, C, C++, PHP and Kotlin |
 | dependencies | high or critical CVEs; dependencies declared with no lockfile the scanner can read |
 | secrets | credentials hardcoded in any file, including ones split, joined or encoded |
 | infrastructure | Terraform plan and policy violations on AWS, such as a security group or EKS API open to `0.0.0.0/0` |
