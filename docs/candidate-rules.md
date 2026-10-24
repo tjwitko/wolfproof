@@ -1350,7 +1350,7 @@ into a skipped place from its own copy of the list, which knew neither. Moving a
 into `src/test/kotlin/`, or a controller into `Api.Tests/`, was skipped by one and allowed by the other:
 measured, factory mode reported nothing. Both now use one exported definition, `skippedTestDir()`.
 
-### 22. Injection through a project helper: one-hop sinks in open-source Semgrep — open
+### 22. Injection through a project helper: helper sinks in open-source Semgrep — fixed, calibrated
 
 **The gap.** Open-source Semgrep's taint analysis stays inside one function, so request data passed
 to a project helper that builds and runs a query is not traced. #9 measured it: the taint rules
@@ -1387,6 +1387,49 @@ iteration should run to a small fixed bound rather than stop at one.
 SQL lessons should move from advisory to blocking; RailsGoat's controller-to-model command injection
 likewise), and the clean apps for false positives (no new blocking finding in any of them, read by
 hand if there is one). Corpus verdicts must not move.
+
+**Done** (`agent/sast-hops.mjs`, 2026-10-24). As designed above, with what the measurement changed:
+
+- *Locating a helper.* A summary result names the function and the parameter (`$F`, `$P` in the
+  message); the definition, the parameter's position and the class around it are found in the file.
+  Python's and Rust's `self` shifts the position for a call through a receiver.
+- *When a call blocks.* Bare or through self/this in the file that defines the helper, every
+  definition of that name in the file being a summarised sink; or bare anywhere when the project
+  defines the name once; or through the defining class or module (`Benefits.save(...)`,
+  `main.ssrf_lab(...)`) when every definition under that qualifier is a sink — PyGoat has several
+  modules named `main`. A call through any other object is an advisory, and a chain is only as sure as
+  its least sure link. Helpers are followed three calls deep.
+- *SSRF through a helper is an advisory.* SSRF is about who controls the host, and a helper that
+  takes a whole URL cannot see whether its caller fixed one. It was the only category to block falsely
+  on clean code: Lemmy, three times — a URL built from configuration with request data only in its
+  query, and one read from a database row the request picked. Against that, one real finding
+  (WebGoat's SSRF lesson), which stays an advisory.
+- *A helper no pattern can name* — NetBox's migration modules, `0096_multi_protocol_services` — made
+  the whole check could-not-run on the first pass. Generated rules Semgrep rejects are now dropped and
+  the pass re-run.
+
+Tried and rejected: Semgrep's `taint_assume_safe_functions` on the generated rules. It removed
+Lemmy's false findings and also RailsGoat's real ones — in Ruby, `params[:x]` is itself a method call.
+
+**Calibrated** (the 29 applications of `calibration/manifest.json`, re-derived; every new blocking
+finding read against its source):
+
+| app | new blocking | new advisory |
+|---|---|---|
+| WebGoat | 10: SQL lessons 2, 3, 4, 5a, 5b, 6a (two calls deep), 8, 9, 10; the zip-slip lesson | 9 |
+| RailsGoat | 2: the upload's path traversal and its backup's command injection, controller to model | 0 |
+| PyGoat | 2: the MITRE lab's `nmap` command injection; the SSRF lab's local file read | 0 |
+| Juice Shop | 0 | 4 |
+| the 23 clean apps | **0** | 98 (Mastodon 28, Bitwarden 29, Jellyfin 15, BookStack 6, Lemmy 3, …) |
+
+The existing rules' counts are unchanged in every app. The clean apps' advisories are mostly calls on
+objects (`$this->searchRunner->searchBook(...)`) and helpers whose summary comes from taint carried
+through a call — Arel's `where(table[:id].lt(max_id))`, a raw select built with bindings — which
+Semgrep cannot tell from a real flow.
+
+**Cost.** The summary rules run in the first pass, and later passes scan only files that name a
+summarised helper. Measured: Mastodon 700 to 775 seconds, Bitwarden 1,125 to 1,419, WebGoat 91 to 141,
+Gitea 565 to 875 — 10 to 55 per cent. The calibration workflow's five parts stay inside their hour.
 
 ### 23. Semgrep's Pro engine as an opt-in for cross-file taint — open
 

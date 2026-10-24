@@ -310,8 +310,11 @@ So that a clean verdict is read for what it is:
   secrets, dependencies, infrastructure. The run says so above the verdict. Rust and C/C++ get the
   injection check, but there is no authentication check for them, and C and C++ test files are not
   recognised. Plain PHP pages served without a router (no Laravel or Symfony) have no routes to read.
-- **Injection across a function call**, and cross-site scripting, template injection, LDAP
-  injection, open redirect and insecure deserialization.
+- **Injection through a call that cannot be pinned to one function** — a method on an object of
+  unknown type, a name defined more than once — which is an advisory, and SSRF through any helper.
+  Request data passed to a project helper that injects it, called in a way that can only mean that
+  helper, blocks. Not covered at all: cross-site scripting, template injection, LDAP injection, open
+  redirect and insecure deserialization.
 - **Memory safety in C and C++**, beyond `gets()`.
 - **Authorisation** — what an authenticated caller may then do.
 - **The packages inside a built image** — use Trivy or Grype in CI.

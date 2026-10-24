@@ -1,7 +1,7 @@
 {
   "about": "Real applications with known sast answers, cloned at these commits and scanned only. See calibration/run.mjs.",
   "semgrep": "1.180.0",
-  "measured": "2026-10-22",
+  "measured": "2026-10-24",
   "toolchain": {
     "node": "26.5.1",
     "go": "1.27.1",
@@ -32,12 +32,16 @@
       "note": "OWASP's deliberately vulnerable Java app",
       "expected": {
         "files": 594,
-        "blocking": 3,
-        "advisory": 15,
+        "blocking": 13,
+        "advisory": 24,
         "byRule": {
           "java-path-traversal": {
             "blocking": 2,
             "advisory": 0
+          },
+          "java-path-traversal--via-helper": {
+            "blocking": 1,
+            "advisory": 6
           },
           "java-shell-nonliteral": {
             "blocking": 0,
@@ -47,6 +51,10 @@
             "blocking": 1,
             "advisory": 0
           },
+          "java-sql-injection--via-helper": {
+            "blocking": 9,
+            "advisory": 2
+          },
           "java-sql-string-built": {
             "blocking": 0,
             "advisory": 2
@@ -54,6 +62,10 @@
           "java-sql-text-built": {
             "blocking": 0,
             "advisory": 11
+          },
+          "java-ssrf--via-helper": {
+            "blocking": 0,
+            "advisory": 1
           },
           "java-xxe": {
             "blocking": 0,
@@ -71,14 +83,22 @@
       "note": "OWASP's deliberately vulnerable Rails app",
       "expected": {
         "files": 143,
-        "blocking": 6,
+        "blocking": 8,
         "advisory": 1,
         "byRule": {
           "ruby-code-injection": {
             "blocking": 4,
             "advisory": 0
           },
+          "ruby-command-injection--via-helper": {
+            "blocking": 1,
+            "advisory": 0
+          },
           "ruby-path-traversal": {
+            "blocking": 1,
+            "advisory": 0
+          },
+          "ruby-path-traversal--via-helper": {
             "blocking": 1,
             "advisory": 0
           },
@@ -103,7 +123,7 @@
       "expected": {
         "files": 658,
         "blocking": 11,
-        "advisory": 0,
+        "advisory": 4,
         "byRule": {
           "javascript-code-injection": {
             "blocking": 1,
@@ -112,6 +132,10 @@
           "javascript-path-traversal": {
             "blocking": 3,
             "advisory": 0
+          },
+          "javascript-path-traversal--via-helper": {
+            "blocking": 0,
+            "advisory": 4
           },
           "javascript-sql-injection": {
             "blocking": 6,
@@ -133,7 +157,7 @@
       "note": "a deliberately vulnerable Django app",
       "expected": {
         "files": 85,
-        "blocking": 8,
+        "blocking": 10,
         "advisory": 5,
         "byRule": {
           "python-code-injection": {
@@ -144,7 +168,15 @@
             "blocking": 1,
             "advisory": 0
           },
+          "python-command-injection--via-helper": {
+            "blocking": 1,
+            "advisory": 0
+          },
           "python-path-traversal": {
+            "blocking": 1,
+            "advisory": 0
+          },
+          "python-path-traversal--via-helper": {
             "blocking": 1,
             "advisory": 0
           },
@@ -208,15 +240,23 @@
       "expected": {
         "files": 2251,
         "blocking": 2,
-        "advisory": 2,
+        "advisory": 17,
         "byRule": {
           "csharp-path-traversal": {
             "blocking": 2,
             "advisory": 0
           },
+          "csharp-path-traversal--via-helper": {
+            "blocking": 0,
+            "advisory": 8
+          },
           "csharp-sql-text-built": {
             "blocking": 0,
             "advisory": 2
+          },
+          "csharp-ssrf--via-helper": {
+            "blocking": 0,
+            "advisory": 7
           }
         }
       }
@@ -292,7 +332,7 @@
       "expected": {
         "files": 4289,
         "blocking": 0,
-        "advisory": 10,
+        "advisory": 38,
         "byRule": {
           "javascript-sql-string-built": {
             "blocking": 0,
@@ -301,6 +341,10 @@
           "javascript-sql-text-built": {
             "blocking": 0,
             "advisory": 1
+          },
+          "ruby-sql-injection--via-helper": {
+            "blocking": 0,
+            "advisory": 28
           },
           "ruby-sql-string-built": {
             "blocking": 0,
@@ -405,8 +449,12 @@
       "expected": {
         "files": 5860,
         "blocking": 0,
-        "advisory": 5,
+        "advisory": 34,
         "byRule": {
+          "csharp-path-traversal--via-helper": {
+            "blocking": 0,
+            "advisory": 6
+          },
           "csharp-sql-string-built": {
             "blocking": 0,
             "advisory": 2
@@ -414,6 +462,10 @@
           "csharp-sql-text-built": {
             "blocking": 0,
             "advisory": 3
+          },
+          "csharp-ssrf--via-helper": {
+            "blocking": 0,
+            "advisory": 23
           }
         }
       }
@@ -427,11 +479,15 @@
       "expected": {
         "files": 540,
         "blocking": 0,
-        "advisory": 8,
+        "advisory": 11,
         "byRule": {
           "rust-sql-text-built": {
             "blocking": 0,
             "advisory": 8
+          },
+          "rust-ssrf--via-helper": {
+            "blocking": 0,
+            "advisory": 3
           }
         }
       }
@@ -572,8 +628,16 @@
       "expected": {
         "files": 2220,
         "blocking": 0,
-        "advisory": 3,
+        "advisory": 9,
         "byRule": {
+          "php-code-injection--via-helper": {
+            "blocking": 0,
+            "advisory": 1
+          },
+          "php-sql-injection--via-helper": {
+            "blocking": 0,
+            "advisory": 5
+          },
           "php-sql-string-built": {
             "blocking": 0,
             "advisory": 2

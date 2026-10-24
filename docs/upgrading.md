@@ -128,6 +128,13 @@ an object named for one (`request.email` on a `passwordResetRequest`), a class c
 TypeScript or Kotlin variable named `auth` assigned a parenthesised expression; it needs a credential
 tuple, `auth=(user, password)`, in a keyword-argument or statement position.
 
+**After v1.10.0: injection through a project helper blocks.** Request data passed to a function of
+the project's that builds it into SQL, a shell command, an evaluator or a file path used to be an
+advisory at best, because Semgrep's open-source analysis stays inside one function. When the call can
+only reach that function, it now blocks, naming the helper (`via injectableQuery() at ...`). Calls
+through an object of unknown type, names defined more than once, and SSRF through any helper are
+advisories. The injection check takes longer: 10 to 55 per cent on the calibration applications.
+
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
 

@@ -217,6 +217,9 @@ Validator: `sast`.
 **Blocks on:** request data reaching a shell, a SQL statement, an evaluator, the host of an outbound
 request (SSRF), a file path (path traversal) or a C format string; any use of `gets()`.
 
+**Blocks through a project helper** too: request data passed to a function of the project's that
+injects it, when the call can only reach that function (see "What it does not check" below).
+
 **Reports without blocking:** a query or command built from a value of unknown origin; a non-literal
 C format string; an XML parser that resolves external entities (XXE); exception text sent back to
 the caller.
@@ -325,10 +328,15 @@ Listed so that a clean verdict is read for what it is.
   so the authentication check reports that it checked nothing.
 - **C and C++ tests.** C and C++ test files are not recognised at all, and nothing reads C or C++ for
   whether tests exist, so a task asking for tests gets only an advisory.
-- **Injection across a function call.** Request data is followed within one function; Semgrep's
-  open-source analysis does not cross calls. A helper that builds a query from its argument is reported
-  as an advisory, not a finding: SQL text built from a value is reported where it is built, whichever
-  function later runs it. A shell command built that way is reported only where it is run.
+- **Injection through a call that cannot be pinned to one function.** Semgrep's open-source analysis
+  stays inside one function, so the project's own helpers are summarised first: a function whose
+  parameter reaches a shell, SQL, an evaluator or a file path, after the same sanitizers. Request data
+  passed to such a helper blocks when the call can only mean that helper — called bare or through
+  self/this in the file that defines it, called through its class or module, or called anywhere when
+  the project defines the name once — and up to three calls deep, every link held to the same test.
+  A call through an object whose type is not known here, a name defined more than once, and SSRF
+  through any helper (whether the caller fixed the host cannot be seen across the call) are
+  advisories. Data that only reaches a helper through a call on an object is not followed.
 - **Other classes of injection.** Shell, SQL, evaluators, SSRF and path traversal are covered, and
   an XML parser configured to resolve external entities is an advisory. Cross-site scripting is not:
   templates escape by default, so what is worth checking is the escape hatches (`|safe`, `Markup()`,

@@ -14,15 +14,18 @@
 //   files of installed Python packages, and 5,066 of installed JavaScript including Express itself.
 // - WARNING rules are pattern rules and are ADVISORY: a SQL statement built by formatting, a shell
 //   command built from a non-literal. They see the construction without knowing where its input came
-//   from, which is also how they catch what the taint rules cannot -- open-source Semgrep's taint
-//   analysis stays inside one function, so request data passed to a helper is not followed.
+//   from, which is also how they catch what the taint rules cannot.
+// - Open-source Semgrep's taint analysis stays inside one function. Request data passed to a project
+//   helper that injects it is followed by sast-hops.mjs: the helpers are summarised in the first pass,
+//   and later passes treat calls to them as sinks, blocking only where the call cannot mean another
+//   function (see that file, and docs/candidate-rules.md #22).
 //
 // Two ways a project could hide code from the scan, both closed: files are passed to semgrep
 // explicitly, from the same walk every other validator uses, because given a directory it obeys the
 // project's .semgrepignore and a probe with `src/` in one scanned nothing; and `--disable-nosem`,
 // because an inline `# nosemgrep` is a suppression the code's author writes -- the .gitleaksignore
 // defect in another form.
-import { readdirSync, statSync } from "fs";
+import { readdirSync, readFileSync, statSync } from "fs";
 import { spawnSync } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -30,6 +33,7 @@ import { fileURLToPath } from "url";
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { taskWantsErrorDistinction } from "./code-quality.mjs";
+import { MAX_HOPS, LANG_OF_EXT, loadTaintRules, summaryRules, hopRules, toSummary, definitionsIn, qualifierOf, writeRules } from "./sast-hops.mjs";
 
 const RULES = fileURLToPath(new URL("./sast-rules/", import.meta.url));
 export const SAST_EXT = new Set([".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".go", ".java", ".rb", ".cs", ".rs", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".php", ".kt"]);
@@ -72,10 +76,10 @@ function semgrepEnv() {
   return { ...process.env, SEMGREP_SEND_METRICS: "off", SEMGREP_ENABLE_VERSION_CHECK: "0" };
 }
 
-function run(files) {
+function run(files, configs = [RULES]) {
   const r = spawnSync(
     "semgrep",
-    ["scan", "--config", RULES, "--json", "--quiet", "--metrics=off", "--disable-version-check",
+    ["scan", ...configs.flatMap((c) => ["--config", c]), "--json", "--quiet", "--metrics=off", "--disable-version-check",
      "--disable-nosem", "--no-git-ignore", "--timeout", "30", "--max-target-bytes", String(MAX_FILE_BYTES), ...files],
     // SIGKILL, not the default SIGTERM: spawnSync waits for the child to exit after signalling it, and
     // a wedged child that ignores SIGTERM made a timeout bound nothing once already (#5).
@@ -101,6 +105,7 @@ function run(files) {
   return { doc };
 }
 
+const VIA = "\u0000via";
 const CATEGORY_ORDER = ["hardcoded credential", "command injection", "SQL injection", "code injection", "SSRF", "path traversal", "format string", "buffer overflow", "XXE", "error distinction", "error detail"];
 const REMEDY = {
   "hardcoded credential":
@@ -173,14 +178,24 @@ export function sastScan(projectDir, { taskText = "" } = {}) {
   let version = null;
   const results = [];
   const unparsed = new Set();
-  for (let i = 0; i < files.length; i += CHUNK) {
-    const r = run(files.slice(i, i + CHUNK));
-    if (r.missing) return notInstalled();
-    if (r.error) return { files: files.length, version, findings: [], unparsed: [], couldNotRun: [`${r.error}; nothing was checked for injection.`] };
-    version ||= r.doc.version || null;
-    results.push(...(r.doc.results || []));
-    for (const e of r.doc.errors || []) if (e.path) unparsed.add(path.relative(projectDir, e.path));
+  // The first pass carries the helper summary rules beside the project's own (#22, sast-hops.mjs).
+  const taint = loadTaintRules();
+  const summaryConfig = writeRules(summaryRules(taint));
+  const summaryResults = [];
+  try {
+    for (let i = 0; i < files.length; i += CHUNK) {
+      const r = run(files.slice(i, i + CHUNK), [RULES, summaryConfig.file]);
+      if (r.missing) return notInstalled();
+      if (r.error) return { files: files.length, version, findings: [], unparsed: [], couldNotRun: [`${r.error}; nothing was checked for injection.`] };
+      version ||= r.doc.version || null;
+      for (const x of r.doc.results || []) (String(x.check_id).endsWith("--summary") ? summaryResults : results).push(x);
+      for (const e of r.doc.errors || []) if (e.path) unparsed.add(path.relative(projectDir, e.path));
+    }
+  } finally {
+    summaryConfig.done();
   }
+  const hops = helperHops(projectDir, files, taint, summaryResults);
+  if (hops.error) return { files: files.length, version, findings: [], unparsed: [], couldNotRun: [`${hops.error}; injection through project helpers was not checked.`] };
 
   const at = (x) => `${path.relative(projectDir, x.path)}:${x.start.line}`;
   // An advisory at a line that already blocks for the same category says nothing the finding does not.
@@ -191,6 +206,11 @@ export function sastScan(projectDir, { taskText = "" } = {}) {
     return x.extra?.severity === "ERROR";
   };
   const blocked = new Set(results.filter(isBlocking).map((x) => `${x.extra?.metadata?.category}@${at(x)}`));
+  // Findings through a helper: one at a line that already blocks for the same category says nothing
+  // new and is dropped; one that blocks silences advisories at its line, as a taint finding does.
+  const directlyBlocked = new Set(blocked);
+  const viaHelper = hops.findings.filter((h) => !(h.blocking && directlyBlocked.has(`${h.category}@${h.at}`)));
+  for (const h of viaHelper) if (h.blocking) blocked.add(`${h.category}@${h.at}`);
   const findings = [];
   for (const x of results) {
     const blocking = isBlocking(x);
@@ -203,7 +223,156 @@ export function sastScan(projectDir, { taskText = "" } = {}) {
       at: at(x),
     });
   }
+  const seen = new Set();
+  for (const h of viaHelper) {
+    const key = `${h.category}@${h.at}`;
+    if (!h.blocking && blocked.has(key)) continue;
+    if (seen.has(`${key}@${h.blocking}`)) continue;
+    seen.add(`${key}@${h.blocking}`);
+    findings.push(h);
+  }
   return { files: files.length, version, findings, unparsed: [...unparsed] };
+}
+
+/**
+ * Passes after the first: calls to the helpers the summary rules found, a call further each pass.
+ * Returns { findings } in the same shape as sastScan's, or { error } when a pass could not run --
+ * which is reported as could-not-run, never as a pass, like the first.
+ */
+function helperHops(projectDir, files, taint, summaryResults) {
+  const byId = new Map(taint.map((r) => [r.id, r]));
+  const texts = new Map();
+  const readText = (f) => {
+    if (!texts.has(f)) {
+      try {
+        texts.set(f, readFileSync(f, "utf8"));
+      } catch {
+        texts.set(f, null);
+      }
+    }
+    return texts.get(f);
+  };
+  const rel = (f) => path.relative(projectDir, f);
+  const summaries = new Map();
+  let fresh = [];
+  const add = (s) => {
+    if (s && !summaries.has(s.key)) {
+      summaries.set(s.key, s);
+      fresh.push(s);
+    }
+  };
+  for (const x of summaryResults) add(toSummary(x, String(x.check_id).split(".").pop().replace(/--summary$/, ""), null, readText));
+
+  // Which definitions of a name are summarised sinks, for deciding whether a call resolves.
+  const summarisedAt = (s) =>
+    new Set([...summaries.values()].filter((o) => o.base === s.base && o.name === s.name && o.index === s.index).map((o) => `${o.file}|${o.defOffset}`));
+  const defsInProject = new Map();
+  const projectDefs = (s) => {
+    const k = `${s.lang}|${s.name}`;
+    if (!defsInProject.has(k)) {
+      const langs = new Set(byId.get(s.base).languages);
+      const defs = [];
+      for (const f of files) {
+        if (!langs.has(LANG_OF_EXT[path.extname(f)])) continue;
+        const text = readText(f);
+        if (text && text.includes(s.name)) for (const d of definitionsIn(text, s.name)) defs.push(`${f}|${d.offset}`);
+      }
+      defsInProject.set(k, defs);
+    }
+    return defsInProject.get(k);
+  };
+  const resolves = (s, form, callFile) => {
+    if (form === "receiver") return false;
+    // SSRF through a helper is an advisory, whatever the call. SSRF is about who controls the host,
+    // and a helper that takes a whole URL cannot tell whether its caller fixed one. Measured on the
+    // calibration set: SSRF was the only category to block falsely on clean code -- three on Lemmy,
+    // a URL built from configuration with request data only in its query, and one fetched from a
+    // database row the request picked -- and most of the advisories, against one real finding,
+    // WebGoat's SSRF lesson, which stays reported as an advisory.
+    if (s.category === "SSRF") return false;
+    const done = summarisedAt(s);
+    const inFile = projectDefs(s).filter((d) => d.startsWith(`${s.file}|`));
+    const fileClean = inFile.length > 0 && inFile.every((d) => done.has(d));
+    if (form === "qualified") {
+      // `main.ssrf_lab(x)` could be any module named main, and `User.find(x)` any class named User:
+      // every definition under that name, wherever it is, has to be a summarised sink.
+      const q = qualifierOf(s);
+      if (!q) return false;
+      const named = new RegExp(`\\b(?:class|object|module|struct|impl)\\s+${q}\\b`);
+      const under = projectDefs(s).filter((d) => {
+        const f = d.slice(0, d.lastIndexOf("|"));
+        return path.basename(f).replace(/\.[^.]+$/, "") === q || named.test(readText(f) || "");
+      });
+      return fileClean && under.every((d) => done.has(d));
+    }
+    if (callFile === s.file && fileClean) return true;
+    const all = projectDefs(s);
+    return all.length === 1 && done.has(all[0]);
+  };
+  const chain = (s) => {
+    const names = [];
+    for (let c = s; c; c = c.via) names.push(`${c.name}() at ${rel(c.file)}:${c.defLine}`);
+    return names.join(" → ");
+  };
+
+  const findings = [];
+  for (let hop = 1; hop <= MAX_HOPS && fresh.length; hop++) {
+    const current = fresh;
+    fresh = [];
+    const { rules, meta } = hopRules(current, byId, hop);
+    if (!rules.length) break;
+    const names = [...new Set(current.map((s) => s.name))];
+    const mention = new RegExp(`(?<![\\w$])(?:${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\s*\\(`);
+    const targets = files.filter((f) => {
+      const text = readText(f);
+      return text != null && mention.test(text);
+    });
+    if (!targets.length) break;
+    let config = writeRules(rules);
+    try {
+      for (let i = 0; i < targets.length; i += CHUNK) {
+        let r = run(targets.slice(i, i + CHUNK), [config.file]);
+        // A generated rule Semgrep cannot parse -- a helper named in a way no pattern can spell -- is
+        // dropped and the pass re-run, rather than failing the whole check over one helper. Found on
+        // NetBox, whose Django migration modules are named 0096_multi_protocol_services.
+        for (let retry = 0; retry < 5 && r.error && /Rule parse error in rule \S*?(hop\d+-\d+(?:--summary)?)\b/.test(r.error); retry++) {
+          const bad = /Rule parse error in rule \S*?(hop\d+-\d+(?:--summary)?)\b/.exec(r.error)[1];
+          const kept = rules.filter((x) => x.id !== bad);
+          if (kept.length === rules.length) break;
+          rules.splice(0, rules.length, ...kept);
+          config.done();
+          config = writeRules(rules);
+          r = run(targets.slice(i, i + CHUNK), [config.file]);
+        }
+        if (r.error || r.missing) return { error: r.error || "semgrep could not be run" };
+        for (const x of r.doc.results || []) {
+          const id = String(x.check_id).split(".").pop();
+          const m = meta.get(id);
+          if (!m) continue;
+          if (id.endsWith("--summary")) {
+            // A helper of a helper is only as sure as the call that links them: through an overloaded
+            // or twice-defined name, the inner function may not be the one that injects.
+            const next = toSummary(x, m.summary.base, m.summary, readText);
+            if (next) next.sure = m.summary.sure !== false && resolves(m.summary, m.form, x.path);
+            add(next);
+            continue;
+          }
+          const s = m.summary;
+          findings.push({
+            rule: `${s.base}--via-helper`,
+            category: s.category,
+            blocking: s.sure !== false && resolves(s, m.form, x.path),
+            message: `${byId.get(s.base).message}, through a call to a project helper`,
+            at: `${rel(x.path)}:${x.start.line}`,
+            via: chain(s),
+          });
+        }
+      }
+    } finally {
+      config.done();
+    }
+  }
+  return { findings };
 }
 
 export function sastFailures(projectDir, { taskText = "" } = {}) {
@@ -214,20 +383,25 @@ export function sastFailures(projectDir, { taskText = "" } = {}) {
   const advisory = new Map();
   for (const f of scan.findings) {
     const target = f.blocking ? blocking : advisory;
-    if (!target.has(f.category)) target.set(f.category, { message: f.message, at: [] });
-    target.get(f.category).at.push(f.at);
+    // A helper advisory is unsure of something else -- which function the call reaches -- and says so.
+    const key = !f.blocking && f.via ? `${f.category}${VIA}` : f.category;
+    if (!target.has(key)) target.set(key, { message: f.message, at: [] });
+    target.get(key).at.push(f.via ? `${f.at} (via ${f.via})` : f.at);
   }
-  const order = (m) => [...m].sort(([a], [b]) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b));
+  const order = (m) => [...m].sort(([a], [b]) => CATEGORY_ORDER.indexOf(a.replace(VIA, "")) - CATEGORY_ORDER.indexOf(b.replace(VIA, "")));
   const list = (a) => [...new Set(a)].slice(0, 10).join(", ") + (new Set(a).size > 10 ? `, +${new Set(a).size - 10} more` : "");
 
   const failures = order(blocking).map(
     ([category, { message, at }]) =>
       `sast: ${category} — ${message}: ${list(at)}. ${REMEDY[category] || ""}`.trimEnd()
   );
-  const advisories = order(advisory).map(
-    ([category, { message, at }]) =>
-      `sast: ${message} (${category}, not blocking${ADVISORY_WHY[category] || ""}): ${list(at)}.`
-  );
+  const advisories = order(advisory).map(([key, { message, at }]) => {
+    const category = key.replace(VIA, "");
+    const why = key.endsWith(VIA)
+      ? " — the call is through an object whose type is not known here, or the name is defined more than once, so it may reach a different function"
+      : ADVISORY_WHY[category] || "";
+    return `sast: ${message} (${category}, not blocking${why}): ${list(at)}.`;
+  });
   const unparsed = scan.unparsed;
   if (unparsed.length) {
     advisories.push(

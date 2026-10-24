@@ -5,6 +5,7 @@
 //   node calibration/run.mjs --update        re-measure and freeze what was measured
 //   node calibration/run.mjs --only=a,b      just those apps
 //   node calibration/run.mjs --shard=2/4     the second of four parts, for parallel CI jobs
+//   node calibration/run.mjs --checkouts=DIR use DIR/<app> where it is already at the pinned commit
 //
 // The regression corpus (corpus/) holds deliverables this project produced and checks every verdict
 // the gate gives them. This holds other people's code and checks one validator, sast, at the level
@@ -46,6 +47,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // --manifest= is for testing the runner against a copy; CI uses the committed one.
 const MANIFEST = path.resolve((process.argv.find((a) => a.startsWith("--manifest=")) || "").slice("--manifest=".length) || path.join(__dirname, "manifest.json"));
 const UPDATE = process.argv.includes("--update");
+// For re-measuring on a machine that already has the apps: DIR/<name> is used only when it is a git
+// checkout at exactly the pinned commit with nothing changed in it, and is never deleted; anything
+// else is cloned as usual.
+const CHECKOUTS = (process.argv.find((a) => a.startsWith("--checkouts=")) || "").slice("--checkouts=".length);
 const ONLY = (process.argv.find((a) => a.startsWith("--only=")) || "").slice("--only=".length).split(",").filter(Boolean);
 const SHARD = /^--shard=(\d+)\/(\d+)$/.exec(process.argv.find((a) => a.startsWith("--shard=")) || "");
 const EXIT = { MATCH: 0, DRIFT: 1, INCOMPLETE: 3 };
@@ -92,6 +97,20 @@ if (!UPDATE) {
   }
 }
 console.log("");
+
+/** An existing checkout at exactly `commit`, unmodified, or null. */
+function existing(name, commit) {
+  if (!CHECKOUTS) return null;
+  const dir = path.resolve(CHECKOUTS, name);
+  const git = (...args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  try {
+    if (git("rev-parse", "HEAD") !== commit) return null;
+    if (git("status", "--porcelain", "--untracked-files=no") !== "") return null;
+    return { dir, kept: true };
+  } catch {
+    return null;
+  }
+}
 
 /** Clone exactly one commit, shallow, into a fresh directory. Runs nothing from the repository. */
 function checkout(repo, commit) {
@@ -148,7 +167,7 @@ const findingsAt = {};
 for (const app of manifest.apps) {
   if (!wanted(app.name)) continue;
   const started = Date.now();
-  const co = checkout(app.repo, app.commit);
+  const co = existing(app.name, app.commit) || checkout(app.repo, app.commit);
   if (co.error) {
     console.log(`  INCOMPLETE ${app.name} — could not fetch ${app.commit.slice(0, 12)}: ${co.error}`);
     incomplete++;
@@ -158,7 +177,7 @@ for (const app of manifest.apps) {
   try {
     scan = sastScan(co.dir);
   } finally {
-    rmSync(co.dir, { recursive: true, force: true });
+    if (!co.kept) rmSync(co.dir, { recursive: true, force: true });
   }
   const secs = `${Math.round((Date.now() - started) / 1000)}s`;
   if (scan.couldNotRun) {
