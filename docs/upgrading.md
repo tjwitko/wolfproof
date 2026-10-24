@@ -118,8 +118,8 @@ when it generates no coverage report, so a passing tap suite used to block; it n
 
 **In v1.10.0: C#, PHP and Kotlin routes are checked for authentication.** A project whose only
 routes are ASP.NET Core, Laravel, Symfony, Spring (Kotlin) or Ktor used to get "not checked" from the
-authentication check; its unauthenticated routes now block. The credential-comparison finding reads C# as well, and is
-narrower in every language: a name about a credential rather than the credential (`secretId`,
+authentication check; its unauthenticated routes now block. The credential-comparison finding reads
+these languages as well, and is narrower in every language: a name about a credential rather than the credential (`secretId`,
 `tokenType`, `passwordResult`, `useResetPassword`, `IS_TOKEN`, an OIDC `idTokenSub`), a property of
 an object named for one (`request.email` on a `passwordResetRequest`), a class constant
 (`Password::PASSWORD_RESET`), and a password compared with its confirmation are no longer reported.
