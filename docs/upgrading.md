@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.10.0
+wolfproof 1.11.0
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.10.0
-- uses: tjwitko/wolfproof@v1.10.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.11.0
+- uses: tjwitko/wolfproof@v1.11.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.10.0
+npm install --save-dev github:tjwitko/wolfproof#v1.11.0
 ```
 
 ## 3. Refresh what setup wrote
@@ -124,11 +124,11 @@ these languages as well, and is narrower in every language: a name about a crede
 an object named for one (`request.email` on a `passwordResetRequest`), a class constant
 (`Password::PASSWORD_RESET`), and a password compared with its confirmation are no longer reported.
 
-**After v1.10.0: identity-guard v1.0.3.** Its HTTP Basic rule no longer blocks a JavaScript,
+**In v1.11.0: identity-guard v1.0.3.** Its HTTP Basic rule no longer blocks a JavaScript,
 TypeScript or Kotlin variable named `auth` assigned a parenthesised expression; it needs a credential
 tuple, `auth=(user, password)`, in a keyword-argument or statement position.
 
-**After v1.10.0: injection through a project helper blocks.** Request data passed to a function of
+**In v1.11.0: injection through a project helper blocks.** Request data passed to a function of
 the project's that builds it into SQL, a shell command, an evaluator or a file path used to be an
 advisory at best, because Semgrep's open-source analysis stays inside one function. When the call can
 only reach that function, it now blocks, naming the helper (`via injectableQuery() at ...`). Calls
