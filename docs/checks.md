@@ -339,9 +339,9 @@ Listed so that a clean verdict is read for what it is.
   advisories. Measured per language: in Go a call into another package (`store.Find(x)`) is an
   advisory, as is a method call; in JavaScript and TypeScript a helper called through its module
   object (`db.findUser(x)`) is an advisory, and the same helper imported and called bare blocks when
-  the project defines that name once; in C and C++ only bare calls are followed. Not followed at all:
-  a Python helper called with the value as a keyword argument (`run_query(db, name=x)`), and data that
-  reaches a helper only through a call on an object. Some advisories are not injections: Semgrep
+  the project defines that name once; in C and C++ only bare calls are followed. A value passed by
+  name — `run_query(db, name=x)` in Python, `name = x` in Kotlin, `name: x` in C# and PHP — is followed
+  like a positional one. Not followed: data that reaches a helper only through a call on an object. Some advisories are not injections: Semgrep
   assumes a function's result carries its arguments' taint, so a helper that builds a query with
   bindings from a value, or an Arel predicate, can be summarised as a sink.
 - **Other classes of injection.** Shell, SQL, evaluators, SSRF and path traversal are covered, and

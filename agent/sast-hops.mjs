@@ -244,8 +244,24 @@ function callForms(lang, s) {
       bare.push(`${F}(${all})`);
       break;
   }
+  // The same calls with the value passed by name: `run_query(db, name=x)`. Positional patterns alone
+  // missed it entirely -- not even an advisory. Each spelling was matched against real Semgrep.
+  const named = NAMED_ARGUMENT[lang];
+  if (named) {
+    const kw = named(s.param.replace(/^\$/, ""));
+    for (const list of [bare, qualified, receiver]) {
+      for (const p of [...list]) list.push(`${p.slice(0, p.indexOf("("))}(..., ${kw}, ...)`);
+    }
+  }
   return { bare, qualified, receiver };
 }
+
+const NAMED_ARGUMENT = {
+  python: (n) => `${n}=$X`,
+  kotlin: (n) => `${n} = $X`,
+  csharp: (n) => `${n}: $X`,
+  php: (n) => `${n}: $X`,
+};
 
 /** What a qualified call names before the dot: the defining class, or for a Python function its module. */
 export function qualifierOf(s) {

@@ -1411,8 +1411,10 @@ hand if there is one). Corpus verdicts must not move.
 Measured limits, each documented in `docs/checks.md`: in Go a call into another package is an
 advisory (only same-package calls resolve); in JavaScript and TypeScript a helper called through its
 module object is an advisory, and called bare after a destructuring import it blocks when its name is
-unique; C and C++ follow bare calls only; a Python helper called with the value as a keyword argument
-is not followed at all — the call patterns are positional, a candidate for a follow-up.
+unique; C and C++ follow bare calls only. A value passed by name was at first not followed at all —
+`run_query(db, name=x)` produced no finding, not even an advisory, because the call patterns were
+positional. Each positional call pattern now has a named twin (`name=$X` in Python, `name = $X` in
+Kotlin, `name: $X` in C# and PHP, PHP's `$` dropped), each spelling matched against real Semgrep.
 
 Tried and rejected: Semgrep's `taint_assume_safe_functions` on the generated rules. It removed
 Lemmy's false findings and also RailsGoat's real ones — in Ruby, `params[:x]` is itself a method call.
