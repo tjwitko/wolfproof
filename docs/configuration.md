@@ -67,6 +67,45 @@ committed. Left on, it fails every commit forever, which teaches people to bypas
 you the whole thing. The stanza's command keeps that check, because an agent reporting it is done
 with work uncommitted has not finished.
 
+## Reviewed findings
+
+A finding you have read and accept can be taken out of the verdict by its ID, with a reason. It stays
+in the report: every run lists it as `reviewed`, with the reason, and it does not block.
+
+```bash
+wolfproof review .                     # every injection and authentication finding, with its ID
+wolfproof review . 'sast:csharp-path-traversal:Jellyfin.Api/Controllers/EnvironmentController.cs:7bb61633' \
+  --reason "admin-only endpoint; writes where the admin says, by design" --reviewer tjwitko
+```
+
+The second command writes an entry to `.wolfproof-reviewed.json` at the project root:
+
+```json
+{ "reviewed": [
+  { "id": "sast:csharp-path-traversal:Jellyfin.Api/Controllers/EnvironmentController.cs:7bb61633",
+    "reason": "admin-only endpoint; writes where the admin says, by design",
+    "reviewer": "tjwitko", "expires": "2027-04-01" }
+] }
+```
+
+- **One entry, one finding.** An ID names a check, a rule and a file, and for an injection finding a
+  hash of its line — for one through a helper, the helper's line too. There are no wildcards; a whole
+  directory is a fixture marker's job.
+- **A reason is required.** An entry without one, or with an ID or date that is not well-formed, is
+  ignored and reported. `expires` is optional; after that date the finding counts again.
+- **It stops applying when the code changes.** Moving the line keeps a review; editing it, or the
+  helper it goes through, makes it a new finding to review. An authentication review names the
+  route, and holds until its method, path or file changes.
+- **Nothing goes quiet.** An entry that matches no finding is reported as an advisory, as is one past
+  its date, so the file does not keep entries that do nothing.
+- **Which findings.** The first version covers the injection (`sast`) and authentication checks.
+
+The file is a record, not a control: whoever writes the code can write it, as with a fixture
+marker, and the agent loop refuses to let a model write it. In [factory mode](factory-mode.md), an
+entry the change adds blocks unless the pipeline's allowlist approves it (`reviewed-finding`).
+`--reviewed=<file>`, and the Action's `reviewed` input, take the same list from outside the project,
+in either mode.
+
 ## JSON output
 
 `--json` writes one machine-readable document. Even when the gate crashes it exits 3, never Node's
@@ -74,4 +113,5 @@ default 1, and still writes one document: `{"exitCode": 3, "incomplete": true, "
 usage error writes `{"exitCode": 2, "error": "..."}`.
 
 The report also carries `toolchain` — each scanner on `PATH` and its version — and `scannedAt`, the
-time the run started.
+time the run started, and `reviewed`: each [reviewed finding](#reviewed-findings) with its ID,
+location, reason, reviewer, expiry and the list it came from.

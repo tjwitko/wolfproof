@@ -72,6 +72,8 @@ checked in both modes.
 Each of these is confirmed to loosen a check:
 
 - `.tfguard-fixture` and `.identity-exception` — a whole directory out of every source check
+- an entry in `.wolfproof-reviewed.json` — one named finding out of the verdict
+  ([reviewed findings](configuration.md#reviewed-findings)); a later `expires` on the same finding is a new entry
 - `# identity-guard:allow <rule> <reason>`
 - `gitleaks:allow` on a line, and `.gitleaksignore` at the project root
 - `osv-scanner.toml` beside a lockfile — an `[[IgnoredVulns]]` or `[[PackageOverrides]]` entry
@@ -128,7 +130,7 @@ inputs, written outside the workspace.
 
 An entry approves its `kind` at its `path` or anywhere under it, and needs a `reason`; one without
 is ignored and reported. The kinds are the exemptions above plus `changed-under-exemption`,
-`skipped-location`, `moved-to-unchecked`, `server-in-test` and `workflow-change`, which covers both
+`skipped-location`, `moved-to-unchecked`, `server-in-test`, `reviewed-finding` and `workflow-change`, which covers both
 `.github/workflows/` and `.github/actions/`.
 
 A `workflow-change` path is from the repository root, where GitHub reads workflows, even when the

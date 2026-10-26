@@ -135,6 +135,11 @@ only reach that function, it now blocks, naming the helper (`via injectableQuery
 through an object of unknown type, names defined more than once, and SSRF through any helper are
 advisories. The injection check takes longer: 10 to 55 per cent on the calibration applications.
 
+**After v1.11.0: a finding can be marked reviewed.** `wolfproof review .` lists injection and
+authentication findings by ID, and `.wolfproof-reviewed.json` (or `--reviewed=<file>`) takes one
+finding out of the verdict with a reason, until its line changes. Nothing changes for a project
+without one. In factory mode, an entry the change adds blocks unless the allowlist approves it.
+
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
 

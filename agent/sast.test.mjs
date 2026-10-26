@@ -138,7 +138,8 @@ scanner("the corrected code passes", () => {
     "    except HTTPException:\n        raise\n    except Exception:\n        raise HTTPException(status_code=500, detail=\"internal error\")"
   );
   assert.notEqual(fixed, SWALLOWS);
-  assert.deepEqual(within({ "app.py": fixed }, (d) => sastFailures(d, { taskText: DISTINCT })), { failures: [], advisories: [] });
+  const { failures, advisories } = within({ "app.py": fixed }, (d) => sastFailures(d, { taskText: DISTINCT }));
+  assert.deepEqual({ failures, advisories }, { failures: [], advisories: [] });
 });
 
 // Two ways the code's author could hide code from the scan.
@@ -166,7 +167,8 @@ test("installed dependencies and declared fixtures are not scanned", () => {
 });
 
 test("a project in a language no rule covers reports nothing", () => {
-  assert.deepEqual(within({ "main.swift": "print(1)\n" }, sastFailures), { failures: [], advisories: [] });
+  const { failures, advisories } = within({ "main.swift": "print(1)\n" }, (d) => sastFailures(d));
+  assert.deepEqual({ failures, advisories }, { failures: [], advisories: [] });
 });
 
 // The rules pass semgrep's own test runner above; this is the gate reading .php and .kt files at all,

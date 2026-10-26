@@ -45,6 +45,7 @@ import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { csharpAdapter } from "./authentication-csharp.mjs";
 import { phpAdapter } from "./authentication-php.mjs";
 import { kotlinAdapter } from "./authentication-kotlin.mjs";
+import { withIds, applyReviews } from "../lib/reviewed.mjs";
 
 // Endpoints that are conventionally open, and should be: a liveness probe that requires a
 // credential is a liveness probe that fails.
@@ -1300,7 +1301,7 @@ const exemptList = (exempt) =>
   exempt.map((r) => `${r.method} ${r.route} (${r.file}:${r.line}, ${r.why})`).join(", ");
 
 /** Blocking failures for the gate. */
-export function authenticationFailures(projectDir) {
+export function authenticationFailures(projectDir, { reviews = [] } = {}) {
   const report = checkAuthentication(projectDir);
   if (!report.ran) return { failures: [], advisories: [`authentication: not checked — ${report.unknown}`] };
   if (report.unknown) return { failures: [], advisories: [`authentication: ${report.unknown}`] };
@@ -1363,8 +1364,15 @@ export function authenticationFailures(projectDir) {
     );
   }
 
-  const open = report.routes.filter((r) => !r.protectedBy);
-  if (open.length === 0) return { failures: timing, advisories: exemptAdvisories };
+  // An open route a review covers -- a webhook that checks its own signature, a public page -- is set
+  // aside and listed, not counted. The ID names the route, not a line: the review holds until the
+  // route's method, path or file changes (lib/reviewed.mjs).
+  const allOpen = withIds(report.routes.filter((r) => !r.protectedBy), (r) => `authentication:${r.method} ${r.route}:${r.file}`).map(
+    (r) => ({ ...r, where: `${r.method} ${r.route} (${r.file}:${r.line})` })
+  );
+  const { kept: open, reviewed } = applyReviews(allOpen, reviews);
+  const ids = allOpen.map((r) => r.id);
+  if (open.length === 0) return { failures: timing, advisories: exemptAdvisories, reviewed, ids };
 
   // A route declared anonymous was opened on purpose, and says so: the reader's question there is
   // whether it should be, not where the [Authorize] went.
@@ -1378,6 +1386,7 @@ export function authenticationFailures(projectDir) {
       `authentication: ${open.length} of ${report.routes.length} endpoint(s) accept requests from ` +
         `anyone who can reach the service — ${list}.` +
         (exempt.length ? ` ${exempt.length} more ${exempt.length === 1 ? "is" : "are"} exempt by name and listed separately.` : "") +
+        (reviewed.length ? ` ${reviewed.length} more ${reviewed.length === 1 ? "is" : "are"} open and reviewed, listed separately.` : "") +
         `\n` +
         (someProtected
           ? `Other routes here are authenticated, so this is a gap rather than an omission: an ` +
@@ -1390,5 +1399,7 @@ export function authenticationFailures(projectDir) {
         `exempt and need no change, as are endpoints whose job is to issue a credential.`,
     ],
     advisories: exemptAdvisories,
+    reviewed,
+    ids,
   };
 }

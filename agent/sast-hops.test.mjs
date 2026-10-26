@@ -192,4 +192,3 @@ scanner("a helper in a module no pattern can name is still followed; SSRF throug
   assert.match(r.failures[0], /app\/views\.py:13 \(via purge_all\(\) at app\/lambda\.py:1\)/);
   assert.match(r.advisories.join("\n"), /\(SSRF, not blocking — the call is through .*\): app\/views\.py:9 \(via fetch_json\(\) at app\/fetch\.py:3\)/);
 });
-

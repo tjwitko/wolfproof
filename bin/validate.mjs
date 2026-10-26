@@ -37,7 +37,9 @@ import {
   readPipelineInput,
   parseAllowlist,
   requirementAtBase,
+  isInside,
 } from "../lib/factory.mjs";
+import { parseReviews, REVIEW_FILE } from "../lib/reviewed.mjs";
 import { classifyAdvisory, actionFor, ACTIONS, COULD_NOT_RUN, NOT_CHECKED } from "../lib/advisory-classes.mjs";
 
 const EXIT = { CLEAN: 0, BLOCKED: 1, USAGE: 2, INCOMPLETE: 3 };
@@ -128,10 +130,34 @@ function checkFactoryInputs(projectDir, factory) {
   return { allowlist, policy };
 }
 
-export async function runGate(projectDirArg, taskFile, { env = process.env, preCommit = false, baselineFile = null, factory = null } = {}) {
+/**
+ * The pipeline's list of reviewed findings (lib/reviewed.mjs), or null. Outside the project, in any
+ * mode: inside it, it is the change's to edit, and the project's own list is .wolfproof-reviewed.json.
+ */
+function readReviewedFile(projectDir, file) {
+  if (!file) return null;
+  const abs = path.resolve(file);
+  if (!existsSync(abs) || !statSync(abs).isFile()) throw new UsageError(`the reviewed-findings file ${file} does not exist or is not a file`);
+  if (isInside(projectDir, abs)) {
+    throw new UsageError(
+      `the reviewed-findings file ${file} is inside the project, where the code under test could edit it. ` +
+        `Keep --reviewed outside the project; the project's own list is ${REVIEW_FILE}`
+    );
+  }
+  let value;
+  try {
+    value = JSON.parse(readFileSync(abs, "utf8"));
+  } catch (err) {
+    throw new UsageError(`the reviewed-findings file ${file} could not be parsed as JSON: ${err.message}`);
+  }
+  return parseReviews(value, `--reviewed ${file}`);
+}
+
+export async function runGate(projectDirArg, taskFile, { env = process.env, preCommit = false, baselineFile = null, factory = null, reviewedFile = null } = {}) {
   const projectDir = path.resolve(projectDirArg);
   checkInputs(projectDir, taskFile, baselineFile);
   const { allowlist, policy } = checkFactoryInputs(projectDir, factory);
+  const pipelineReviews = readReviewedFile(projectDir, reviewedFile);
 
   // Factory mode needs to know what existed before the change. Resolved first, because the
   // requirements are read as they were there. A base that cannot be established leaves nothing to
@@ -259,7 +285,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       }
     }
 
-    const r = await validateProject(projectDir, registry, taskText, { preCommit });
+    const r = await validateProject(projectDir, registry, taskText, { preCommit, reviews: pipelineReviews });
     r.failures.unshift(...requirements.failures);
     r.advisories.unshift(...requirements.advisories);
     if (configNote) r.advisories.unshift(`config: ${configNote}`);
@@ -378,6 +404,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       couldNotRun,
       inapplicable,
       exempt: r.exempt || [],
+      reviewed: r.reviewed || [],
       incomplete,
       exitCode: incomplete ? EXIT.INCOMPLETE : r.failures.length ? EXIT.BLOCKED : EXIT.CLEAN,
     };
@@ -453,7 +480,12 @@ function human(result) {
   for (const e of result.exempt || []) {
     out.push(`exempt          : ${e.path} — ${e.reason} (${e.marker})`);
   }
-  if ((result.inapplicable || []).length || (result.exempt || []).length) out.push("");
+  // A reviewed finding is listed on every run with its reason: a review hides a finding from the
+  // verdict, never from the reader.
+  for (const r of result.reviewed || []) {
+    out.push(`reviewed        : ${r.line}`);
+  }
+  if ((result.inapplicable || []).length || (result.exempt || []).length || (result.reviewed || []).length) out.push("");
 
   // What factory mode compared against and what it decided, above the verdict for the same reason as
   // everything else here. The decisions themselves are in BLOCKING and in the could-not-run list.
@@ -521,6 +553,7 @@ function machine(result) {
       couldNotRun: result.couldNotRun,
       notApplicable: result.inapplicable,
       exempt: result.exempt,
+      reviewed: (result.reviewed || []).map(({ line, ...r }) => r),
       findings: result.failures.map((f) => ({ severity: "blocking", message: f })),
       advisories: result.advisories.map((a) => ({ severity: "advisory", message: a })),
     },
@@ -532,6 +565,7 @@ function machine(result) {
 const USAGE = `usage: wolfproof <project-dir> [task-file] [--baseline=<file>] [--json] [--pre-commit]
        wolfproof <project-dir> [task-file] --factory --base=<ref> [--allowlist=<file>] [--policy=<file>] ...
        wolfproof init [project-dir] [--hook] [--task <file>] ...   set a project up (--upgrade refreshes it)
+       wolfproof review <project-dir> [<finding-id> --reason "..."]   list findings by ID, or mark one reviewed
        wolfproof --version     this release, its four controls, and the scanners on PATH
        wolfproof --help
 
@@ -543,7 +577,10 @@ node_modules, then a sibling checkout. A control that resolves from nowhere exit
 --factory is for pipelines where no person reviews the change. Nothing the change grants itself
 loosens the gate: controls come only from an env var or node_modules, an exemption or opt-out is
 honoured only if it existed at --base or the --allowlist approves it, and an advisory that means
-"nothing was checked" blocks. --allowlist and --policy are JSON files outside the project.`;
+"nothing was checked" blocks. --allowlist and --policy are JSON files outside the project.
+
+--reviewed=<file> names findings that have been reviewed, outside the project; the project's own
+list is ${REVIEW_FILE}. Each reviewed finding is listed on every run and does not block.`;
 
 /**
  * A factory option's value: undefined when absent, null when given without "=value". `--base` is
@@ -618,6 +655,8 @@ async function main() {
   const factory = factoryFlag
     ? { base: factoryOptions.base, allowlistFile: factoryOptions.allowlist || null, policyFile: factoryOptions.policy || null }
     : null;
+  const reviewedFile = optionValue(args, "reviewed");
+  if (reviewedFile === null) usageExit("--reviewed takes a file: --reviewed=<file>");
   // In --json mode stdout carries exactly one thing: the result document. The validators share
   // their code with the agent loop, which narrates progress to console.log, so a single narration
   // line lands in front of the JSON and makes it unparseable. That is how the corpus first failed
@@ -631,7 +670,7 @@ async function main() {
   if (json) console.log = (...a) => console.error(...a);
   let result;
   try {
-    result = await runGate(positional[0], positional[1], { preCommit, baselineFile, factory });
+    result = await runGate(positional[0], positional[1], { preCommit, baselineFile, factory, reviewedFile: reviewedFile || null });
   } catch (err) {
     if (!(err instanceof UsageError)) throw err;
     console.log = narrate;
@@ -675,6 +714,9 @@ function invokedDirectly() {
 if (invokedDirectly() && process.argv[2] === "init") {
   const { runInit } = await import("./init.mjs");
   await runInit(process.argv.slice(3));
+} else if (invokedDirectly() && process.argv[2] === "review") {
+  const { runReview } = await import("./review.mjs");
+  process.exit(await runReview(process.argv.slice(3)));
 } else if (invokedDirectly()) {
   const json = process.argv.includes("--json");
   const crash = (err) => {

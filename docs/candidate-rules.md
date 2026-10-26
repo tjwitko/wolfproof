@@ -1103,7 +1103,7 @@ The first pass was far from clean, and each class found is fixed and kept as an 
 
 **Jellyfin's two remaining findings are correct.** `EnvironmentController.ValidatePath` writes and
 deletes a test file in a directory named by the request — admin-only and intended, and also exactly
-what the rule describes. The gate has no way yet for a person to accept a specific `sast` finding;
+what the rule describes. The gate had no way yet for a person to accept a specific `sast` finding (#24 adds one);
 fixture markers exempt directories, not findings. That is the open question this leaves.
 
 Not covered: Rocket, Warp and other Rust frameworks; ASP.NET WebForms; insecure deserialization
@@ -1411,7 +1411,9 @@ hand if there is one). Corpus verdicts must not move.
 Measured limits, each documented in `docs/checks.md`: in Go a call into another package is an
 advisory (only same-package calls resolve); in JavaScript and TypeScript a helper called through its
 module object is an advisory, and called bare after a destructuring import it blocks when its name is
-unique; C and C++ follow bare calls only. A value passed by name was at first not followed at all —
+unique; C and C++ follow bare calls only. The injection check reads test projects, so a helper
+defined in tests can appear in a chain — measured on Jellyfin, through a call on an object, so an
+advisory. A value passed by name was at first not followed at all —
 `run_query(db, name=x)` produced no finding, not even an advisory, because the call patterns were
 positional. Each positional call pattern now has a named twin (`name=$X` in Python, `name = $X` in
 Kotlin, `name: $X` in C# and PHP, PHP's `$` dropped), each spelling matched against real Semgrep.
@@ -1456,6 +1458,53 @@ control line prints which engine ran, as it does for every control's version.
 **How to measure.** Run the same calibration set under both engines and diff the findings. The new
 blocking ones each need reading against their source, as every new rule does; the clean apps must stay
 at zero blocking. Needs a token to measure at all, so it is the user's call when to try.
+
+### 24. Marking one finding as reviewed — done
+
+**The gap.** A team that has read a finding and judged it acceptable has no way to say so but a
+fixture marker, which takes a whole directory out of every check, future findings included. #13 left
+it open with Jellyfin's admin-only path write, which blocks correctly and is intended; #22 added 98
+helper advisories on the clean calibration apps, some not injections at all. Inline suppressions
+(`# nosemgrep`) stay ignored: the code's author would be clearing their own finding.
+
+**Design, approved 2026-10-26:**
+
+- *Every reviewable finding has a stable ID,* printed by `wolfproof review` and in the JSON report:
+  `sast:<rule>:<file>:<hash>`, the hash taken over the finding's code line (and the helper's line,
+  for a finding through a helper); `authentication:<METHOD> <route>:<file>`. A line number is shown,
+  never part of the ID: an edit elsewhere in the file keeps the review, and an edit to the reviewed
+  line voids it, as factory mode already treats `gitleaks:allow`.
+- *One entry, one finding, a reason required:* `{ "id", "reason", "reviewer"?, "expires"? }`. No
+  wildcards, no rule-wide or directory-wide entries — fixture markers and factory mode's policy are
+  for those. An entry without a reason is ignored and reported; expiry is optional, and past it the
+  finding returns.
+- *Where the list lives:* `.wolfproof-reviewed.json` in the project, honoured and listed on every run
+  in the default mode, like a fixture marker — a record, not a control, since the author can write
+  it. In factory mode an entry the change adds blocks unless the allowlist approves it (a new kind,
+  `reviewed-finding`). `--reviewed=<file>` outside the project is honoured in both modes. The agent
+  loop refuses to let a model write the in-project file.
+- *What a run shows:* reviewed findings in their own section, with the reason, not blocking; an entry
+  that matches no finding listed as an advisory, so the file does not rot; an expired one listed and
+  not applied.
+- *Scope of the first version:* the injection and authentication checks, where the unclearable
+  findings are. `wolfproof review <project>` lists their findings with IDs; `wolfproof review
+  <project> <id> --reason "..."` writes a correct entry.
+
+**Built** (`lib/reviewed.mjs`, `bin/review.mjs`, 2026-10-26), as designed. Measured:
+
+- *On Jellyfin,* the case that opened the question: 2 blocking path traversals on the admin-only
+  `EnvironmentController` and 15 helper advisories, reviewed by ID, leave the injection check with no
+  blocking finding and only its two other advisories (SQL text built from a value, files Semgrep
+  could not fully parse). 17 listed as reviewed.
+- *Identity:* a review survives every line of both files moving down, and is voided when the helper's
+  definition line changes — the call then reports again as a new finding.
+- *Each rule is pinned by a test that fails without it* — 13 mutations, 13 caught: a reason required;
+  an entry covering exactly one finding; expiry; stale entries reported; reviews reaching the gate
+  through its crash guard (they did not, at first: the guard rebuilt each check's result from its
+  failures and advisories alone, so no review would ever have been listed); the agent loop refusing
+  the file; `--reviewed` refused inside the project; the Action's line matching the CLI's; factory
+  mode blocking an added entry, and counting a later expiry as a new one; a helper finding's ID
+  including the helper; the line number kept out of the ID.
 
 ### 12. Considered and deferred
 

@@ -33,6 +33,7 @@ import { fileURLToPath } from "url";
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { taskWantsErrorDistinction } from "./code-quality.mjs";
+import { lineFingerprint, withIds, applyReviews } from "../lib/reviewed.mjs";
 import { MAX_HOPS, LANG_OF_EXT, loadTaintRules, summaryRules, hopRules, toSummary, definitionsIn, qualifierOf, writeRules } from "./sast-hops.mjs";
 
 const RULES = fileURLToPath(new URL("./sast-rules/", import.meta.url));
@@ -231,7 +232,31 @@ export function sastScan(projectDir, { taskText = "" } = {}) {
     seen.add(`${key}@${h.blocking}`);
     findings.push(h);
   }
-  return { files: files.length, version, findings, unparsed: [...unparsed] };
+  return { files: files.length, version, findings: identify(projectDir, findings), unparsed: [...unparsed] };
+}
+
+// The ID a review names a finding by (lib/reviewed.mjs): the rule, the file, and a hash of the line
+// -- for a finding through a helper, the helper's line too, so a review of `run_query(x)` does not
+// survive run_query being rewritten. The line number is not part of it: an edit elsewhere in the
+// file keeps the review, an edit to the reviewed line voids it.
+function identify(projectDir, findings) {
+  const lines = new Map();
+  const lineOf = (at) => {
+    const i = at.lastIndexOf(":");
+    const file = at.slice(0, i);
+    if (!lines.has(file)) {
+      try {
+        lines.set(file, readFileSync(path.join(projectDir, file), "utf8").split("\n"));
+      } catch {
+        lines.set(file, []);
+      }
+    }
+    return lines.get(file)[Number(at.slice(i + 1)) - 1] ?? "";
+  };
+  return withIds(findings, (f) => {
+    const file = f.at.slice(0, f.at.lastIndexOf(":"));
+    return `sast:${f.rule}:${file}:${lineFingerprint(lineOf(f.at), ...(f.viaAt ? [lineOf(f.viaAt)] : []))}`;
+  }).map((f) => ({ ...f, where: f.via ? `${f.at} (via ${f.via})` : f.at }));
 }
 
 /**
@@ -365,6 +390,7 @@ function helperHops(projectDir, files, taint, summaryResults) {
             message: `${byId.get(s.base).message}, through a call to a project helper`,
             at: `${rel(x.path)}:${x.start.line}`,
             via: chain(s),
+            viaAt: `${rel(s.file)}:${s.defLine}`,
           });
         }
       }
@@ -375,13 +401,16 @@ function helperHops(projectDir, files, taint, summaryResults) {
   return { findings };
 }
 
-export function sastFailures(projectDir, { taskText = "" } = {}) {
+export function sastFailures(projectDir, { taskText = "" , reviews = [] } = {}) {
   const scan = sastScan(projectDir, { taskText });
   if (scan.couldNotRun) return { failures: [], advisories: [], couldNotRun: scan.couldNotRun };
 
+  // A finding a review covers is set aside before anything is counted, and returned so the run can
+  // list it -- a review hides nothing from the reader, only from the verdict.
+  const { kept, reviewed } = applyReviews(scan.findings, reviews);
   const blocking = new Map();
   const advisory = new Map();
-  for (const f of scan.findings) {
+  for (const f of kept) {
     const target = f.blocking ? blocking : advisory;
     // A helper advisory is unsure of something else -- which function the call reaches -- and says so.
     const key = !f.blocking && f.via ? `${f.category}${VIA}` : f.category;
@@ -408,5 +437,5 @@ export function sastFailures(projectDir, { taskText = "" } = {}) {
       `sast: ${unparsed.length} file(s) could not be fully parsed, so parts of them were not checked — ${unparsed.slice(0, 5).join(", ")}${unparsed.length > 5 ? ", …" : ""}.`
     );
   }
-  return { failures, advisories };
+  return { failures, advisories, reviewed, ids: scan.findings.map((f) => f.id) };
 }

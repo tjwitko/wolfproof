@@ -59,8 +59,16 @@ call might reach that helper or another function with the same name: a method ca
 helper called through its module (`db.findUser(x)`). Such calls are never blocking. Read the helper
 the advisory names; if the call really reaches it, fix it as above. Some of these come from Semgrep
 assuming that a function's result carries its argument's taint — a query built with bindings from a
-value, an Arel predicate — and are not injections at all. There is no way yet to mark one as reviewed
-(`docs/candidate-rules.md`, #13's open question).
+value, an Arel predicate — and are not injections at all. One you have read and accept can be marked
+reviewed by its ID ([Reviewed findings](configuration.md#reviewed-findings)).
+
+**A finding you have read and accept** — an admin-only endpoint that writes where the admin says, a
+webhook that checks its own signature — `wolfproof review .` lists each injection and authentication
+finding with its ID, and `wolfproof review . <id> --reason "..."` records it. It is then listed as
+`reviewed` on every run instead of blocking, until the line it names changes.
+
+**"review: … matches no finding"** — the code a review named has changed, or the finding is gone. If
+the finding came back with a new ID, review it again; otherwise delete the entry.
 
 **"were not read" or "MOST OF THIS PROJECT'S SOURCE WAS NOT READ" above the verdict** — part of the
 project is in a language no language-aware check reads (Swift, Scala, Elixir, Dart, Lua, Perl, Vue,

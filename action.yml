@@ -68,6 +68,14 @@ inputs:
       findings are counted and dropped.
     required: false
     default: ""
+  reviewed:
+    description: >-
+      Findings that have been reviewed, as {"reviewed": [{"id", "reason", "reviewer"?, "expires"?}]},
+      in either mode. Written outside the workspace, so the change cannot edit it. Each one is listed
+      on every run and does not block; `wolfproof review <project>` lists finding IDs. The project's
+      own list is .wolfproof-reviewed.json.
+    required: false
+    default: ""
 
 outputs:
   outcome:
@@ -109,6 +117,7 @@ runs:
         FACTORY_BASE: ${{ inputs.base }}
         FACTORY_ALLOWLIST: ${{ inputs.allowlist }}
         FACTORY_POLICY: ${{ inputs.policy }}
+        REVIEWED: ${{ inputs.reviewed }}
         PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         PUSH_BEFORE: ${{ github.event.before }}
       run: |
@@ -187,6 +196,11 @@ runs:
           echo "::error title=wolfproof: usage error::base, allowlist and policy are factory-mode inputs; set factory: true or remove them. This is not a verdict on the project."
           exit 1
         fi
+        # Reviewed findings, in either mode, outside the workspace for the allowlist's reason.
+        if [ -n "$REVIEWED" ]; then
+          printf '%s\n' "$REVIEWED" > "${RUNNER_TEMP:-/tmp}/wolfproof-reviewed.json"
+          ARGS+=("--reviewed=${RUNNER_TEMP:-/tmp}/wolfproof-reviewed.json")
+        fi
 
         # Once, not twice. terraform plan and checkov dominate the runtime here, and running the
         # gate a second time to get human output would double them on every CI job. The log view is
@@ -223,6 +237,9 @@ runs:
           if (r.coverage) console.log(`NOT READ      : ${r.coverage}`);
           for (const i of r.notApplicable || []) console.log(`not applicable: ${i.tool} — ${i.why}`);
           for (const e of r.exempt || []) console.log(`exempt        : ${e.path} — ${e.reason} (${e.marker})`);
+          // The same line the CLI prints (lib/reviewed.mjs reviewedLine): a reviewed finding is out of
+          // the verdict, never out of sight.
+          for (const v of r.reviewed || []) console.log(`reviewed      : ${v.id} — ${v.where} — ${v.reason}${v.reviewer ? `, ${v.reviewer}` : ""}${v.expires ? `, until ${v.expires}` : ""} (${v.source})`);
           // The same factory lines the CLI prints, so the two renderers agree about what factory
           // mode compared with and decided. The decisions are in the findings and could-not-run lines.
           if (r.factory) {
