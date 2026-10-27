@@ -47,6 +47,24 @@ organisation ruleset requires, for instance:
             A client error must not be reported as a 500.
 ```
 
+## Reviewed findings from outside the workspace
+
+The project's own `.wolfproof-reviewed.json` changes with the code, by whoever writes the code. For
+reviews only the people who own the pipeline can grant, keep the list in a repository or
+organisation variable (Settings → Secrets and variables → Actions → Variables) and pass it in; the
+Action writes it outside the workspace, where the change cannot edit it:
+
+```yaml
+      - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.11.0
+      - uses: tjwitko/wolfproof@v1.11.0
+        with:
+          reviewed: ${{ vars.WOLFPROOF_REVIEWED }}
+```
+
+The variable holds the same JSON as the file, `{"reviewed": [{"id", "reason", ...}]}`. Both lists
+apply, and each reviewed finding says which one it came from. See
+[Reviewed findings](configuration.md#reviewed-findings) for the format and a worked example.
+
 ## Environment
 
 `WOLFPROOF_TEST_TIMEOUT` sets how long the `tests` check lets the suite run — see

@@ -142,6 +142,18 @@ project is a subdirectory:
 ] }
 ```
 
+A `reviewed-finding` entry approves every entry a change adds to `.wolfproof-reviewed.json`, so use it
+only where a person reviews that file's changes — a CODEOWNERS rule on it, for instance:
+
+```json
+{ "exemptions": [
+  { "kind": "reviewed-finding", "path": ".wolfproof-reviewed.json", "reason": "the security team owns this file in CODEOWNERS" }
+] }
+```
+
+Otherwise leave the project's file unapproved and pass reviews from the pipeline's own list,
+`--reviewed=<file>`, which the change cannot edit ([Reviewed findings](configuration.md#reviewed-findings)).
+
 ### The policy
 
 ```json

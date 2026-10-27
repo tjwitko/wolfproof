@@ -44,7 +44,7 @@ function positionals(args) {
   return out;
 }
 
-function list(projectDir, out) {
+function list(projectDir, out, given = projectDir) {
   const scan = sastScan(projectDir);
   const auth = authenticationFailures(projectDir);
   const reviewed = new Set(loadProjectReviews(projectDir).entries.map((e) => e.id));
@@ -60,16 +60,16 @@ function list(projectDir, out) {
     out.push("No finding of the injection or authentication checks to review.");
   }
   for (const r of rows) {
-    out.push(`${r.blocking ? "BLOCKING" : "advisory"}${reviewed.has(r.id) ? ", reviewed" : ""}  ${r.id}`);
+    out.push(`${reviewed.has(r.id) ? "reviewed" : r.blocking ? "BLOCKING" : "advisory"}  ${r.id}`);
     out.push(`    ${r.where} — ${r.what}`);
   }
   for (const id of authIds) {
-    out.push(`BLOCKING${reviewed.has(id) ? ", reviewed" : ""}  ${id}`);
+    out.push(`${reviewed.has(id) ? "reviewed" : "BLOCKING"}  ${id}`);
     out.push(`    an endpoint that accepts requests from anyone who can reach the service`);
   }
   if (rows.length || authIds.length) {
     out.push("");
-    out.push(`To mark one reviewed: wolfproof review ${projectDir} <id> --reason "why it is acceptable"`);
+    out.push(`To mark one reviewed: wolfproof review ${given} <id> --reason "why it is acceptable"`);
   }
   return scan.couldNotRun ? EXIT.INCOMPLETE : EXIT.OK;
 }
@@ -105,7 +105,9 @@ function write(projectDir, id, args, out, err) {
   doc.reviewed = doc.reviewed.filter((e) => !e || e.id !== written.id);
   doc.reviewed.push(written);
   writeFileSync(file, `${JSON.stringify(doc, null, 2)}\n`);
-  out.push(`${doc.reviewed.length === before ? "replaced" : "added"} in ${file}:`);
+  // As the user would type it: relative to where they are, when it is under there.
+  const shown = path.relative(process.cwd(), file);
+  out.push(`${doc.reviewed.length === before ? "replaced" : "added"} in ${shown && !shown.startsWith("..") ? shown : file}:`);
   out.push(`  ${JSON.stringify(written)}`);
   out.push("");
   out.push("The gate lists this finding as reviewed on every run, with the reason, and does not count it.");
@@ -129,7 +131,7 @@ export async function runReview(args) {
       err.push(`wolfproof review: ${pos[0]} is not a directory`);
       code = EXIT.USAGE;
     } else if (pos.length === 1) {
-      code = list(projectDir, out);
+      code = list(projectDir, out, pos[0]);
     } else if (pos.length === 2) {
       code = write(projectDir, pos[1], args, out, err);
     } else {

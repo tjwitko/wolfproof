@@ -72,21 +72,129 @@ with work uncommitted has not finished.
 A finding you have read and accept can be taken out of the verdict by its ID, with a reason. It stays
 in the report: every run lists it as `reviewed`, with the reason, and it does not block.
 
-```bash
-wolfproof review .                     # every injection and authentication finding, with its ID
-wolfproof review . 'sast:csharp-path-traversal:Jellyfin.Api/Controllers/EnvironmentController.cs:7bb61633' \
-  --reason "admin-only endpoint; writes where the admin says, by design" --reviewer tjwitko
+### An example
+
+A small Flask service. Both routes check their caller inside the handler — an admin token, a webhook
+signature — which the authentication check does not read, and the report's table name is looked up
+in a fixed dictionary, which the injection check cannot tell from request data:
+
+```python
+REPORTS = {"orders": "orders", "refunds": "refunds"}
+
+@app.get("/reports")
+def report():
+    if not hmac.compare_digest(request.headers.get("X-Admin-Token", ""), os.environ["ADMIN_TOKEN"]):
+        abort(403)
+    table = REPORTS[request.args["kind"]]
+    return {"rows": db.execute(f"SELECT * FROM {table} ORDER BY created DESC").fetchall()}
+
+@app.post("/hooks/payments")
+def payment_hook():
+    expected = hmac.new(os.environ["PAYMENTS_SECRET"].encode(), request.data, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, request.headers.get("X-Signature", "")):
+        abort(401)
+    return {"ok": True}
 ```
 
-The second command writes an entry to `.wolfproof-reviewed.json` at the project root:
+**1. The gate blocks on all three** (`wolfproof .`, exit 1, explanations trimmed):
+
+```text
+BLOCKING        : 2
+
+  - authentication: 2 of 2 endpoint(s) accept requests from anyone who can reach the service — GET /reports (app.py:13), POST /hooks/payments (app.py:21). …
+
+  - sast: SQL injection — request data is built into a SQL statement: app.py:18. Use a parameterised query: …
+```
+
+**2. List the findings by ID:**
+
+```text
+$ wolfproof review .
+project : …/shop
+
+BLOCKING  sast:python-sql-injection:app.py:5df60c0d
+    app.py:18 — SQL injection: request data is built into a SQL statement
+BLOCKING  authentication:GET /reports:app.py
+    an endpoint that accepts requests from anyone who can reach the service
+BLOCKING  authentication:POST /hooks/payments:app.py
+    an endpoint that accepts requests from anyone who can reach the service
+
+To mark one reviewed: wolfproof review . <id> --reason "why it is acceptable"
+```
+
+**3. Review each one you accept, with the reason.** An authentication ID has spaces in it, so quote it:
+
+```bash
+wolfproof review . 'authentication:POST /hooks/payments:app.py' \
+  --reason "verifies the provider's HMAC signature in the handler" --reviewer tjwitko
+wolfproof review . 'authentication:GET /reports:app.py' \
+  --reason "admin token checked in the handler with compare_digest" --reviewer tjwitko
+wolfproof review . 'sast:python-sql-injection:app.py:5df60c0d' \
+  --reason "the table name comes from the fixed REPORTS dict, never from the request" \
+  --reviewer tjwitko --expires 2027-04-30
+```
+
+```text
+added in .wolfproof-reviewed.json:
+  {"id":"authentication:POST /hooks/payments:app.py","reason":"verifies the provider's HMAC signature in the handler","reviewer":"tjwitko"}
+
+The gate lists this finding as reviewed on every run, with the reason, and does not count it.
+It stops applying when the route's method, path or file changes.
+In factory mode, an entry a change adds to .wolfproof-reviewed.json blocks unless the pipeline's allowlist approves it.
+```
+
+The three commands leave this in `.wolfproof-reviewed.json` at the project root, which you commit with
+the code:
 
 ```json
-{ "reviewed": [
-  { "id": "sast:csharp-path-traversal:Jellyfin.Api/Controllers/EnvironmentController.cs:7bb61633",
-    "reason": "admin-only endpoint; writes where the admin says, by design",
-    "reviewer": "tjwitko", "expires": "2027-04-01" }
-] }
+{
+  "reviewed": [
+    {
+      "id": "authentication:POST /hooks/payments:app.py",
+      "reason": "verifies the provider's HMAC signature in the handler",
+      "reviewer": "tjwitko"
+    },
+    {
+      "id": "authentication:GET /reports:app.py",
+      "reason": "admin token checked in the handler with compare_digest",
+      "reviewer": "tjwitko"
+    },
+    {
+      "id": "sast:python-sql-injection:app.py:5df60c0d",
+      "reason": "the table name comes from the fixed REPORTS dict, never from the request",
+      "reviewer": "tjwitko",
+      "expires": "2027-04-30"
+    }
+  ]
+}
 ```
+
+**4. The gate now passes, and says what it was told** (`wolfproof .`, exit 0):
+
+```text
+reviewed        : sast:python-sql-injection:app.py:5df60c0d — app.py:18 — the table name comes from the fixed REPORTS dict, never from the request, tjwitko, until 2027-04-30 (.wolfproof-reviewed.json)
+reviewed        : authentication:GET /reports:app.py — GET /reports (app.py:13) — admin token checked in the handler with compare_digest, tjwitko (.wolfproof-reviewed.json)
+reviewed        : authentication:POST /hooks/payments:app.py — POST /hooks/payments (app.py:21) — verifies the provider's HMAC signature in the handler, tjwitko (.wolfproof-reviewed.json)
+
+BLOCKING        : none
+```
+
+**5. Changing the reviewed line voids its review.** Adding `LIMIT 500` to that query makes it a new
+finding, and the old entry is reported as doing nothing (`wolfproof .`, exit 1):
+
+```text
+BLOCKING        : 1
+
+  - sast: SQL injection — request data is built into a SQL statement: app.py:18. …
+
+  · review: 1 entry matches no finding, so it does nothing — sast:python-sql-injection:app.py:5df60c0d (.wolfproof-reviewed.json). The code it names has changed or the finding is gone; if the finding comes back with a new ID, review it again.
+```
+
+`wolfproof review .` shows its new ID, `sast:python-sql-injection:app.py:cc70db68`, with the two routes
+now listed as `reviewed`. Read the line again, review it under the new ID if it is still acceptable,
+and delete the old entry.
+
+### The rules
 
 - **One entry, one finding.** An ID names a check, a rule and a file, and for an injection finding a
   hash of its line — for one through a helper, the helper's line too. There are no wildcards; a whole
@@ -104,7 +212,8 @@ The file is a record, not a control: whoever writes the code can write it, as wi
 marker, and the agent loop refuses to let a model write it. In [factory mode](factory-mode.md), an
 entry the change adds blocks unless the pipeline's allowlist approves it (`reviewed-finding`).
 `--reviewed=<file>`, and the Action's `reviewed` input, take the same list from outside the project,
-in either mode.
+in either mode — see [Reviewed findings from outside the workspace](action-reference.md#reviewed-findings-from-outside-the-workspace),
+and [factory mode's allowlist](factory-mode.md#the-allowlist) for approving the project's file.
 
 ## JSON output
 

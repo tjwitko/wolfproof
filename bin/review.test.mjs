@@ -30,7 +30,7 @@ test("review lists open routes by ID, writes an entry, replaces it, and marks it
     assert.match(again.stdout, /^replaced in /);
     const doc = JSON.parse(readFileSync(path.join(d, ".wolfproof-reviewed.json"), "utf8"));
     assert.deepEqual(doc, { reviewed: [{ id: "authentication:GET /report:app.js", reason: "still public", expires: "2027-01-01" }] });
-    assert.match(wolfproof("review", d).stdout, /^BLOCKING, reviewed  authentication:GET \/report:app\.js$/m);
+    assert.match(wolfproof("review", d).stdout, /^reviewed  authentication:GET \/report:app\.js$/m);
   } finally {
     rmSync(d, { recursive: true, force: true });
   }
