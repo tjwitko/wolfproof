@@ -72,6 +72,36 @@ with work uncommitted has not finished.
 A finding you have read and accept can be taken out of the verdict by its ID, with a reason. It stays
 in the report: every run lists it as `reviewed`, with the reason, and it does not block.
 
+### Finding a finding's ID
+
+The gate's report does not print IDs: it groups findings, several to a line. To get them, run
+
+```bash
+wolfproof review <project-dir>
+```
+
+It runs only the injection and authentication checks, changes nothing, and prints each finding as two
+lines — a status (`BLOCKING`, `advisory` or `reviewed`) followed by the ID, then where the finding is
+and what it is:
+
+```text
+BLOCKING  sast:python-sql-injection:app.py:5df60c0d
+    app.py:18 — SQL injection: request data is built into a SQL statement
+```
+
+The ID is everything after the status word, here `sast:python-sql-injection:app.py:5df60c0d`. Copy it
+as printed. It has one of two shapes:
+
+| check | ID | example |
+|---|---|---|
+| injection | `sast:<rule>:<file>:<hash of the line>` | `sast:python-sql-injection:app.py:5df60c0d` |
+| authentication | `authentication:<METHOD> <route>:<file>` | `authentication:GET /reports:app.py` |
+
+The last part of an injection ID is a hash of the flagged line, so it cannot be written by hand. Take it
+from the list. When two findings would get the same ID (the same rule on two identical lines of one file), the
+second gets `#2` on the end.
+Advisory findings are listed too, and reviewing one takes it out of the advisories.
+
 ### An example
 
 A small Flask service. Both routes check their caller inside the handler — an admin token, a webhook
@@ -106,7 +136,7 @@ BLOCKING        : 2
   - sast: SQL injection — request data is built into a SQL statement: app.py:18. Use a parameterised query: …
 ```
 
-**2. List the findings by ID:**
+**2. List the findings by ID.** The report above has no IDs, so ask for them:
 
 ```text
 $ wolfproof review .
@@ -122,7 +152,8 @@ BLOCKING  authentication:POST /hooks/payments:app.py
 To mark one reviewed: wolfproof review . <id> --reason "why it is acceptable"
 ```
 
-**3. Review each one you accept, with the reason.** An authentication ID has spaces in it, so quote it:
+**3. Review each one you accept, with the reason**, pasting its ID from step 2 in place of `<id>`.
+Quote every ID: an authentication ID has a space in it.
 
 ```bash
 wolfproof review . 'authentication:POST /hooks/payments:app.py' \

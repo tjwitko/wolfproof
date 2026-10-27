@@ -64,7 +64,8 @@ reviewed by its ID ([Reviewed findings](configuration.md#reviewed-findings)).
 
 **A finding you have read and accept** — an admin-only endpoint that writes where the admin says, a
 webhook that checks its own signature — `wolfproof review .` lists each injection and authentication
-finding with its ID, and `wolfproof review . <id> --reason "..."` records it. It is then listed as
+finding with its ID — the gate's report does not show them ([Finding a finding's
+ID](configuration.md#finding-a-findings-id)) — and `wolfproof review . <id> --reason "..."` records it. It is then listed as
 `reviewed` on every run instead of blocking, until the line it names changes.
 
 **"review: … matches no finding"** — the code a review named has changed, or the finding is gone. If
