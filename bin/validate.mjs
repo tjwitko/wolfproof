@@ -39,7 +39,7 @@ import {
   requirementAtBase,
   isInside,
 } from "../lib/factory.mjs";
-import { parseReviews, REVIEW_FILE } from "../lib/reviewed.mjs";
+import { parseReviews, reviewableLine, REVIEW_FILE } from "../lib/reviewed.mjs";
 import { classifyAdvisory, actionFor, ACTIONS, COULD_NOT_RUN, NOT_CHECKED } from "../lib/advisory-classes.mjs";
 
 const EXIT = { CLEAN: 0, BLOCKED: 1, USAGE: 2, INCOMPLETE: 3 };
@@ -380,6 +380,8 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
     return {
       factory: factoryReport,
       projectDir,
+      // As it was given, for the line pointing at `wolfproof review`, which the reader may run as is.
+      projectArg: projectDirArg,
       taskFile: taskFile || null,
       baseline: requirements.baseline,
       scannedAt,
@@ -405,6 +407,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       inapplicable,
       exempt: r.exempt || [],
       reviewed: r.reviewed || [],
+      reviewable: r.reviewable || [],
       incomplete,
       exitCode: incomplete ? EXIT.INCOMPLETE : r.failures.length ? EXIT.BLOCKED : EXIT.CLEAN,
     };
@@ -511,6 +514,9 @@ function human(result) {
   const qualifier = result.incomplete ? " FROM THE CHECKS THAT RAN (see above)" : "";
   out.push(`BLOCKING        : ${result.failures.length ? result.failures.length : `none${qualifier}`}\n`);
   for (const f of result.failures) out.push(`  - ${f}\n`);
+  // The report prints no IDs -- one line can hold several findings -- so it says where they are.
+  const reviewable = result.failures.length ? (result.reviewable || []).length : 0;
+  if (reviewable) out.push(`reviewable      : ${reviewableLine(reviewable, result.projectArg ?? result.projectDir)}\n`);
   out.push(`advisory        : ${result.advisories.length || "none"}\n`);
   for (const a of result.advisories) out.push(`  · ${a}\n`);
   return out.join("\n");
@@ -554,6 +560,8 @@ function machine(result) {
       notApplicable: result.inapplicable,
       exempt: result.exempt,
       reviewed: (result.reviewed || []).map(({ line, ...r }) => r),
+      // The IDs of the blocking findings a review can name: what `wolfproof review` lists as BLOCKING.
+      reviewable: result.reviewable || [],
       findings: result.failures.map((f) => ({ severity: "blocking", message: f })),
       advisories: result.advisories.map((a) => ({ severity: "advisory", message: a })),
     },

@@ -38,9 +38,12 @@ scanner("a review of a helper finding survives lines moving and is voided when t
     const first = sastFailures(dir);
     const id = first.ids.find((i) => i.startsWith("sast:python-sql-injection--via-helper:routes.py:"));
     assert.ok(id, first.ids.join("\n"));
+    // The two advisories in db.py have IDs too; only the blocking finding is pointed at as one to review.
+    assert.deepEqual(first.blockingIds, [id], first.ids.join("\n"));
     const reviews = [{ id, reason: "the table holds fixtures only", source: "test" }];
     const reviewed = sastFailures(dir, { reviews });
     assert.deepEqual([reviewed.failures.length, reviewed.reviewed.map((r) => r.id)], [0, [id]]);
+    assert.deepEqual(reviewed.blockingIds, [], "a reviewed finding is not pointed at again");
 
     writeFileSync(path.join(dir, "routes.py"), "# moved down a line\n" + route);
     writeFileSync(path.join(dir, "db.py"), "# and this one too\n" + helper);

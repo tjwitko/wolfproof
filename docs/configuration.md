@@ -74,7 +74,14 @@ in the report: every run lists it as `reviewed`, with the reason, and it does no
 
 ### Finding a finding's ID
 
-The gate's report does not print IDs: it groups findings, several to a line. To get them, run
+The gate's report does not print IDs: it groups findings, several to a line. When a blocking finding
+has an ID, the report says where to get it, under the blocking findings:
+
+```text
+reviewable      : 3 injection or authentication findings above can be marked reviewed once read — wolfproof review . lists their IDs
+```
+
+So run
 
 ```bash
 wolfproof review <project-dir>
@@ -98,7 +105,7 @@ as printed. It has one of two shapes:
 | authentication | `authentication:<METHOD> <route>:<file>` | `authentication:GET /reports:app.py` |
 
 The last part of an injection ID is a hash of the flagged line, so it cannot be written by hand. Take it
-from the list. When two findings would get the same ID (the same rule on two identical lines of one file), the
+from the list. (`--json` carries the blocking ones too, as `reviewable`.) When two findings would get the same ID (the same rule on two identical lines of one file), the
 second gets `#2` on the end.
 Advisory findings are listed too, and reviewing one takes it out of the advisories.
 
@@ -134,9 +141,11 @@ BLOCKING        : 2
   - authentication: 2 of 2 endpoint(s) accept requests from anyone who can reach the service — GET /reports (app.py:13), POST /hooks/payments (app.py:21). …
 
   - sast: SQL injection — request data is built into a SQL statement: app.py:18. Use a parameterised query: …
+
+reviewable      : 3 injection or authentication findings above can be marked reviewed once read — wolfproof review . lists their IDs
 ```
 
-**2. List the findings by ID.** The report above has no IDs, so ask for them:
+**2. List the findings by ID**, as the report's last line says:
 
 ```text
 $ wolfproof review .
@@ -218,6 +227,8 @@ BLOCKING        : 1
 
   - sast: SQL injection — request data is built into a SQL statement: app.py:18. …
 
+reviewable      : 1 injection or authentication finding above can be marked reviewed once read — wolfproof review . lists its ID
+
   · review: 1 entry matches no finding, so it does nothing — sast:python-sql-injection:app.py:5df60c0d (.wolfproof-reviewed.json). The code it names has changed or the finding is gone; if the finding comes back with a new ID, review it again.
 ```
 
@@ -254,4 +265,5 @@ usage error writes `{"exitCode": 2, "error": "..."}`.
 
 The report also carries `toolchain` — each scanner on `PATH` and its version — and `scannedAt`, the
 time the run started, and `reviewed`: each [reviewed finding](#reviewed-findings) with its ID,
-location, reason, reviewer, expiry and the list it came from.
+location, reason, reviewer, expiry and the list it came from; and `reviewable`: the IDs of the
+blocking findings a review could name, the ones `wolfproof review` lists as `BLOCKING`.

@@ -136,7 +136,8 @@ through an object of unknown type, names defined more than once, and SSRF throug
 advisories. The injection check takes longer: 10 to 55 per cent on the calibration applications.
 
 **After v1.11.0: a finding can be marked reviewed.** `wolfproof review .` lists injection and
-authentication findings by ID, and `.wolfproof-reviewed.json` (or `--reviewed=<file>`) takes one
+authentication findings by ID (a blocked report's new `reviewable` line, and `reviewable` in
+`--json`, point at it), and `.wolfproof-reviewed.json` (or `--reviewed=<file>`) takes one
 finding out of the verdict with a reason, until its line changes. Nothing changes for a project
 without one. In factory mode, an entry the change adds blocks unless the allowlist approves it.
 

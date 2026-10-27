@@ -118,6 +118,7 @@ runs:
         FACTORY_ALLOWLIST: ${{ inputs.allowlist }}
         FACTORY_POLICY: ${{ inputs.policy }}
         REVIEWED: ${{ inputs.reviewed }}
+        REVIEW_PROJECT: ${{ inputs.project }}
         PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         PUSH_BEFORE: ${{ github.event.before }}
       run: |
@@ -253,6 +254,10 @@ runs:
           }
           console.log(`\nBLOCKING : ${r.blocking}${r.incomplete ? " FROM THE CHECKS THAT RAN" : ""}\n`);
           for (const f of r.findings) console.log(`  - ${f.message}\n`);
+          // The same line the CLI prints (lib/reviewed.mjs reviewableLine): the report has no IDs, so it
+          // says where to get them. The project path comes through the environment, never the script.
+          const rv = { n: r.blocking ? (r.reviewable || []).length : 0, project: process.env.REVIEW_PROJECT || "." };
+          if (rv.n) console.log(`reviewable    : ${rv.n} injection or authentication finding${rv.n === 1 ? "" : "s"} above can be marked reviewed once read — wolfproof review ${rv.project} lists ${rv.n === 1 ? "its ID" : "their IDs"}\n`);
           for (const a of r.advisories) console.log(`  . ${a.message}\n`);
         ' "$RESULT" || echo "(could not render the result; the JSON is at $RESULT)"
 

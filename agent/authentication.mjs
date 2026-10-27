@@ -1372,7 +1372,7 @@ export function authenticationFailures(projectDir, { reviews = [] } = {}) {
   );
   const { kept: open, reviewed } = applyReviews(allOpen, reviews);
   const ids = allOpen.map((r) => r.id);
-  if (open.length === 0) return { failures: timing, advisories: exemptAdvisories, reviewed, ids };
+  if (open.length === 0) return { failures: timing, advisories: exemptAdvisories, reviewed, ids, blockingIds: [] };
 
   // A route declared anonymous was opened on purpose, and says so: the reader's question there is
   // whether it should be, not where the [Authorize] went.
@@ -1401,5 +1401,6 @@ export function authenticationFailures(projectDir, { reviews = [] } = {}) {
     advisories: exemptAdvisories,
     reviewed,
     ids,
+    blockingIds: open.map((r) => r.id),
   };
 }

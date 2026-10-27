@@ -270,8 +270,8 @@ code moved where the checks do not look.
 
 #### A finding you have read and accept
 
-The gate's report does not show finding IDs; `wolfproof review .` lists each injection and
-authentication finding with its ID, and `wolfproof review . <id> --reason "..."`, with an ID copied
+The gate's report points at `wolfproof review .`, which lists each injection and authentication
+finding with its ID, and `wolfproof review . <id> --reason "..."`, with an ID copied
 from that list, marks one reviewed in `.wolfproof-reviewed.json`. It is then listed on every
 run with its reason instead of blocking, until the line it names changes. One entry is one finding:
 there are no wildcards.

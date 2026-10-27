@@ -437,5 +437,7 @@ export function sastFailures(projectDir, { taskText = "" , reviews = [] } = {}) 
       `sast: ${unparsed.length} file(s) could not be fully parsed, so parts of them were not checked — ${unparsed.slice(0, 5).join(", ")}${unparsed.length > 5 ? ", …" : ""}.`
     );
   }
-  return { failures, advisories, reviewed, ids: scan.findings.map((f) => f.id) };
+  // The blocking findings by ID, for the report's pointer to `wolfproof review`. Not in `failures`:
+  // the agent loop reads those, and a model is not the one to decide a finding is acceptable.
+  return { failures, advisories, reviewed, ids: scan.findings.map((f) => f.id), blockingIds: kept.filter((f) => f.blocking).map((f) => f.id) };
 }
