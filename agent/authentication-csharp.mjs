@@ -508,6 +508,7 @@ function controllerRoutes(text, parsed, index) {
           kind: "controller",
           anonymous,
           auth: auth ? `an [${auth.name}] attribute` : null,
+          body: m.bodyStart >= 0 ? text.slice(m.bodyStart, m.bodyEnd + 1) : null,
         });
       }
     }
@@ -765,10 +766,17 @@ function handlerAuth(index, file, seg) {
   const args = splitTopLevel(file.masked, seg.argsFrom, seg.argsTo);
   const [a, b] = args[args.length - 1];
   const handler = file.masked.slice(a, b);
-  const out = { auth: null, anonymous: false };
+  const out = { auth: null, anonymous: false, body: null };
   const lambdaAttrs = attributesAt(file.text, file.masked, a).attrs;
   const group = /^\s*(?:[\w.]+\.)?(\w+)\s*$/.exec(handler);
   const attrs = group ? (index.methodsByName.get(group[1]) || []).flatMap((m) => m.attrs) : lambdaAttrs;
+  // Its body, for a check written inside it: the lambda's own, or the method's when one method has
+  // that name -- two would leave which one runs undecided.
+  if (!group) out.body = file.text.slice(a, b);
+  else {
+    const methods = (index.methodsByName.get(group[1]) || []).filter((m) => m.bodyStart >= 0);
+    if (methods.length === 1) out.body = methods[0].file.text.slice(methods[0].bodyStart, methods[0].bodyEnd + 1);
+  }
   for (const attr of attrs) {
     if (attr.name === "AllowAnonymous") out.anonymous = true;
     else if (isAuthAttribute(index, attr)) out.auth = out.auth || `an [${attr.name}] attribute on the handler`;
@@ -811,6 +819,7 @@ function minimalRoutes(index, file) {
       kind: "minimal",
       anonymous: state.anonymous || own.anonymous || handler.anonymous,
       auth: own.auth || handler.auth || state.auth,
+      body: handler.body,
     });
   }
   return out;
@@ -834,6 +843,11 @@ export const csharpAdapter = {
 
   globalAuth(all, texts = [all]) {
     return projectIndex(texts).globals.fallback ? "a fallback authorization policy requiring an authenticated user" : null;
+  },
+
+  family: "brace",
+  handlerBodies(r) {
+    return [r.body];
   },
 
   routeAuth(r, all, texts = [all]) {

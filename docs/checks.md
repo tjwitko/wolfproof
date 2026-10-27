@@ -36,7 +36,8 @@ Validator: `authentication`.
   authenticates none of them
 
 **Reports without blocking:** routes exempt by name — probes such as `/health` and credential-issuing
-endpoints such as `/login` — each one listed.
+endpoints such as `/login` — and routes counted as protected by a check inside the handler, each one
+listed.
 
 **Covers:** Python (FastAPI, Flask), JavaScript/TypeScript (Express, Fastify, NestJS), Go
 (`net/http`, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra, Rails), C# (ASP.NET Core
@@ -49,8 +50,7 @@ endpoint, on its group, or on the call of the method that mapped it, by `MapCont
 or a global `AuthorizeFilter` (controllers only), and by a `FallbackPolicy` that requires an
 authenticated user. `[AllowAnonymous]` or `.AllowAnonymous()` overrides all of them, as it does in
 ASP.NET, and the finding marks such a route "declared anonymous". `UseAuthorization()` and a
-`DefaultPolicy` protect nothing on their own. Not read: authorization written inside the handler,
-Razor Pages, gRPC services and SignalR hubs.
+`DefaultPolicy` protect nothing on their own. Not read: Razor Pages, gRPC services and SignalR hubs.
 
 In PHP, a Laravel route counts as protected by middleware on the route, on a group around it, on the
 group that includes its route file, or in its controller's constructor. A middleware name is resolved
@@ -69,6 +69,45 @@ order as Spring takes them. A Ktor route counts as protected when any `authentic
 required, which is Ktor's own rule: `authenticate(optional = true)` nested inside a required block
 does not open it. Routes in a `fun Route.x()` are judged at every call. Not read: hand-registered
 interceptors and filters, Spring's functional router, and Ktor's `method(HttpMethod.X) { handle { } }`.
+
+#### Authentication checked inside the handler
+
+A route that nothing outside protects still counts as protected when its own handler checks the
+caller, in every language above. A webhook comparing a key in constant time, or a page that sends a
+visitor without a session to the sign-in page, used to be reported as open to anyone. The check has
+to have this shape, all of it:
+
+- **At the top level of the handler.** A check nested inside another branch protects one path.
+- **A condition that tests the caller**, in one of three ways: a secret checked — a constant-time
+  comparison (`hmac.compare_digest`, `FixedTimeEquals`, `hash_equals`, `MessageDigest.isEqual`) or a
+  call that verifies a signature or token; a credential-named value compared with a configured or
+  credential-named one, never with a literal (`sortKey != "date"` is validation) or its own
+  confirmation; or the caller's identity — a session, a principal, a signed-in user, a role. A name
+  assigned earlier in the handler is read through its assignment. A call whose name only says it
+  authenticates or authorizes counts with a 401, a 403 or the sign-in page, and not with a 404.
+- **A refusal that ends the request:** it returns, throws, aborts or halts — with 401, 403, 400,
+  404, a redirect or an exception — or the `if` has an `else` that does the work and is the handler's
+  last statement.
+- **Declared anonymous or not.** `[AllowAnonymous]` says the framework requires no sign-in; a webhook
+  in an app whose policy requires one declares it because it checks its own key.
+- **A refusal for every failure.** `if !valid || expired` refuses whenever the check fails.
+  `if !featureOn && !isAdmin` refuses only while the feature is off, so it is not credited.
+
+Each route credited this way is listed in an advisory for a person to confirm, since crediting a
+check that is not one is the way this can be wrong in the dangerous direction. Not read: a check in a
+helper the handler calls (`require_admin()`), a guard after the work, and a check in a base class or
+filter the readers above do not know. Those routes stay open; a
+[reviewed finding](configuration.md#reviewed-findings) is how to accept one.
+
+On the 29 calibration applications it credits 22 routes, each read against its source: Bitwarden's
+three payment webhooks (a query key compared with `FixedTimeEquals`, answering 400), its sponsorship
+status (the caller's organisation role, answering "not found") and the policies an invitation shows
+(declared `[AllowAnonymous]`, and the invite token validated); kweet's and youkube's
+session-checked pages; Gitea's signed artifact URL and eight issue and comment edits (`!ctx.IsSigned`,
+403); WebGoat's internal diagnostics; and dvcsharp-api's sign-in and password reset (the reset key
+looked up, 400 without it). It credits none of: Jellyfin's splashscreen (refused only while the
+feature is off), Bitwarden's job runner (a branch on a job name), pages where signing in is optional,
+and a chat socket that gives every visitor a session.
 
 **Why it exists:** "no endpoint authenticates" appeared in five of five preserved reviews and was
 still unfixed six runs later. Per route, because one real run authenticated POST and left GET open,

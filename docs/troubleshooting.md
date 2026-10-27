@@ -63,7 +63,7 @@ value, an Arel predicate — and are not injections at all. One you have read an
 reviewed by its ID ([Reviewed findings](configuration.md#reviewed-findings)).
 
 **A finding you have read and accept** — an admin-only endpoint that writes where the admin says, a
-webhook that checks its own signature — `wolfproof review .` lists each injection and authentication
+webhook whose signature is checked in a helper it calls — `wolfproof review .` lists each injection and authentication
 finding with its ID — the report's `reviewable` line points there ([Finding a finding's
 ID](configuration.md#finding-a-findings-id)) — and `wolfproof review . <id> --reason "..."` records it. It is then listed as
 `reviewed` on every run instead of blocking, until the line it names changes.
@@ -81,6 +81,17 @@ cannot be enforced on it.
 `/metrics`…) and credential-issuing endpoints (`/login`, `/token`…) open, and lists each one it
 skipped. The exemption is by path alone, so check the list: a route with one of those names that
 reads input or changes state needs authentication like any other.
+
+**Routes that "count as protected by a check inside the handler"** — nothing outside the route
+protects it, and its handler checks the caller itself: a secret compared in constant time, a
+credential against configuration, a session or role, refused at the top of the handler
+([the rule](checks.md#authentication-checked-inside-the-handler)). Read each one listed: a check that
+tests the wrong thing, or refuses with a status the client ignores, reads the same.
+
+**A route reported open whose handler does check the caller** — the check is in a helper the handler
+calls, after the work, or behind a condition that lets some callers through (`!featureOn && !isAdmin`
+refuses only while the feature is off). Move the check to the top of the handler, onto the route
+(middleware, an attribute, a dependency), or mark the finding reviewed.
 
 **"declare dependencies that no scanner read"** — `osv-scanner` reads lockfiles, and of manifests
 only `requirements*.txt`, `go.mod` and `pom.xml`. A `package.json`, `Cargo.toml`, `pyproject.toml`,

@@ -232,6 +232,7 @@ function springRoutes(index, file) {
           line: a.line,
           kind: "spring",
           auth: auth || securityRuleFor(index, method, route),
+          body: fn.body && fn.body.to > fn.body.from ? file.text.slice(fn.body.from, fn.body.to + 1) : null,
         });
       }
     }
@@ -448,6 +449,7 @@ function ktorRoutes(index, file) {
       line: b.line,
       kind: "ktor",
       auth: ctx.auth,
+      body: b.to > b.from ? file.text.slice(b.from, b.to + 1) : null,
     });
   }
   return out;
@@ -510,6 +512,11 @@ export const kotlinAdapter = {
   globalAuth() {
     // Spring's rules are judged per route, in order; Ktor has no global authentication.
     return null;
+  },
+
+  family: "brace",
+  handlerBodies(r) {
+    return [r.body];
   },
 
   routeAuth(r) {

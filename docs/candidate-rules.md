@@ -1506,6 +1506,59 @@ helper advisories on the clean calibration apps, some not injections at all. Inl
   mode blocking an added entry, and counting a later expiry as a new one; a helper finding's ID
   including the helper; the line number kept out of the ID.
 
+### 25. Authentication checked inside the handler — done
+
+**The gap.** Every reader judged a route by what protects it from outside: a decorator, middleware,
+an attribute, a group, a security rule. A handler that checks its own caller was reported open to
+anyone. The JavaScript and Go readers credited one shape — a credential header read and a 401 or 403
+— and the other six languages none. Measured in #20 and #21: Bitwarden's Apple, BitPay and PayPal
+webhooks compare a query key with `FixedTimeEquals` and answer **400**, its sponsorship status throws
+"not found" to anyone but the organisation's owner, and ktor-samples' kweet and youkube send a
+visitor without a session to the sign-in page or answer 403. A 401-or-403 rule would have missed
+every one.
+
+**Done** (`agent/auth-handler.mjs`, 2026-10-27). One reader for every language, given the handler's
+source by each adapter; it reads the handler's top-level statements and credits a guard of one shape:
+evidence in the condition (a secret checked, a credential compared with a configured or
+credential-named value, or the caller's identity), a refusal that ends the request (or an if/else
+whose other side does the work and ends the handler), and a condition that refuses every failure —
+an OR of failures on the refusing side, an AND of passes on the working side. Each credited route is
+listed in an advisory. It runs only where nothing outside protects the route.
+
+**Measured** on the 29 calibration applications, before and after, every changed route read against
+its source:
+
+| app | newly credited | what |
+|---|---|---|
+| Bitwarden | 5 | three payment webhooks (`FixedTimeEquals`, 400); sponsorship status (`_currentContext.OrganizationOwner`, "not found"); policies by invite token (`[AllowAnonymous]`, the token validated, "not found") |
+| ktor-samples | 5 | kweet's delete and new-post pages, youkube's upload pages (a session, sign-in redirect or 403) |
+| Gitea | 9 | the signed artifact URL (`hmac.Equal`, 404); eight issue and comment edits (`!ctx.IsSigned \|\| ...`, 403) |
+| WebGoat | 1 | internal diagnostics (a header token against the configured one, 401) |
+| dvcsharp-api | 2 | sign-in (401 on bad credentials); password reset (the reset key looked up, 400 without it) |
+
+Open routes 1,300 to 1,278; none lost protection. A route declared anonymous is read as well: the
+first version skipped them, and Bitwarden's invite-token route was the one it missed. Found and fixed while measuring:
+
+- **Jellyfin's splashscreen** was first credited: `if (!SplashscreenEnabled && !isAdmin) return NotFound()`
+  refuses only while the feature is off. The connective is now part of the rule.
+- **dvcsharp-api's password reset** was first credited for `password != passwordConfirmation`. A
+  confirmation, and two fields of one object, are not a credential check. (It is credited now for the
+  reset-key lookup, which is one.)
+- **Gitea's LFS lock list** answers 401 when `authenticate(ctx, ...)` fails. A call named for
+  authentication or authorization now counts, only with 401, 403 or the sign-in page.
+- **The Go reader read into the next route.** It took a route's handler names from the text after its
+  path up to the first `);`, which Go does not write, so a route was credited with the handlers of the
+  two routes declared below it: four Gitea sign-in pages were "a verified request signature", and an
+  LFS route held a neighbour's credential check. The call now ends at its own closing parenthesis.
+  The same search ran two regular expressions over the whole project per handler name; indexing
+  definitions once took Gitea's authentication check from 59 seconds to under one.
+
+**Not credited, deliberately:** pages where signing in is optional (kweet's index reads a session
+and refuses nothing); a chat socket whose session every visitor is given by an interceptor; a check
+in a helper the handler calls (ktor-samples' `getOrThrow`, the reworked example in
+`docs/configuration.md`); Gitea's `ctx.Doer == nil`, which is that project's own name for the user.
+A route these leave open can be marked reviewed (#24).
+
 ### 12. Considered and deferred
 
 - **Split-string secrets** (`"abc" + "def"`). Missed, as the review says. The rest of its claim did not

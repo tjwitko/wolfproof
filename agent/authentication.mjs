@@ -42,6 +42,7 @@ import path from "path";
 
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
+import { handlerGuard, methodBlock } from "./auth-handler.mjs";
 import { csharpAdapter } from "./authentication-csharp.mjs";
 import { phpAdapter } from "./authentication-php.mjs";
 import { kotlinAdapter } from "./authentication-kotlin.mjs";
@@ -454,12 +455,28 @@ export function leakySignatureCheck(all) {
 // a dedent rather than a line count so it neither truncates a long handler nor runs into the next
 // one -- reading past a handler into its neighbour is how an unauthenticated route once got
 // credited with another route's verification.
+//
+// It starts at the `def`, past any further decorators -- a second decorator used to end the body at
+// its own line -- and runs while lines are indented past the `def`, so a route defined inside a
+// function or class is read too.
 function pyRouteBody(lines, startIdx) {
+  let d = startIdx;
+  while (d < lines.length && d < startIdx + 40 && !/^\s*(?:async\s+)?def\b/.test(lines[d])) d++;
+  if (d >= lines.length || d >= startIdx + 40) d = startIdx;
+  const indentOf = (l) => /^\s*/.exec(l)[0].length;
+  const indent = indentOf(lines[d]);
   const out = [];
-  for (let i = startIdx; i < lines.length && out.length < 300; i++) {
-    const l = lines[i];
-    if (out.length && l.trim() && !/^\s/.test(l)) break;
-    out.push(l);
+  // The signature first, however it wraps: it ends at the `:` that closes it.
+  let depth = 0;
+  let j = d;
+  for (; j < lines.length; j++) {
+    out.push(lines[j]);
+    for (const ch of lines[j]) depth += "([{".includes(ch) ? 1 : ")]}".includes(ch) ? -1 : 0;
+    if (depth <= 0 && /:\s*$/.test(lines[j])) break;
+  }
+  for (j++; j < lines.length && out.length < 300; j++) {
+    if (lines[j].trim() && indentOf(lines[j]) <= indent) break;
+    out.push(lines[j]);
   }
   return out.join("\n");
 }
@@ -469,6 +486,10 @@ const pythonAdapter = {
   extensions: [".py"],
   comments: HASH_COMMENTS,
   idiom: "a FastAPI dependency (Depends/Security) on the route or on the app, or a credential header the handler verifies",
+  family: "python",
+  handlerBodies(r) {
+    return [r.body];
+  },
 
   routes(text) {
     const lines = text.split("\n");
@@ -539,6 +560,23 @@ const JS_CHAIN_VERB_RE = /\.\s*(get|post|put|patch|delete|all)\s*\(([^)]*)\)/g;
 // and auth is a decorator either on the method or on the class.
 const JS_NEST_ROUTE_RE = /@(Get|Post|Put|Patch|Delete|All)\s*\(\s*(?:(['"`])([^'"`]*)\2)?\s*\)/g;
 
+// Where the route call's own argument list ends: the `)` that closes it, counted from just after
+// the path. It used to be the first `);`, which Go never writes -- so a Go route read the next two
+// lines as well, and was credited with the handlers of the routes declared below it.
+function callEnd(context) {
+  let depth = 0;
+  for (let k = 0; k < context.length; k++) {
+    const ch = context[k];
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") {
+      if (depth === 0) return k + 1;
+      depth--;
+    }
+  }
+  const semi = context.indexOf(");");
+  return semi < 0 ? context.length : semi + 1;
+}
+
 // The identifiers a route hands its request to, e.g.
 // `app.post('/webhook', express.raw({...}), handleWebhook)`. JS_ROUTE_RE stops at the comma after
 // the path, so the handlers are in the route's trailing context, not in its declaration -- reading
@@ -548,7 +586,7 @@ const JS_NEST_ROUTE_RE = /@(Get|Post|Put|Patch|Delete|All)\s*\(\s*(?:(['"`])([^'
 // Every bare identifier up to the closing paren is a candidate: Express takes a chain of
 // middleware and the verifier may be any of them, not only the last.
 function routeHandlerNames(context) {
-  const call = context.slice(0, context.indexOf(");") + 1 || context.length);
+  const call = context.slice(0, callEnd(context));
   // The optional receiver is what Go needs: `mux.HandleFunc("/lookup", s.handleLookup)` names its
   // handler as a method VALUE, and a pattern anchored on `[,\s(]` never sees past the dot. Both
   // routes of the first Go deliverable read as unauthenticated because of it -- including one that
@@ -628,6 +666,19 @@ function inlineHandlerBodies(text, startOfCall) {
   return bodies;
 }
 
+// Where each name is defined, found once per project rather than once per route: two regex searches
+// of the whole project per handler name took Gitea's 824 Go routes to a minute.
+let definitions = { all: null };
+function definitionsIn(all) {
+  if (definitions.all === all) return definitions;
+  const js = new Map();
+  const go = new Map();
+  for (const m of all.matchAll(/(?:export\s+)?(?:const|let|var|function|async\s+function)\s+([A-Za-z_$][\w$]*)\b/g)) if (!js.has(m[1])) js.set(m[1], m.index);
+  for (const m of all.matchAll(/\bfunc\s*(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*\(/g)) if (!go.has(m[1])) go.set(m[1], m.index);
+  definitions = { all, js, go };
+  return definitions;
+}
+
 /**
  * Every handler body this route actually runs: the inline functions passed to the route call, plus
  * the body of each handler it names.
@@ -639,6 +690,8 @@ function inlineHandlerBodies(text, startOfCall) {
  * keeping one resolver is what stops it being fixed twice and regressed once.
  */
 function routeHandlerBodies(route, all) {
+  // Read once per route: the declared checks and the in-handler reader both ask.
+  if (route.bodiesRead) return route.bodiesRead;
   const bodies = [...(route.inlineBodies || [])];
   // A framework route names its handler in the declaration; a hand-rolled dispatch branch just
   // calls it, and the guard may be another call or two down. Expanded against `all` rather than the
@@ -649,15 +702,15 @@ function routeHandlerBodies(route, all) {
   // Each named handler's own body, not the whole corpus: a project that verifies a signature
   // somewhere must not thereby mark every route protected. A first attempt did exactly that and
   // reported an unauthenticated support endpoint as safe, which is worse than missing one.
+  const defs = definitionsIn(all);
   for (const name of routeHandlerNames(route.context)) {
     // `func handleX(` and `func (s *Server) handleX(` alike. Without the receiver form the body of
     // every Go method handler went unread, so no credential check inside one could be seen.
-    const def =
-      new RegExp(`(?:export\\s+)?(?:const|let|var|function|async\\s+function)\\s+${name}\\b`).exec(all) ||
-      new RegExp(`\\bfunc\\s*(?:\\([^)]*\\)\\s*)?${name}\\s*\\(`).exec(all);
-    if (!def) continue;
-    bodies.push(functionBodyAt(all, def.index));
+    const at = defs.js.has(name) ? defs.js.get(name) : defs.go.get(name);
+    if (at === undefined) continue;
+    bodies.push(functionBodyAt(all, at));
   }
+  route.bodiesRead = bodies;
   return bodies;
 }
 
@@ -923,6 +976,11 @@ const jsAdapter = {
     return null;
   },
 
+  family: "brace",
+  handlerBodies(r, all) {
+    return routeHandlerBodies(r, all);
+  },
+
   routeAuth(r, all) {
     if (/@UseGuards\s*\(/.test(r.context)) return "a route guard";
     // A machine sender proves identity by signing the payload, not with a bearer token. Taught to
@@ -961,6 +1019,10 @@ const goAdapter = {
   extensions: [".go"],
   comments: C_COMMENTS,
   idiom: "middleware in the route's chain, or a router-wide `Use(...)` that verifies the caller",
+  family: "brace",
+  handlerBodies(r, all) {
+    return routeHandlerBodies(r, all);
+  },
 
   routes(text) {
     const out = [];
@@ -1051,7 +1113,7 @@ const javaAdapter = {
       // The annotation's own arguments, where @RequestMapping names its method -- the match stops at
       // the path, and `around` takes in neighbouring annotations, which would not be this route's.
       const methodSpec = text.slice(m.index, m.index + 300).split(")")[0];
-      out.push({ method: verb, route: m[2], declaration: m[0], context: around, line, methodSpec });
+      out.push({ method: verb, route: m[2], declaration: m[0], context: around, line, methodSpec, body: methodBlock(text, m.index) });
     }
     return out;
   },
@@ -1061,6 +1123,11 @@ const javaAdapter = {
       return "a security filter chain requiring authentication";
     }
     return null;
+  },
+
+  family: "brace",
+  handlerBodies(r) {
+    return [r.body];
   },
 
   routeAuth(r) {
@@ -1076,6 +1143,18 @@ const javaAdapter = {
 // method body is not read as a route declaration.
 const RUBY_ROUTE_RE = /^[ \t]*(get|post|put|patch|delete)\s+['"](\/[^'"]*)['"]\s*(?:,[^\n]*)?\s*(?:do\b|\{)/gim;
 
+// A Sinatra route's block: its line through the `end` at the route's own indentation.
+function sinatraBody(lines, at) {
+  const indent = /^\s*/.exec(lines[at])[0].length;
+  const out = [lines[at]];
+  if (/\{\s*$/.test(lines[at])) return out.join("\n");
+  for (let j = at + 1; j < lines.length && out.length < 300; j++) {
+    out.push(lines[j]);
+    if (/^\s*end\b/.test(lines[j]) && /^\s*/.exec(lines[j])[0].length === indent) break;
+  }
+  return out.join("\n");
+}
+
 const rubyAdapter = {
   name: "Ruby",
   extensions: [".rb"],
@@ -1088,7 +1167,7 @@ const rubyAdapter = {
     let m;
     while ((m = RUBY_ROUTE_RE.exec(text))) {
       const line = text.slice(0, m.index).split("\n").length;
-      out.push({ method: m[1].toUpperCase(), route: m[2], declaration: m[0], context: m[0], line });
+      out.push({ method: m[1].toUpperCase(), route: m[2], declaration: m[0], context: m[0], line, body: sinatraBody(text.split("\n"), line - 1) });
     }
     return out;
   },
@@ -1101,6 +1180,11 @@ const rubyAdapter = {
       return "a Sinatra before filter";
     }
     return null;
+  },
+
+  family: "ruby",
+  handlerBodies(r) {
+    return [r.body];
   },
 
   routeAuth() {
@@ -1245,15 +1329,22 @@ export function checkAuthentication(projectDir) {
           continue;
         }
         found++;
+        // A route that declares itself anonymous is open whatever else protects its neighbours:
+        // ASP.NET's [AllowAnonymous] overrides a global policy and an [Authorize] on its class.
+        const declared = r.anonymous ? null : global || adapter.routeAuth(r, all, texts, ctx);
+        // Then the handler's own code (agent/auth-handler.mjs), where nothing outside it protects the
+        // route. A route declared anonymous is read too: "anonymous" says the framework requires no
+        // sign-in, and a webhook in an app whose policy requires one declares exactly that because it
+        // checks its own key.
+        const inHandler = declared || !adapter.handlerBodies ? null : handlerGuard(adapter.handlerBodies(r, all, texts, ctx), adapter.family);
         routes.push({
           file: file.rel,
           language: adapter.name,
           method: r.method,
           route: r.route,
           line: r.line,
-          // A route that declares itself anonymous is open whatever else protects its neighbours:
-          // ASP.NET's [AllowAnonymous] overrides a global policy and an [Authorize] on its class.
-          protectedBy: r.anonymous ? null : global || adapter.routeAuth(r, all, texts, ctx),
+          protectedBy: declared || inHandler,
+          ...(inHandler ? { inHandler: true } : {}),
           ...(r.anonymous ? { anonymous: true } : {}),
         });
       }
@@ -1315,6 +1406,20 @@ export function authenticationFailures(projectDir, { reviews = [] } = {}) {
           `one of these names that reads request input or changes state needs authentication like any other.`,
       ]
     : [];
+
+  // Protection read from inside a handler is listed, as an exemption is: it is the reader's judgement
+  // of code, not something the code declares, and crediting a check that is not one is the way this
+  // check can be wrong in the dangerous direction.
+  const credited = report.routes.filter((r) => r.inHandler);
+  if (credited.length) {
+    const shown = credited.slice(0, 10).map((r) => `${r.method} ${r.route} (${r.file}:${r.line}, ${r.protectedBy})`).join(", ");
+    exemptAdvisories.push(
+      `authentication: ${credited.length} route(s) count as protected by a check inside the handler — ${shown}` +
+        `${credited.length > 10 ? `, +${credited.length - 10} more` : ""}. Each has a check at the top of its handler ` +
+        `that refuses the request and ends it when a secret, a credential or the caller's identity does not ` +
+        `match. Confirm each one checks what it appears to.`
+    );
+  }
 
   // Reported whether or not any route is open, and separately from the open-route finding: a
   // service can authenticate every endpoint and still have a leaky comparison in the one control

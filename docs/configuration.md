@@ -93,7 +93,7 @@ and what it is:
 
 ```text
 BLOCKING  sast:python-sql-injection:app.py:5df60c0d
-    app.py:18 — SQL injection: request data is built into a SQL statement
+    app.py:28 — SQL injection: request data is built into a SQL statement
 ```
 
 The ID is everything after the status word, here `sast:python-sql-injection:app.py:5df60c0d`. Copy it
@@ -111,25 +111,32 @@ Advisory findings are listed too, and reviewing one takes it out of the advisori
 
 ### An example
 
-A small Flask service. Both routes check their caller inside the handler — an admin token, a webhook
-signature — which the authentication check does not read, and the report's table name is looked up
-in a fixed dictionary, which the injection check cannot tell from request data:
+A small Flask service. Both routes check their caller in a helper they call — an admin token, a
+webhook signature — and the authentication check reads a handler's own code, not the helpers it
+calls ([what it credits](checks.md#authentication-checked-inside-the-handler)). The report's table name
+is looked up in a fixed dictionary, which the injection check cannot tell from request data:
 
 ```python
 REPORTS = {"orders": "orders", "refunds": "refunds"}
 
-@app.get("/reports")
-def report():
+def require_admin():
     if not hmac.compare_digest(request.headers.get("X-Admin-Token", ""), os.environ["ADMIN_TOKEN"]):
         abort(403)
+
+def require_payments_signature():
+    expected = hmac.new(os.environ["PAYMENTS_SECRET"].encode(), request.data, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, request.headers.get("X-Signature", "")):
+        abort(401)
+
+@app.get("/reports")
+def report():
+    require_admin()
     table = REPORTS[request.args["kind"]]
     return {"rows": db.execute(f"SELECT * FROM {table} ORDER BY created DESC").fetchall()}
 
 @app.post("/hooks/payments")
 def payment_hook():
-    expected = hmac.new(os.environ["PAYMENTS_SECRET"].encode(), request.data, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, request.headers.get("X-Signature", "")):
-        abort(401)
+    require_payments_signature()
     return {"ok": True}
 ```
 
@@ -138,9 +145,9 @@ def payment_hook():
 ```text
 BLOCKING        : 2
 
-  - authentication: 2 of 2 endpoint(s) accept requests from anyone who can reach the service — GET /reports (app.py:13), POST /hooks/payments (app.py:21). …
+  - authentication: 2 of 2 endpoint(s) accept requests from anyone who can reach the service — GET /reports (app.py:24), POST /hooks/payments (app.py:31). …
 
-  - sast: SQL injection — request data is built into a SQL statement: app.py:18. Use a parameterised query: …
+  - sast: SQL injection — request data is built into a SQL statement: app.py:28. Use a parameterised query: …
 
 reviewable      : 3 injection or authentication findings above can be marked reviewed once read — wolfproof review . lists their IDs
 ```
@@ -152,7 +159,7 @@ $ wolfproof review .
 project : …/shop
 
 BLOCKING  sast:python-sql-injection:app.py:5df60c0d
-    app.py:18 — SQL injection: request data is built into a SQL statement
+    app.py:28 — SQL injection: request data is built into a SQL statement
 BLOCKING  authentication:GET /reports:app.py
     an endpoint that accepts requests from anyone who can reach the service
 BLOCKING  authentication:POST /hooks/payments:app.py
@@ -166,9 +173,9 @@ Quote every ID: an authentication ID has a space in it.
 
 ```bash
 wolfproof review . 'authentication:POST /hooks/payments:app.py' \
-  --reason "verifies the provider's HMAC signature in the handler" --reviewer tjwitko
+  --reason "verifies the provider's HMAC signature in require_payments_signature()" --reviewer tjwitko
 wolfproof review . 'authentication:GET /reports:app.py' \
-  --reason "admin token checked in the handler with compare_digest" --reviewer tjwitko
+  --reason "require_admin() checks the admin token with compare_digest" --reviewer tjwitko
 wolfproof review . 'sast:python-sql-injection:app.py:5df60c0d' \
   --reason "the table name comes from the fixed REPORTS dict, never from the request" \
   --reviewer tjwitko --expires 2027-04-30
@@ -176,7 +183,7 @@ wolfproof review . 'sast:python-sql-injection:app.py:5df60c0d' \
 
 ```text
 added in .wolfproof-reviewed.json:
-  {"id":"authentication:POST /hooks/payments:app.py","reason":"verifies the provider's HMAC signature in the handler","reviewer":"tjwitko"}
+  {"id":"authentication:POST /hooks/payments:app.py","reason":"verifies the provider's HMAC signature in require_payments_signature()","reviewer":"tjwitko"}
 
 The gate lists this finding as reviewed on every run, with the reason, and does not count it.
 It stops applying when the route's method, path or file changes.
@@ -191,12 +198,12 @@ the code:
   "reviewed": [
     {
       "id": "authentication:POST /hooks/payments:app.py",
-      "reason": "verifies the provider's HMAC signature in the handler",
+      "reason": "verifies the provider's HMAC signature in require_payments_signature()",
       "reviewer": "tjwitko"
     },
     {
       "id": "authentication:GET /reports:app.py",
-      "reason": "admin token checked in the handler with compare_digest",
+      "reason": "require_admin() checks the admin token with compare_digest",
       "reviewer": "tjwitko"
     },
     {
@@ -212,9 +219,9 @@ the code:
 **4. The gate now passes, and says what it was told** (`wolfproof .`, exit 0):
 
 ```text
-reviewed        : sast:python-sql-injection:app.py:5df60c0d — app.py:18 — the table name comes from the fixed REPORTS dict, never from the request, tjwitko, until 2027-04-30 (.wolfproof-reviewed.json)
-reviewed        : authentication:GET /reports:app.py — GET /reports (app.py:13) — admin token checked in the handler with compare_digest, tjwitko (.wolfproof-reviewed.json)
-reviewed        : authentication:POST /hooks/payments:app.py — POST /hooks/payments (app.py:21) — verifies the provider's HMAC signature in the handler, tjwitko (.wolfproof-reviewed.json)
+reviewed        : sast:python-sql-injection:app.py:5df60c0d — app.py:28 — the table name comes from the fixed REPORTS dict, never from the request, tjwitko, until 2027-04-30 (.wolfproof-reviewed.json)
+reviewed        : authentication:GET /reports:app.py — GET /reports (app.py:24) — require_admin() checks the admin token with compare_digest, tjwitko (.wolfproof-reviewed.json)
+reviewed        : authentication:POST /hooks/payments:app.py — POST /hooks/payments (app.py:31) — verifies the provider's HMAC signature in require_payments_signature(), tjwitko (.wolfproof-reviewed.json)
 
 BLOCKING        : none
 ```
@@ -225,7 +232,7 @@ finding, and the old entry is reported as doing nothing (`wolfproof .`, exit 1):
 ```text
 BLOCKING        : 1
 
-  - sast: SQL injection — request data is built into a SQL statement: app.py:18. …
+  - sast: SQL injection — request data is built into a SQL statement: app.py:28. …
 
 reviewable      : 1 injection or authentication finding above can be marked reviewed once read — wolfproof review . lists its ID
 

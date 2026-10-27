@@ -407,6 +407,21 @@ function actionOf(text, masked, [a, b], groupController) {
   return null;
 }
 
+// A route's closure, when its action is one: `Route::post('/hook', function (Request $r) { ... })`.
+function closureAt(text, masked, arg) {
+  if (!arg) return null;
+  return /^\s*(?:static\s+)?(?:function|fn)\b/.test(masked.slice(arg[0], arg[1])) ? text.slice(arg[0], arg[1]) : null;
+}
+
+// The source a route runs: its closure, or its controller's action -- for a check written inside it.
+function actionBody(index, d) {
+  if (d.closure) return d.closure;
+  if (!d.action) return null;
+  const c = index.classes.get(d.action.controller);
+  const m = c && c.methods.find((x) => x.name === d.action.method && x.bodyStart >= 0);
+  return m ? c.file.text.slice(m.bodyStart, m.bodyEnd + 1) : null;
+}
+
 // Middleware a controller applies to its own actions, in its constructor (Laravel 10 and earlier)
 // or its static middleware() method (Laravel 11), through its parents.
 function controllerMiddleware(index, controller, method, seen = new Set()) {
@@ -533,9 +548,9 @@ function laravelRoutes(index, file) {
         method = verbs.length === 1 ? verbs[0] : "ANY";
         methodSpec = `methods=[${verbs.join(", ")}]`;
         actionArg = args[2];
-        declared.push({ method, methodSpec, uri: firstLiteral(text, masked, args[1]), action: actionArg ? actionOf(text, masked, actionArg, groupController) : null });
+        declared.push({ method, methodSpec, uri: firstLiteral(text, masked, args[1]), action: actionArg ? actionOf(text, masked, actionArg, groupController) : null, closure: closureAt(text, masked, actionArg) });
       } else {
-        declared.push({ method, uri, action: actionArg ? actionOf(text, masked, actionArg, groupController) : null });
+        declared.push({ method, uri, action: actionArg ? actionOf(text, masked, actionArg, groupController) : null, closure: closureAt(text, masked, actionArg) });
       }
     }
 
@@ -552,6 +567,7 @@ function laravelRoutes(index, file) {
         context: text.slice(m.index, end),
         line: lineAt(text, m.index),
         auth,
+        body: actionBody(index, d),
       });
     }
   }
@@ -643,6 +659,7 @@ function symfonyRoutes(index, file) {
           context: r.raw,
           line: r.line,
           auth: protection,
+          body: m.bodyStart >= 0 ? text.slice(m.bodyStart, m.bodyEnd + 1) : null,
         });
       }
     }
@@ -731,6 +748,11 @@ export const phpAdapter = {
     // Global middleware is folded into each route's list, so that `withoutMiddleware` can still
     // take it away from one.
     return null;
+  },
+
+  family: "brace",
+  handlerBodies(r) {
+    return [r.body];
   },
 
   routeAuth(r) {
