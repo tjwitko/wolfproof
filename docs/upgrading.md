@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.11.0
+wolfproof 1.12.0
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.11.0
-- uses: tjwitko/wolfproof@v1.11.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.12.0
+- uses: tjwitko/wolfproof@v1.12.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.11.0
+npm install --save-dev github:tjwitko/wolfproof#v1.12.0
 ```
 
 ## 3. Refresh what setup wrote
@@ -135,7 +135,7 @@ only reach that function, it now blocks, naming the helper (`via injectableQuery
 through an object of unknown type, names defined more than once, and SSRF through any helper are
 advisories. The injection check takes longer: 10 to 55 per cent on the calibration applications.
 
-**After v1.11.0: a finding can be marked reviewed.** `wolfproof review .` lists injection and
+**In v1.12.0: a finding can be marked reviewed.** `wolfproof review .` lists injection and
 authentication findings by ID (a blocked report's new `reviewable` line, and `reviewable` in
 `--json`, point at it), and `.wolfproof-reviewed.json` (or `--reviewed=<file>`) takes one
 finding out of the verdict with a reason, until its line changes. Nothing changes for a project

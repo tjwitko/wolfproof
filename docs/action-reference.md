@@ -39,7 +39,7 @@ For a requirement every project must meet, set it in a workflow the project cann
 organisation ruleset requires, for instance:
 
 ```yaml
-      - uses: tjwitko/wolfproof@v1.11.0
+      - uses: tjwitko/wolfproof@v1.12.0
         with:
           task-file: task.txt
           baseline: |
@@ -55,8 +55,8 @@ organisation variable (Settings → Secrets and variables → Actions → Variab
 Action writes it outside the workspace, where the change cannot edit it:
 
 ```yaml
-      - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.11.0
-      - uses: tjwitko/wolfproof@v1.11.0
+      - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.12.0
+      - uses: tjwitko/wolfproof@v1.12.0
         with:
           reviewed: ${{ vars.WOLFPROOF_REVIEWED }}
 ```
@@ -71,7 +71,7 @@ apply, and each reviewed finding says which one it came from. See
 [Configuration](configuration.md#test-timeout). In the Action, set it on the step:
 
 ```yaml
-      - uses: tjwitko/wolfproof@v1.11.0
+      - uses: tjwitko/wolfproof@v1.12.0
         env:
           WOLFPROOF_TEST_TIMEOUT: "300"
 ```
