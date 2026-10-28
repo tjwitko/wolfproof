@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.12.0
+wolfproof 1.13.0
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.12.0
-- uses: tjwitko/wolfproof@v1.12.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.13.0
+- uses: tjwitko/wolfproof@v1.13.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.12.0
+npm install --save-dev github:tjwitko/wolfproof#v1.13.0
 ```
 
 ## 3. Refresh what setup wrote
@@ -141,7 +141,7 @@ authentication findings by ID (a blocked report's new `reviewable` line, and `re
 finding out of the verdict with a reason, until its line changes. Nothing changes for a project
 without one. In factory mode, an entry the change adds blocks unless the allowlist approves it.
 
-**After v1.12.0: authentication checked inside the handler counts.** A route whose own handler
+**In v1.13.0: authentication checked inside the handler counts.** A route whose own handler
 checks its caller — a secret compared in constant time, a credential against configuration, a
 session or role — and refuses at the top, is no longer reported as open; each one is listed in an
 advisory instead, and a route open before can now pass. A review of one of these routes
