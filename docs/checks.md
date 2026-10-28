@@ -43,7 +43,7 @@ The finding names the fix for the framework each open route is written in, and o
 check credits.
 
 **Covers:** Python (FastAPI, Flask), JavaScript/TypeScript (Express, Fastify, NestJS), Go
-(`net/http`, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra, Rails), C# (ASP.NET Core
+(`net/http`, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra), C# (ASP.NET Core
 controllers and minimal APIs), PHP (Laravel, Symfony), Kotlin (Spring, Ktor).
 
 In C#, a route counts as protected by `[Authorize]` in any form on the action or anywhere in its
@@ -64,6 +64,15 @@ login page; `withoutMiddleware` takes one away. A Symfony route counts as protec
 `#[IsGranted]` on the action or controller, `$this->denyAccessUnlessGranted()` in the action, or an
 `access_control` rule in `security.yaml`. Not read: plain PHP pages served without a router (DVWA),
 Slim, and Symfony's YAML and docblock routing.
+
+In Ruby, a Sinatra route counts as protected by a `before` filter whose block refuses the caller or
+checks a credential. A filter without a path protects every route; one with a path protects the
+routes its pattern matches (`before '/admin/*'`, `before '/accounts/:id'`). Not read: Rails routing.
+`config/routes.rb`, and the files it draws from `config/routes/`, are reported as not checked, because
+whether a Rails route requires sign-in is decided in its controller (`before_action`,
+`skip_before_action`, `only:`, `except:` and the class chain). Also not read: a filter written with a
+regular expression or a condition, which protects nothing here, and the class a filter belongs to in
+a modular app — a filter counts for every route in the project.
 
 In Kotlin, a Spring route counts as protected by `@PreAuthorize`, `@Secured` or `@RolesAllowed` on the
 handler or its class, by an annotation of the project's that an `@Aspect` enforces with 401 or 403

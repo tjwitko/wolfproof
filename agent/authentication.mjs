@@ -23,7 +23,7 @@
 // one language while the work happens in another is an advisory with extra steps.
 //
 // Recognised now: Python (FastAPI, Flask), JavaScript/TypeScript (Express, Fastify, NestJS), Go
-// (net/http, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra, Rails), C# (ASP.NET Core
+// (net/http, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra), C# (ASP.NET Core
 // controllers and minimal APIs, in authentication-csharp.mjs), PHP (Laravel, Symfony, in
 // authentication-php.mjs), Kotlin (Spring, Ktor, in authentication-kotlin.mjs). Each is an entry in
 // ADAPTERS: it claims file extensions, finds routes, and answers whether a route is protected. The
@@ -1181,7 +1181,7 @@ const javaAdapter = {
 };
 
 // ---------------------------------------------------------------------------------------------
-// Ruby -- Sinatra, Rails controllers
+// Ruby -- Sinatra (Rails routing is reported as unread, not judged)
 // ---------------------------------------------------------------------------------------------
 
 // Sinatra's `get "/logs" do`. Anchored to the start of a line so `response.get "/x"` inside a
@@ -1200,21 +1200,65 @@ function sinatraBody(lines, at) {
   return out.join("\n");
 }
 
+// Rails routing is data: `config/routes.rb` maps paths to controllers, and whether a route is
+// protected is decided there (`before_action`, `skip_before_action`, `only:`/`except:`, the class
+// chain). None of that is resolved here. Its lines with a block matched the Sinatra form, and a
+// `before_action :authenticate_user!` in any controller then marked all of them protected:
+// Mastodon's public profile page among them. So the file is not read as routes, and the report says
+// what was left unchecked instead.
+const isRailsRouting = (text, rel = "") =>
+  /\.routes\.draw\b/.test(text) || /(?:^|\/)config\/routes(?:\/[^/]+)*\.rb$|(?:^|\/)config\/routes\.rb$/.test(rel);
+
+// What protects a Sinatra route from outside it: `before` filters. A filter with a path runs only
+// for requests that match it, so `before '/admin/*'` protects the admin routes and nothing else; it
+// was credited to every route in the project. Its evidence is read from its own block, not from the
+// next 200 characters, which reached into the route below it.
+const SINATRA_FILTER_EVIDENCE = /authenticate|authoriz|api_key|token|halt\s+40[13]\b/i;
+let sinatraFiltersMemo = { all: null, filters: [] };
+function sinatraFilters(all) {
+  if (sinatraFiltersMemo.all === all) return sinatraFiltersMemo.filters;
+  const lines = all.split("\n");
+  const filters = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!/^[ \t]*before\b(?![_?!])/.test(line) || !/(?:\bdo\b(?:\s*\|[^|]*\|)?|\{)\s*$/.test(line)) continue;
+    const quoted = /^[ \t]*before\s*\(?\s*(['"])([^'"]*)\1\s*\)?\s*(?:do\b|\{)/.exec(line);
+    const bare = /^[ \t]*before\s*(?:do\b|\{)/.test(line);
+    // A regular expression or a condition (`before agent: /x/`) runs for requests this does not
+    // work out, so it protects nothing here.
+    if (!quoted && !bare) continue;
+    if (!SINATRA_FILTER_EVIDENCE.test(sinatraBody(lines, i))) continue;
+    filters.push({ pattern: quoted ? quoted[2] : null });
+  }
+  sinatraFiltersMemo = { all, filters };
+  return filters;
+}
+
+// Sinatra's pattern against a route's own pattern: `*` is anything, `:name` one segment. A route
+// segment written `:id` is matched as text, which `*` and `:name` both accept.
+function sinatraPatternMatches(pattern, route) {
+  const re = pattern
+    .split(/(\*|:\w+)/)
+    .map((part) => (part === "*" ? ".*" : /^:\w+$/.test(part) ? "[^/]+" : part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")))
+    .join("");
+  return new RegExp(`^${re}$`).test(route);
+}
+
 const rubyAdapter = {
   name: "Ruby",
   extensions: [".rb"],
   comments: RUBY_COMMENTS,
   idiom: "a `before` filter that refuses a caller who is not authenticated (`halt 401`)",
-  idioms: {
-    Sinatra: "a `before` filter that refuses a caller who is not authenticated (`halt 401`)",
-    Rails: "a `before_action` that authenticates the caller in the route's controller",
-  },
+  unreadRouting: (files) =>
+    files
+      .filter((f) => isRailsRouting(f.text, f.rel.split(path.sep).join("/")))
+      .map((f) => f.rel)
+      // The file a reader opens first, then the ones it draws in.
+      .sort((a, b) => (/(?:^|[\\/])config[\\/]routes\.rb$/.test(b) ? 1 : 0) - (/(?:^|[\\/])config[\\/]routes\.rb$/.test(a) ? 1 : 0) || a.localeCompare(b)),
 
-  routes(text) {
+  routes(text, texts, ctx = {}) {
     const out = [];
-    // A Rails `routes.rb` line with a block matches the Sinatra form too. It is labelled for what it
-    // is, so the advice names the Rails fix.
-    const framework = /\.routes\.draw\b/.test(text) ? "Rails" : "Sinatra";
+    if (isRailsRouting(text, ctx.rel)) return out;
     RUBY_ROUTE_RE.lastIndex = 0;
     let m;
     while ((m = RUBY_ROUTE_RE.exec(text))) {
@@ -1226,20 +1270,14 @@ const rubyAdapter = {
         context: m[0],
         line,
         body: sinatraBody(text.split("\n"), line - 1),
-        framework,
+        framework: "Sinatra",
       });
     }
     return out;
   },
 
   globalAuth(all) {
-    if (/before_action\s+:[\w!?]*(authenticate|authoriz|require_login|require_user)/i.test(all)) {
-      return "a controller-wide before_action";
-    }
-    if (/^[ \t]*before\s+(?:do\b|['"])[\s\S]{0,200}?(authenticate|authoriz|api_key|token|halt\s+401)/im.test(all)) {
-      return "a Sinatra before filter";
-    }
-    return null;
+    return sinatraFilters(all).some((f) => f.pattern === null) ? "a Sinatra before filter" : null;
   },
 
   family: "ruby",
@@ -1247,10 +1285,9 @@ const rubyAdapter = {
     return [r.body];
   },
 
-  routeAuth() {
-    // Sinatra declares authentication in a `before` filter rather than on the route, so per-route
-    // detection would report every route unprotected in a correctly-secured app. Global only.
-    return null;
+  routeAuth(r, all) {
+    const filter = sinatraFilters(all).find((f) => f.pattern !== null && sinatraPatternMatches(f.pattern, r.route));
+    return filter ? `a Sinatra before filter on ${filter.pattern}` : null;
   },
 };
 
@@ -1346,6 +1383,9 @@ export function checkAuthentication(projectDir) {
   const routes = [];
   const exempt = [];
   const languages = [];
+  // Files that declare routes in a form no adapter judges (Rails routing), named so the report says
+  // what went unchecked rather than leaving it out.
+  const unread = [];
   let leakySignature = false;
   let leakyCredential = false;   // { name, language, at } once found
   const vacuous = new Map();     // env name -> { language, at }
@@ -1414,6 +1454,7 @@ export function checkAuthentication(projectDir) {
       }
     }
     if (found > 0) languages.push(adapter.name);
+    if (adapter.unreadRouting) unread.push(...adapter.unreadRouting(adapterFiles));
   }
 
   if (routes.length === 0) {
@@ -1422,6 +1463,7 @@ export function checkAuthentication(projectDir) {
       routes: [],
       exempt,
       languages: [],
+      unread,
       unknown: exempt.length
         ? `the only routes identified are exempt by name, so nothing was checked — ${exemptList(exempt)}. ` +
           `If any of them does more than report status or issue a credential, it needs authentication like any other`
@@ -1429,7 +1471,7 @@ export function checkAuthentication(projectDir) {
           "they are declared in a form this check does not recognise",
     };
   }
-  return { ran: true, routes, exempt, languages, leakySignature, leakyCredential, vacuousCredentials: [...vacuous.keys()], vacuousAt: Object.fromEntries(vacuous), unknown: null };
+  return { ran: true, routes, exempt, languages, unread, leakySignature, leakyCredential, vacuousCredentials: [...vacuous.keys()], vacuousAt: Object.fromEntries(vacuous), unknown: null };
 }
 
 // The advice has to be in the language that matched. The first version of these messages said
@@ -1459,7 +1501,21 @@ const exemptList = (exempt) =>
 export function authenticationFailures(projectDir, { reviews = [] } = {}) {
   const report = checkAuthentication(projectDir);
   if (!report.ran) return { failures: [], advisories: [`authentication: not checked — ${report.unknown}`] };
-  if (report.unknown) return { failures: [], advisories: [`authentication: ${report.unknown}`] };
+  const unreadAdvisories = report.unread?.length
+    ? [
+        `authentication: Rails routing is not read, so the routes declared in ${report.unread.slice(0, 3).join(", ")}` +
+          `${report.unread.length > 3 ? ` and ${report.unread.length - 3} more file(s)` : ""} were not checked. ` +
+          `Whether a Rails route requires sign-in is decided in its controller — \`before_action\`, ` +
+          `\`skip_before_action\`, \`only:\` and \`except:\`, and the class it inherits from — which this ` +
+          `check does not resolve, so a person has to judge them.`,
+      ]
+    : [];
+  // A Rails app with no other routes: the sentence above is the specific form of "no routes were
+  // identified", so it replaces it rather than repeating it.
+  if (report.unknown) {
+    const general = unreadAdvisories.length && !report.exempt?.length ? [] : [`authentication: ${report.unknown}`];
+    return { failures: [], advisories: [...unreadAdvisories, ...general] };
+  }
 
   const exempt = report.exempt || [];
   const exemptAdvisories = exempt.length
@@ -1470,6 +1526,7 @@ export function authenticationFailures(projectDir, { reviews = [] } = {}) {
           `one of these names that reads request input or changes state needs authentication like any other.`,
       ]
     : [];
+  exemptAdvisories.unshift(...unreadAdvisories);
 
   // Protection read from inside a handler is listed, as an exemption is: it is the reader's judgement
   // of code, not something the code declares, and crediting a check that is not one is the way this

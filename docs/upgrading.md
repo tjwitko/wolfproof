@@ -162,6 +162,15 @@ credits. Flask's `@login_required` and `before_request` are not read yet, so Fla
 check at the top of the view. A NestJS `@UseGuards(...)` written below the route decorator now counts,
 as one above it did.
 
+**After v1.13.0: Rails routes are reported as not checked, not as protected.** Lines in
+`config/routes.rb` were read as Sinatra routes, and a `before_action :authenticate…` in any controller
+marked them all protected — on Mastodon, its public profile page among them. Rails routing is now not
+read as routes, and an advisory names the files whose routes were not checked. A Rails app that passed
+on that credit passes in the default mode with the advisory, and blocks in factory mode, as any
+not-checked advisory does; a policy can drop `auth-rails-unread` once a person has judged the routes.
+A Sinatra `before` filter with a path now protects only the routes it matches, and a filter counts
+only on what its own block does.
+
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
 

@@ -368,7 +368,9 @@ test("ruby: a Sinatra route without a before filter fails", () => {
   assert.match(failures[0], /POST \/logs/);
 });
 
-test("ruby: before_action :authenticate_user! protects the controller", () => {
+// This test used to say the opposite. `before_action` is Rails: it runs for its own controller's
+// actions, never for a Sinatra route, and it marked every Ruby route in the project protected.
+test("ruby: a Rails before_action does not protect a Sinatra route", () => {
   const { failures } = run(
     {
       "app.rb":
@@ -376,7 +378,62 @@ test("ruby: before_action :authenticate_user! protects the controller", () => {
     },
     authenticationFailures
   );
-  assert.deepEqual(failures, []);
+  assert.equal(failures.filter((f) => /accept requests from anyone/.test(f)).length, 1);
+  assert.match(failures[0], /GET \/logs/);
+});
+
+test("ruby: a before filter with a path protects the routes it matches, and only those", () => {
+  const report = run(
+    {
+      "app.rb":
+        "require 'sinatra'\n\nbefore '/admin/*' do\n  halt 401 unless session[:admin]\nend\n\n" +
+        "before '/accounts/:id' do\n  halt 403 unless session[:user_id]\nend\n\n" +
+        "get '/admin/stats' do\n  'stats'\nend\n\nget '/accounts/:id' do\n  'a'\nend\n\n" +
+        "get '/accounts/:id/export' do\n  'x'\nend\n\nget '/reports' do\n  '[]'\nend\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(
+    Object.fromEntries(report.routes.map((r) => [r.route, r.protectedBy])),
+    {
+      "/admin/stats": "a Sinatra before filter on /admin/*",
+      "/accounts/:id": "a Sinatra before filter on /accounts/:id",
+      "/accounts/:id/export": null,
+      "/reports": null,
+    }
+  );
+});
+
+test("ruby: a before filter's evidence is its own block, not the route below it", () => {
+  const report = run(
+    {
+      "app.rb":
+        "require 'sinatra'\n\nbefore do\n  content_type :json\nend\n\n" +
+        "post '/token' do\n  halt 401 unless params[:password]\nend\n\nget '/reports' do\n  '[]'\nend\n",
+    },
+    checkAuthentication
+  );
+  assert.equal(report.routes.find((r) => r.route === "/reports").protectedBy, null);
+});
+
+test("ruby: a before filter with a regular expression or a condition protects nothing here", () => {
+  const report = run(
+    {
+      "app.rb":
+        "require 'sinatra'\n\nbefore %r{/admin/.*} do\n  halt 401 unless session[:admin]\nend\n\n" +
+        "before agent: /Bot/ do\n  halt 401\nend\n\nget '/admin/stats' do\n  'stats'\nend\n",
+    },
+    checkAuthentication
+  );
+  assert.equal(report.routes[0].protectedBy, null);
+});
+
+test("ruby: an unscoped before filter that refuses still protects every route", () => {
+  const report = run(
+    { "app.rb": "require 'sinatra'\n\nbefore do\n  halt 401 unless session[:user_id]\nend\n\nget '/reports' do\n  '[]'\nend\n" },
+    checkAuthentication
+  );
+  assert.equal(report.routes[0].protectedBy, "a Sinatra before filter");
 });
 
 // Anchored to the start of a line so a method call inside a body is not read as a declaration.
@@ -2503,10 +2560,43 @@ test("the advice names the fix for each framework that has an open route, and on
   assert.doesNotMatch(open, /RequireAuthorization|\[Authorize\]/, "the C# route is protected, so its fix is not advice");
 });
 
-test("a Rails routes.rb line read as a route is labelled Rails, and gets the Rails fix", () => {
-  const files = { "config/routes.rb": "Rails.application.routes.draw do\n  get '/reports' do\n    [200, {}, ['[]']]\n  end\nend\n" };
-  assert.deepEqual(run(files, checkAuthentication).routes.map((r) => r.framework), ["Rails"]);
-  const open = run(files, authenticationFailures).failures.find((f) => OPEN_ROUTE.test(f));
-  assert.match(open, /`before_action`/);
-  assert.doesNotMatch(open, /halt 401/);
+// --- Rails routing ------------------------------------------------------------------------------
+// Mastodon's shape: routes.rb lines with a block matched the Sinatra form, and a before_action in an
+// unrelated controller marked them all protected -- its public profile page among them.
+const RAILS_APP = {
+  "config/routes.rb":
+    "Rails.application.routes.draw do\n  get '/users/:username', to: redirect { |params, req| \"/@#{params[:username]}\" }\n" +
+    "  get '/health' do\n    [200, {}, ['ok']]\n  end\n  resources :reports\nend\n",
+  "app/controllers/admin_controller.rb": "class AdminController < ApplicationController\n  before_action :authenticate_user!\nend\n",
+};
+
+test("rails: routes.rb is not read as routes, and is reported as not checked", () => {
+  const report = run(RAILS_APP, checkAuthentication);
+  assert.deepEqual(report.routes, []);
+  assert.deepEqual(report.unread, ["config/routes.rb"]);
+  const { failures, advisories } = run(RAILS_APP, authenticationFailures);
+  assert.deepEqual(failures, []);
+  assert.equal(advisories.length, 1, "the Rails sentence replaces the general no-routes one");
+  assert.match(advisories[0], /^authentication: Rails routing is not read, so the routes declared in config\/routes\.rb were not checked/);
+});
+
+test("rails: the advisory stands beside the findings for routes that are read", () => {
+  const { failures, advisories } = run(
+    { ...RAILS_APP, "web/server.js": "const express = require('express');\nconst app = express();\napp.get('/x', (req, res) => res.json([]));\n" },
+    authenticationFailures
+  );
+  assert.match(failures[0], /1 of 1 endpoint\(s\)/);
+  assert.ok(advisories.some((a) => /^authentication: Rails routing is not read/.test(a)), advisories.join("\n"));
+});
+
+test("rails: route files drawn from config/routes/ are Rails routing too", () => {
+  const report = run(
+    {
+      "config/routes/admin.rb": "namespace :admin do\n  get '/stats' do\n    [200, {}, ['x']]\n  end\nend\n",
+      "config/routes.rb": "Rails.application.routes.draw do\n  draw(:admin)\nend\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(report.routes, []);
+  assert.deepEqual(report.unread, ["config/routes.rb", "config/routes/admin.rb"], "routes.rb first");
 });

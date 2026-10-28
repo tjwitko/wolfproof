@@ -1561,6 +1561,31 @@ in a helper the handler calls (ktor-samples' `getOrThrow`, the reworked example 
 `docs/configuration.md`); Gitea's `ctx.Doer == nil`, which is that project's own name for the user.
 A route these leave open can be marked reviewed (#24).
 
+### 26. Ruby filters credited to routes they do not run for — fixed
+
+Found while checking that each framework's advice names a fix the check credits. Three ways a Ruby
+route was counted protected by something that never runs for it:
+
+- **Rails routes and `before_action`.** Lines in `config/routes.rb` with a block matched the Sinatra
+  route form, and a `before_action :authenticate…` in any controller marked every Ruby route in the
+  project protected. On the calibration apps that was 10 routes, all wrong: 9 in Mastodon, among them
+  its public profile page `/users/:username`, and rubygems.org's `/dependencies`. A full Rails app
+  (RailsGoat) read as "no HTTP routes", while the docs listed Rails as covered.
+- **A Sinatra filter with a path.** `before '/admin/*'` protected every route, `/reports` included.
+- **A filter's evidence.** The words that make a filter authentication were looked for in the 200
+  characters after `before`, which reached into the route below it.
+
+Now Rails routing is not read as routes, and an advisory (`auth-rails-unread`, not-checked) names
+the files whose routes nobody judged. A Sinatra filter with a path protects the routes its pattern
+matches, and its evidence is its own block. Measured on the calibration apps: those 10 routes
+leave the report and no other route changes; Mastodon, rubygems.org and RailsGoat each get the
+advisory. Six deliberate breakages were each caught by a test.
+
+**Still open:** resolving Rails routes to controller actions — `resources`, `namespace`, `scope`,
+`to: 'controller#action'`, and then `before_action` with `only:`/`except:`, `skip_before_action`
+and the class chain. That is the work that would let Rails be judged rather than reported. Also
+open: the class a Sinatra filter belongs to in a modular app.
+
 ### 12. Considered and deferred
 
 - **Split-string secrets** (`"abc" + "def"`). Missed, as the review says. The rest of its claim did not

@@ -77,6 +77,11 @@ Svelte). The verdict says nothing about that code: only the project-wide scans �
 secrets, dependencies, infrastructure — apply to it, and a requirement like "include unit tests"
 cannot be enforced on it.
 
+**"Rails routing is not read"** — this check does not resolve a Rails route to its controller, so the
+routes in `config/routes.rb` were not judged at all, protected or not. Check them by hand: each
+controller's `before_action`, any `skip_before_action`, and what it inherits. In factory mode the
+advisory blocks until the policy drops `auth-rails-unread`.
+
 **Routes "exempt by name"** — the authentication check leaves probe paths (`/health`, `/ping`,
 `/metrics`…) and credential-issuing endpoints (`/login`, `/token`…) open, and lists each one it
 skipped. The exemption is by path alone, so check the list: a route with one of those names that
