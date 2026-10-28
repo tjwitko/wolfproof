@@ -1549,7 +1549,9 @@ first version skipped them, and Bitwarden's invite-token route was the one it mi
 - **The Go reader read into the next route.** It took a route's handler names from the text after its
   path up to the first `);`, which Go does not write, so a route was credited with the handlers of the
   two routes declared below it: four Gitea sign-in pages were "a verified request signature", and an
-  LFS route held a neighbour's credential check. The call now ends at its own closing parenthesis.
+  LFS route held a neighbour's credential check. JavaScript written without semicolons had the same
+  defect, in v1.12.0 as well: `app.post('/purge', purge)` above a route whose handler verified a
+  signature passed `/purge`. The call now ends at its own closing parenthesis.
   The same search ran two regular expressions over the whole project per handler name; indexing
   definitions once took Gitea's authentication check from 59 seconds to under one.
 

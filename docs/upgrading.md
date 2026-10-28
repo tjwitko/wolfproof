@@ -144,10 +144,16 @@ without one. In factory mode, an entry the change adds blocks unless the allowli
 **After v1.12.0: authentication checked inside the handler counts.** A route whose own handler
 checks its caller — a secret compared in constant time, a credential against configuration, a
 session or role — and refuses at the top, is no longer reported as open; each one is listed in an
-advisory instead. A route open before can now pass; none that passed before is reported open. A
-review of one of these routes (`authentication:METHOD /path:file`) now matches no finding and is
-reported as doing nothing: delete it. The Go and JavaScript readers no longer credit a route with the
-handler of the route declared below it.
+advisory instead, and a route open before can now pass. A review of one of these routes
+(`authentication:METHOD /path:file`) now matches no finding and is reported as doing nothing: delete
+it.
+
+It can also go the other way. The Go and JavaScript readers took a route's handlers from the text up
+to the first `);`, which Go and semicolon-free JavaScript do not write, so a route could be credited
+with the check in the handler of a route declared below it. In an Express app without semicolons,
+`app.post('/purge', purge)` followed by `app.post('/webhook', webhook)` passed `/purge` because
+`webhook` verifies a signature. Each route is now judged by its own handlers, so a route like
+`/purge` is reported open. None of the 29 calibration applications had one.
 
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
