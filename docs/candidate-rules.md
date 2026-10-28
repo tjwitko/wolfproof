@@ -1586,6 +1586,33 @@ advisory. Six deliberate breakages were each caught by a test.
 and the class chain. That is the work that would let Rails be judged rather than reported. Also
 open: the class a Sinatra filter belongs to in a modular app.
 
+### 27. Flask's decorators and `before_request` hooks — done, not calibrated
+
+Flask's two standard ways of protecting a view were not read: `@login_required` under the route, and
+a `before_request` hook that refuses a caller without a session. Both left the route reported open,
+so the only Flask fix the gate credited was a check written into every view
+(`agent/authentication-flask.mjs`).
+
+Credited now: library decorators (Flask-Login, Flask-Security, Flask-JWT-Extended, Flask-HTTPAuth)
+when the file imports them; a project's own decorator when every function of that name wraps the
+view in a function that refuses, read by the #25 rule (the Flask tutorial's `login_required`); and a
+hook that refuses, for the app's routes under its directory or the blueprint's own routes.
+
+Deliberately not credited: a decorator above the route decorator, which wraps a function Flask never
+calls; `optional=True`; a project decorator that only logs; a hook that only loads the user (the
+Flask tutorial's `load_logged_in_user`); a route the hook lets through by endpoint or path; a hook
+whose early `return` depends on anything else; two blueprints that share a variable name.
+
+Measured: 17 tests, from 22 small apps with what must protect each route; ten deliberate breakages
+each caught. Writing the path test found a bug in the safe direction: the step that stripped
+parentheses took the closing `)` off `request.path.startswith(...)`, so the hook credited nothing.
+The calibration apps changed on no route, but their only Flask code is pygoat's two labs, which use
+neither form, so this is not measured on real applications yet.
+
+**Still open:** a blueprint's `url_prefix` is not part of the path read, which also makes a hook's
+path rule credit nothing for a prefixed blueprint; `LOGIN_DISABLED` switches Flask-Login's decorator
+off and is not read; Flask's `MethodView` classes with `decorators = [...]`.
+
 ### 12. Considered and deferred
 
 - **Split-string secrets** (`"abc" + "def"`). Missed, as the review says. The rest of its claim did not

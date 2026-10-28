@@ -158,9 +158,14 @@ with the check in the handler of a route declared below it. In an Express app wi
 **After v1.13.0: the fix for an open route names its framework.** A Flask route was told to add a
 FastAPI dependency, and every language's advice named all of that language's frameworks. The advice
 now names the fix for the framework each open route is written in, and only forms the check
-credits. Flask's `@login_required` and `before_request` are not read yet, so Flask is pointed at a
-check at the top of the view. A NestJS `@UseGuards(...)` written below the route decorator now counts,
+credits. A NestJS `@UseGuards(...)` written below the route decorator now counts,
 as one above it did.
+
+**After v1.13.0: Flask's decorators and `before_request` hooks count.** `@login_required` from
+Flask-Login, Flask-Security's and Flask-JWT-Extended's decorators, Flask-HTTPAuth's
+`@auth.login_required`, a project's own decorator that refuses the caller, and a `before_request` hook
+that refuses now protect the routes they run for. A Flask route open before can now pass, and a review
+of one now matches nothing and is reported as doing nothing: delete it.
 
 **After v1.13.0: Rails routes are reported as not checked, not as protected.** Lines in
 `config/routes.rb` were read as Sinatra routes, and a `before_action :authenticate…` in any controller

@@ -2395,10 +2395,10 @@ const ADVICE_CASES = [
     open: { "app.py": 'from flask import Flask\n\napp = Flask(__name__)\n\n\n@app.get("/reports")\ndef reports():\n    return []\n' },
     fixed: {
       "app.py":
-        'from flask import Flask, abort, session\n\napp = Flask(__name__)\n\n\n@app.get("/reports")\ndef reports():\n' +
-        '    if "user_id" not in session:\n        abort(401)\n    return []\n',
+        'from flask import Flask\nfrom flask_login import login_required\n\napp = Flask(__name__)\n\n\n' +
+        '@app.get("/reports")\n@login_required\ndef reports():\n    return []\n',
     },
-    says: /top of the view.*abort\(401\)/,
+    says: /`@login_required` \(Flask-Login\) under the route decorator, a `before_request` hook/,
     not: /FastAPI|Depends/,
   },
   {

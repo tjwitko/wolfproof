@@ -43,6 +43,7 @@ import path from "path";
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { handlerGuard, methodBlock } from "./auth-handler.mjs";
+import { flaskRouteAuth, viewDecorators } from "./authentication-flask.mjs";
 import { csharpAdapter } from "./authentication-csharp.mjs";
 import { phpAdapter } from "./authentication-php.mjs";
 import { kotlinAdapter } from "./authentication-kotlin.mjs";
@@ -510,12 +511,12 @@ const pythonAdapter = {
   idiom: "a FastAPI dependency (Depends/Security) on the route or on the app, or a credential header the handler verifies",
   // The advice names the framework the route is written in. A Flask app was told to add a FastAPI
   // dependency. Each form named here is one this check credits, and a test holds it to that: advice
-  // the gate does not accept sends the reader in a circle. Flask's `@login_required` and
-  // `before_request` are not read yet, so the Flask advice names the check this file does read.
+  // the gate does not accept sends the reader in a circle.
   idioms: {
     FastAPI:
       "a dependency that authenticates, on the route (`Depends(get_current_user)`) or on the app or router (`dependencies=[...]`), or a credential header the handler verifies",
-    Flask: "a check at the top of the view that refuses a caller who is not signed in or sends no valid credential (`abort(401)`)",
+    Flask:
+      "`@login_required` (Flask-Login) under the route decorator, a `before_request` hook that refuses a caller who is not signed in, or a check at the top of the view (`abort(401)`)",
   },
   frameworkOf: (text, texts) => frameworkIn(text, texts, PY_FRAMEWORKS),
   family: "python",
@@ -523,9 +524,10 @@ const pythonAdapter = {
     return [r.body];
   },
 
-  routes(text) {
+  routes(text, texts = [text], ctx = {}) {
     const lines = text.split("\n");
     const out = [];
+    const flask = frameworkIn(text, texts, PY_FRAMEWORKS) === "Flask";
     PY_ROUTE_RE.lastIndex = 0;
     let m;
     while ((m = PY_ROUTE_RE.exec(text))) {
@@ -539,6 +541,16 @@ const pythonAdapter = {
         context: signature,
         body: pyRouteBody(lines, line),
         line,
+        // What a Flask decorator or hook needs to know whether it runs for this route.
+        ...(flask
+          ? {
+              receiver: m[1],
+              view: (/^\s*(?:async\s+)?def\s+(\w+)/m.exec(lines.slice(line, line + 20).join("\n")) || [])[1],
+              decorators: viewDecorators(lines, line),
+              text,
+              rel: ctx.rel || "",
+            }
+          : {}),
       });
     }
     return out;
@@ -551,7 +563,11 @@ const pythonAdapter = {
     return null;
   },
 
-  routeAuth(r, all) {
+  routeAuth(r, all, texts = [all], ctx = {}) {
+    if (r.receiver) {
+      const flask = flaskRouteAuth(r, texts, ctx.rels || texts.map(() => ""));
+      if (flask) return flask;
+    }
     if (/dependencies\s*=/.test(r.declaration)) return "a route dependency";
     if (PY_AUTH_DEPENDENCY.test(r.context)) return "an auth dependency";
     const credential = PY_CREDENTIAL_HEADER_PARAM.exec(r.context);

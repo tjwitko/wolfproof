@@ -65,6 +65,18 @@ login page; `withoutMiddleware` takes one away. A Symfony route counts as protec
 `access_control` rule in `security.yaml`. Not read: plain PHP pages served without a router (DVWA),
 Slim, and Symfony's YAML and docblock routing.
 
+In Python, a Flask route counts as protected by a decorator under its route decorator — Flask-Login's
+`@login_required`, Flask-Security's `@auth_required` and `@roles_required` and their kind,
+Flask-JWT-Extended's `@jwt_required()`, Flask-HTTPAuth's `@auth.login_required`, each when the file
+imports it from that library, or a project's own decorator whose wrapper refuses the caller by the
+rule for [checks inside the handler](#authentication-checked-inside-the-handler). A decorator above
+the route decorator protects nothing, because Flask registers the function before it is wrapped, and
+neither does `optional=True`. A `before_request` hook that refuses protects the routes it runs for:
+the app's hook every route under the app's directory, a blueprint's its own routes. A route the hook
+lets through by `request.endpoint` or `request.path` stays open; a hook that lets requests through on
+any other condition protects nothing, and so does a path rule for a blueprint with a `url_prefix`,
+whose full paths are not read.
+
 In Ruby, a Sinatra route counts as protected by a `before` filter whose block refuses the caller or
 checks a credential. A filter without a path protects every route; one with a path protects the
 routes its pattern matches (`before '/admin/*'`, `before '/accounts/:id'`). Not read: Rails routing.
