@@ -737,11 +737,18 @@ export const phpAdapter = {
   configFiles: /(?:^|\/)config\/packages\/(?:[\w-]+\/)?security\.ya?ml$/,
   comments: PHP_COMMENTS,
   idiom: "the `auth` middleware on the route or its group, `#[IsGranted]` on a Symfony controller or action, or an `access_control` rule",
+  idioms: {
+    Laravel: "the `auth` middleware on the route or its group",
+    Symfony: "`#[IsGranted]` on the controller or action, or an `access_control` rule in `security.yaml`",
+  },
 
   routes(text, texts = [text], ctx = {}) {
     const index = projectIndex(texts, ctx);
     const file = (ctx.rel && index.byRel.get(ctx.rel)) || index.byText.get(text);
-    return [...laravelRoutes(index, file), ...symfonyRoutes(index, file)];
+    return [
+      ...laravelRoutes(index, file).map((r) => ({ ...r, framework: "Laravel" })),
+      ...symfonyRoutes(index, file).map((r) => ({ ...r, framework: "Symfony" })),
+    ];
   },
 
   globalAuth() {

@@ -506,6 +506,7 @@ function controllerRoutes(text, parsed, index) {
           context: e.at.raw,
           line: e.at.line,
           kind: "controller",
+          framework: "ASP.NET Core controller",
           anonymous,
           auth: auth ? `an [${auth.name}] attribute` : null,
           body: m.bodyStart >= 0 ? text.slice(m.bodyStart, m.bodyEnd + 1) : null,
@@ -817,6 +818,7 @@ function minimalRoutes(index, file) {
       context: file.text.slice(dot + 1, open + 1),
       line: lineAt(file.text, dot),
       kind: "minimal",
+      framework: "ASP.NET Core minimal API",
       anonymous: state.anonymous || own.anonymous || handler.anonymous,
       auth: own.auth || handler.auth || state.auth,
       body: handler.body,
@@ -834,6 +836,11 @@ export const csharpAdapter = {
   extensions: [".cs"],
   comments: C_COMMENTS,
   idiom: "`[Authorize]` on the controller or action, `.RequireAuthorization()` on the endpoint or its group, or a FallbackPolicy requiring an authenticated user",
+  idioms: {
+    "ASP.NET Core controller":
+      "`[Authorize]` on the controller or action, `.RequireAuthorization()` on `MapControllers()`, or a FallbackPolicy requiring an authenticated user",
+    "ASP.NET Core minimal API": "`.RequireAuthorization()` on the endpoint or its group, or a FallbackPolicy requiring an authenticated user",
+  },
 
   routes(text, texts = [text]) {
     const index = projectIndex(texts);

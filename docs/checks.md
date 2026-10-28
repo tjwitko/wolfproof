@@ -39,6 +39,9 @@ Validator: `authentication`.
 endpoints such as `/login` — and routes counted as protected by a check inside the handler, each one
 listed.
 
+The finding names the fix for the framework each open route is written in, and only forms this
+check credits.
+
 **Covers:** Python (FastAPI, Flask), JavaScript/TypeScript (Express, Fastify, NestJS), Go
 (`net/http`, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra, Rails), C# (ASP.NET Core
 controllers and minimal APIs), PHP (Laravel, Symfony), Kotlin (Spring, Ktor).

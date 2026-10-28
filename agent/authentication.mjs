@@ -481,11 +481,43 @@ function pyRouteBody(lines, startIdx) {
   return out.join("\n");
 }
 
+// How a file says which framework it is written in. A route file often imports only the app object
+// (`from .app import app`), so when the file says nothing the project decides, if it names one.
+const PY_FRAMEWORKS = [
+  ["FastAPI", /^\s*(?:from\s+fastapi\b|import\s+fastapi\b)/m],
+  ["Flask", /^\s*(?:from\s+flask\b|import\s+flask\b)/m],
+];
+const JS_FRAMEWORKS = [
+  ["NestJS", /(?:from\s*|require\s*\(\s*)(['"`])@nestjs\//],
+  ["Fastify", /(?:from\s*|require\s*\(\s*)(['"`])fastify\1/],
+  ["Express", /(?:from\s*|require\s*\(\s*)(['"`])express\1/],
+];
+const projectFrameworks = new WeakMap();
+function frameworkIn(text, texts, known) {
+  const named = (t) => known.filter(([, re]) => re.test(t)).map(([name]) => name);
+  const own = named(text);
+  if (own.length === 1) return own[0];
+  if (own.length > 1) return null;
+  if (!projectFrameworks.has(texts)) projectFrameworks.set(texts, [...new Set(texts.flatMap(named))]);
+  const project = projectFrameworks.get(texts);
+  return project.length === 1 ? project[0] : null;
+}
+
 const pythonAdapter = {
   name: "Python",
   extensions: [".py"],
   comments: HASH_COMMENTS,
   idiom: "a FastAPI dependency (Depends/Security) on the route or on the app, or a credential header the handler verifies",
+  // The advice names the framework the route is written in. A Flask app was told to add a FastAPI
+  // dependency. Each form named here is one this check credits, and a test holds it to that: advice
+  // the gate does not accept sends the reader in a circle. Flask's `@login_required` and
+  // `before_request` are not read yet, so the Flask advice names the check this file does read.
+  idioms: {
+    FastAPI:
+      "a dependency that authenticates, on the route (`Depends(get_current_user)`) or on the app or router (`dependencies=[...]`), or a credential header the handler verifies",
+    Flask: "a check at the top of the view that refuses a caller who is not signed in or sends no valid credential (`abort(401)`)",
+  },
+  frameworkOf: (text, texts) => frameworkIn(text, texts, PY_FRAMEWORKS),
   family: "python",
   handlerBodies(r) {
     return [r.body];
@@ -879,6 +911,13 @@ const jsAdapter = {
   // comma is exactly what JS_ROUTE_RE matches. Documenting a route shape must not declare one.
   idiom:
     "middleware on the route (`app.post(path, requireAuth, handler)`), an app-wide `app.use(requireAuth)`, a Fastify `preHandler`/`onRequest` hook, or a NestJS `@UseGuards(...)`",
+  idioms: {
+    Express: "middleware on the route (`app.post(path, requireAuth, handler)`) or an app-wide `app.use(requireAuth)`",
+    Fastify:
+      "a `preHandler` or `onRequest` hook on the route, or an app-wide `onRequest` hook given a named authentication function",
+    NestJS: "`@UseGuards(...)` on the controller class or on the route's method",
+  },
+  frameworkOf: (text, texts) => frameworkIn(text, texts, JS_FRAMEWORKS),
 
   routes(text) {
     const lines = text.split("\n");
@@ -915,6 +954,7 @@ const jsAdapter = {
         declaration: body,
         context: body,
         line: lineAt(m.index),
+        framework: "Fastify",
       });
     }
 
@@ -947,14 +987,19 @@ const jsAdapter = {
     JS_NEST_ROUTE_RE.lastIndex = 0;
     while ((m = JS_NEST_ROUTE_RE.exec(text))) {
       const line = lineAt(m.index);
-      // Guards sit above the route decorator, or above the class. Look back far enough for both.
-      const before = lines.slice(Math.max(0, line - 4), line).join("\n");
+      // Guards sit above the route decorator, below it, or above the class. TypeScript applies a
+      // method's decorators in any order, and `@Get()` then `@UseGuards(...)` read as open when only
+      // the lines above were read. Below means the decorators down to the method itself.
+      const before = lines.slice(Math.max(0, line - 4), line);
+      const after = [];
+      for (let j = line; j < lines.length && after.length < 6 && /^\s*@/.test(lines[j]); j++) after.push(lines[j]);
       out.push({
         method: m[1].toUpperCase(),
         route: m[3] ? (m[3].startsWith("/") ? m[3] : `/${m[3]}`) : "/",
         declaration: m[0],
-        context: before,
+        context: [...before, ...after].join("\n"),
         line,
+        framework: "NestJS",
       });
     }
 
@@ -1159,15 +1204,30 @@ const rubyAdapter = {
   name: "Ruby",
   extensions: [".rb"],
   comments: RUBY_COMMENTS,
-  idiom: "a `before` filter or `before_action` that authenticates the caller",
+  idiom: "a `before` filter that refuses a caller who is not authenticated (`halt 401`)",
+  idioms: {
+    Sinatra: "a `before` filter that refuses a caller who is not authenticated (`halt 401`)",
+    Rails: "a `before_action` that authenticates the caller in the route's controller",
+  },
 
   routes(text) {
     const out = [];
+    // A Rails `routes.rb` line with a block matches the Sinatra form too. It is labelled for what it
+    // is, so the advice names the Rails fix.
+    const framework = /\.routes\.draw\b/.test(text) ? "Rails" : "Sinatra";
     RUBY_ROUTE_RE.lastIndex = 0;
     let m;
     while ((m = RUBY_ROUTE_RE.exec(text))) {
       const line = text.slice(0, m.index).split("\n").length;
-      out.push({ method: m[1].toUpperCase(), route: m[2], declaration: m[0], context: m[0], line, body: sinatraBody(text.split("\n"), line - 1) });
+      out.push({
+        method: m[1].toUpperCase(),
+        route: m[2],
+        declaration: m[0],
+        context: m[0],
+        line,
+        body: sinatraBody(text.split("\n"), line - 1),
+        framework,
+      });
     }
     return out;
   },
@@ -1312,6 +1372,7 @@ export function checkAuthentication(projectDir) {
     }
     let found = 0;
     for (const file of adapterFiles) {
+      let fileFramework;
       for (const r of adapter.routes(file.text, texts, { ...ctx, rel: file.rel.split(path.sep).join("/") })) {
         // Exempt by path, and recorded rather than dropped. These were skipped silently, so a
         // `/ping` that took a request parameter and passed it to a shell went unmentioned, and the
@@ -1337,9 +1398,12 @@ export function checkAuthentication(projectDir) {
         // sign-in, and a webhook in an app whose policy requires one declares exactly that because it
         // checks its own key.
         const inHandler = declared || !adapter.handlerBodies ? null : handlerGuard(adapter.handlerBodies(r, all, texts, ctx), adapter.family);
+        if (fileFramework === undefined) fileFramework = adapter.frameworkOf?.(file.text, texts) || null;
+        const framework = r.framework || fileFramework;
         routes.push({
           file: file.rel,
           language: adapter.name,
+          ...(framework ? { framework } : {}),
           method: r.method,
           route: r.route,
           line: r.line,
@@ -1483,7 +1547,13 @@ export function authenticationFailures(projectDir, { reviews = [] } = {}) {
   // whether it should be, not where the [Authorize] went.
   const list = open.map((r) => `${r.method} ${r.route} (${r.file}:${r.line}${r.anonymous ? ", declared anonymous" : ""})`).join(", ");
   const someProtected = report.routes.some((r) => r.protectedBy);
-  const idioms = [...new Set(report.languages.map((n) => ADAPTERS.find((a) => a.name === n).idiom))];
+  // The fix for the routes that are open, in the framework each is written in: a Flask route told to
+  // add a FastAPI dependency, or a Laravel one told about `#[IsGranted]`, is sent somewhere else.
+  const idiomOf = (r) => {
+    const adapter = ADAPTERS.find((a) => a.name === r.language);
+    return (r.framework && adapter.idioms?.[r.framework]) || adapter.idiom;
+  };
+  const idioms = [...new Set(open.map(idiomOf))];
 
   return {
     failures: [

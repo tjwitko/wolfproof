@@ -231,6 +231,7 @@ function springRoutes(index, file) {
           context: a.raw,
           line: a.line,
           kind: "spring",
+          framework: "Spring",
           auth: auth || securityRuleFor(index, method, route),
           body: fn.body && fn.body.to > fn.body.from ? file.text.slice(fn.body.from, fn.body.to + 1) : null,
         });
@@ -448,6 +449,7 @@ function ktorRoutes(index, file) {
       context: file.text.slice(b.at, b.from),
       line: b.line,
       kind: "ktor",
+      framework: "Ktor",
       auth: ctx.auth,
       body: b.to > b.from ? file.text.slice(b.from, b.to + 1) : null,
     });
@@ -502,6 +504,10 @@ export const kotlinAdapter = {
   comments: C_COMMENTS,
   idiom:
     "`authenticate { }` around the Ktor routes, or `@PreAuthorize` on the Spring handler, or a security rule requiring authentication for its path",
+  idioms: {
+    Ktor: "`authenticate { }` around the routes",
+    Spring: "`@PreAuthorize` on the handler or its class, or a security rule requiring authentication for its path",
+  },
 
   routes(text, texts = [text], ctx = {}) {
     const index = projectIndex(texts, ctx);

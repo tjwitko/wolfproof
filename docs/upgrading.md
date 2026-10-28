@@ -155,6 +155,13 @@ with the check in the handler of a route declared below it. In an Express app wi
 `webhook` verifies a signature. Each route is now judged by its own handlers, so a route like
 `/purge` is reported open. None of the 29 calibration applications had one.
 
+**After v1.13.0: the fix for an open route names its framework.** A Flask route was told to add a
+FastAPI dependency, and every language's advice named all of that language's frameworks. The advice
+now names the fix for the framework each open route is written in, and only forms the check
+credits. Flask's `@login_required` and `before_request` are not read yet, so Flask is pointed at a
+check at the top of the view. A NestJS `@UseGuards(...)` written below the route decorator now counts,
+as one above it did.
+
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
 

@@ -2315,3 +2315,198 @@ test("an ordinarily named local holding something that is not a credential is ig
   );
   assert.deepEqual(vacuous(failures), []);
 });
+
+// --- the fix named in the framework the route is written in ------------------------------------
+// A Flask app was told to add "a FastAPI dependency". Each case is a route reported open, the
+// advice it must get (and must not: another framework's), and the same route changed the way the
+// advice says, which must then pass. Advice this check does not credit sends the reader in a circle.
+const OPEN_ROUTE = /accept requests from anyone/;
+const ADVICE_CASES = [
+  {
+    framework: "FastAPI",
+    open: { "app.py": 'from fastapi import FastAPI\n\napp = FastAPI()\n\n\n@app.get("/reports")\ndef reports():\n    return []\n' },
+    fixed: {
+      "app.py":
+        'from fastapi import Depends, FastAPI\n\napp = FastAPI()\n\n\ndef get_current_user():\n    pass\n\n\n' +
+        '@app.get("/reports")\ndef reports(user=Depends(get_current_user)):\n    return []\n',
+    },
+    says: /Depends\(get_current_user\)/,
+    not: /abort\(401\)|Flask/,
+  },
+  {
+    framework: "Flask",
+    open: { "app.py": 'from flask import Flask\n\napp = Flask(__name__)\n\n\n@app.get("/reports")\ndef reports():\n    return []\n' },
+    fixed: {
+      "app.py":
+        'from flask import Flask, abort, session\n\napp = Flask(__name__)\n\n\n@app.get("/reports")\ndef reports():\n' +
+        '    if "user_id" not in session:\n        abort(401)\n    return []\n',
+    },
+    says: /top of the view.*abort\(401\)/,
+    not: /FastAPI|Depends/,
+  },
+  {
+    framework: "Express",
+    open: { "server.js": "const express = require('express');\nconst app = express();\napp.get('/reports', (req, res) => res.json([]));\n" },
+    fixed: {
+      "server.js":
+        "const express = require('express');\nconst app = express();\nfunction requireAuth(req, res, next) {\n" +
+        "  if (!req.session.user) return res.status(401).end();\n  next();\n}\napp.get('/reports', requireAuth, (req, res) => res.json([]));\n",
+    },
+    says: /app\.use\(requireAuth\)/,
+    not: /Fastify|preHandler|UseGuards/,
+  },
+  {
+    framework: "Fastify",
+    open: { "server.js": "const fastify = require('fastify')();\nfastify.get('/reports', async () => []);\n" },
+    fixed: {
+      "server.js":
+        "const fastify = require('fastify')();\nasync function authenticate(request, reply) {\n" +
+        "  if (!request.user) return reply.code(401).send();\n}\nfastify.get('/reports', { preHandler: authenticate }, async () => []);\n",
+    },
+    says: /`preHandler` or `onRequest` hook on the route/,
+    not: /app\.use|UseGuards/,
+  },
+  {
+    framework: "NestJS",
+    open: {
+      "src/reports.controller.ts":
+        "import { Controller, Get } from '@nestjs/common';\n\n@Controller('reports')\nexport class ReportsController {\n" +
+        "  @Get()\n  list() {\n    return [];\n  }\n}\n",
+    },
+    // The guard below the route decorator, as TypeScript allows: it read as open while only the
+    // lines above were read.
+    fixed: {
+      "src/reports.controller.ts":
+        "import { Controller, Get, UseGuards } from '@nestjs/common';\nimport { AuthGuard } from '@nestjs/passport';\n\n" +
+        "@Controller('reports')\nexport class ReportsController {\n  @Get()\n  @UseGuards(AuthGuard('jwt'))\n  list() {\n    return [];\n  }\n}\n",
+    },
+    says: /@UseGuards\(\.\.\.\)` on the controller class or on the route's method/,
+    not: /app\.use|preHandler/,
+  },
+  {
+    framework: "Sinatra",
+    open: { "app.rb": "require 'sinatra'\n\nget '/reports' do\n  '[]'\nend\n" },
+    fixed: { "app.rb": "require 'sinatra'\n\nbefore do\n  halt 401 unless session[:user_id]\nend\n\nget '/reports' do\n  '[]'\nend\n" },
+    says: /`before` filter.*halt 401/,
+    not: /before_action/,
+  },
+  {
+    framework: "ASP.NET Core controller",
+    open: {
+      "Controllers/ReportsController.cs":
+        '[ApiController]\n[Route("api/[controller]")]\npublic class ReportsController : ControllerBase\n{\n' +
+        "    [HttpGet]\n    public IActionResult Get() { return Ok(); }\n}\n",
+    },
+    fixed: {
+      "Controllers/ReportsController.cs":
+        '[Authorize]\n[ApiController]\n[Route("api/[controller]")]\npublic class ReportsController : ControllerBase\n{\n' +
+        "    [HttpGet]\n    public IActionResult Get() { return Ok(); }\n}\n",
+    },
+    says: /`\[Authorize\]` on the controller or action/,
+    not: /on the endpoint or its group/,
+  },
+  {
+    framework: "ASP.NET Core minimal API",
+    open: { "Program.cs": 'var app = builder.Build();\napp.MapGet("/reports", () => Results.Ok());\napp.Run();\n' },
+    fixed: { "Program.cs": 'var app = builder.Build();\napp.MapGet("/reports", () => Results.Ok()).RequireAuthorization();\napp.Run();\n' },
+    says: /`\.RequireAuthorization\(\)` on the endpoint or its group/,
+    not: /\[Authorize\]/,
+  },
+  {
+    framework: "Laravel",
+    open: { "routes/web.php": "<?php\n\nRoute::get('/reports', [ReportController::class, 'index']);\n" },
+    fixed: { "routes/web.php": "<?php\n\nRoute::get('/reports', [ReportController::class, 'index'])->middleware('auth');\n" },
+    says: /the `auth` middleware on the route or its group/,
+    not: /IsGranted|access_control/,
+  },
+  {
+    framework: "Symfony",
+    open: {
+      "src/Controller/ReportController.php":
+        "<?php\nclass ReportController extends AbstractController\n{\n    #[Route('/reports', methods: ['GET'])]\n    public function index(): Response {}\n}\n",
+    },
+    fixed: {
+      "src/Controller/ReportController.php":
+        "<?php\nclass ReportController extends AbstractController\n{\n    #[Route('/reports', methods: ['GET'])]\n" +
+        "    #[IsGranted('ROLE_USER')]\n    public function index(): Response {}\n}\n",
+    },
+    says: /`#\[IsGranted\]` on the controller or action/,
+    not: /middleware/,
+  },
+  {
+    framework: "Spring",
+    open: { "src/main/kotlin/ReportController.kt": '@RestController\nclass ReportController {\n    @GetMapping("/reports")\n    fun list(): String = "[]"\n}\n' },
+    fixed: {
+      "src/main/kotlin/ReportController.kt":
+        '@RestController\nclass ReportController {\n    @GetMapping("/reports")\n    @PreAuthorize("isAuthenticated()")\n    fun list(): String = "[]"\n}\n',
+    },
+    says: /`@PreAuthorize` on the handler or its class/,
+    not: /authenticate \{/,
+  },
+  {
+    framework: "Ktor",
+    open: { "src/main/kotlin/Routes.kt": 'fun Application.module() {\n    routing {\n        get("/reports") { call.respondText("[]") }\n    }\n}\n' },
+    fixed: {
+      "src/main/kotlin/Routes.kt":
+        'fun Application.module() {\n    routing {\n        authenticate {\n            get("/reports") { call.respondText("[]") }\n        }\n    }\n}\n',
+    },
+    says: /`authenticate \{ \}` around the routes/,
+    not: /PreAuthorize/,
+  },
+];
+
+for (const c of ADVICE_CASES) {
+  test(`advice for a ${c.framework} route names the ${c.framework} fix, and the fix passes`, () => {
+    const report = run(c.open, checkAuthentication);
+    assert.deepEqual(
+      report.routes.map((r) => r.framework),
+      [c.framework],
+      "the route is read as " + c.framework
+    );
+    const { failures } = run(c.open, authenticationFailures);
+    const open = failures.filter((f) => OPEN_ROUTE.test(f));
+    assert.equal(open.length, 1, failures.join("\n"));
+    assert.match(open[0], c.says);
+    assert.doesNotMatch(open[0], c.not);
+    const after = run(c.fixed, authenticationFailures).failures;
+    assert.deepEqual(after.filter((f) => OPEN_ROUTE.test(f)), [], "following the advice passes");
+  });
+}
+
+test("a route file that imports only the app object takes the project's framework", () => {
+  const { failures } = run(
+    {
+      "app/__init__.py": "from flask import Flask\n\napp = Flask(__name__)\n",
+      "app/routes.py": 'from app import app\n\n\n@app.get("/reports")\ndef reports():\n    return []\n',
+    },
+    authenticationFailures
+  );
+  assert.match(failures[0], /abort\(401\)/);
+  assert.doesNotMatch(failures[0], /FastAPI/);
+});
+
+test("the advice names the fix for each framework that has an open route, and only those", () => {
+  const { failures } = run(
+    {
+      "api/app.py": 'from flask import Flask\n\napp = Flask(__name__)\n\n\n@app.get("/reports")\ndef reports():\n    return []\n',
+      "web/server.js":
+        "const express = require('express');\nconst app = express();\nfunction requireAuth(req, res, next) {\n" +
+        "  if (!req.session.user) return res.status(401).end();\n  next();\n}\napp.get('/x', requireAuth, (req, res) => res.json([]));\n" +
+        "app.get('/y', (req, res) => res.json([]));\n",
+      "Program.cs": 'var app = builder.Build();\napp.MapGet("/z", () => Results.Ok()).RequireAuthorization();\napp.Run();\n',
+    },
+    authenticationFailures
+  );
+  const open = failures.find((f) => OPEN_ROUTE.test(f));
+  assert.match(open, /abort\(401\)/);
+  assert.match(open, /app\.use\(requireAuth\)/);
+  assert.doesNotMatch(open, /RequireAuthorization|\[Authorize\]/, "the C# route is protected, so its fix is not advice");
+});
+
+test("a Rails routes.rb line read as a route is labelled Rails, and gets the Rails fix", () => {
+  const files = { "config/routes.rb": "Rails.application.routes.draw do\n  get '/reports' do\n    [200, {}, ['[]']]\n  end\nend\n" };
+  assert.deepEqual(run(files, checkAuthentication).routes.map((r) => r.framework), ["Rails"]);
+  const open = run(files, authenticationFailures).failures.find((f) => OPEN_ROUTE.test(f));
+  assert.match(open, /`before_action`/);
+  assert.doesNotMatch(open, /halt 401/);
+});
