@@ -216,3 +216,21 @@ test("a hook's path exemptions open the routes they match, and a prefixed bluepr
     "GET /reports": "a before_request hook (app.py:6)",
   });
 });
+
+// flask-restx declares the route on a Resource class, and each method has its own decorators. The
+// reader read on to the first def, so the class was judged by its first method: a guarded `get`
+// credited an open `post`. CTFd declares its whole API this way.
+test("a route on a class is not judged by its first method's decorators or body", () => {
+  const report = run(
+    {
+      "api.py":
+        "from flask import abort, session\nfrom flask_login import login_required\nfrom flask_restx import Namespace, Resource\n\n" +
+        'ns = Namespace("reports")\n\n\n@ns.route("")\nclass Reports(Resource):\n    @login_required\n    def get(self):\n        return []\n\n' +
+        "    def post(self):\n        return {}\n\n\n" +
+        '@ns.route("/export")\nclass Export(Resource):\n    def get(self):\n        if "user_id" not in session:\n            abort(401)\n        return []\n\n' +
+        "    def delete(self):\n        return {}\n",
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(verdicts(report), { "ROUTE ": null, "ROUTE /export": null });
+});

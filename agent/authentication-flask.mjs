@@ -77,6 +77,8 @@ export function viewDecorators(lines, routeLine) {
   const out = [];
   for (let j = routeLine; j < lines.length && j < routeLine + 20; j++) {
     if (/^\s*(?:async\s+)?def\b/.test(lines[j])) break;
+    // A route on a class: what follows are its methods' decorators, each for that method alone.
+    if (/^\s*class\b/.test(lines[j])) return [];
     const m = /^\s*@\s*([\w.]+)\s*(\(.*)?$/.exec(lines[j]);
     if (m) out.push({ name: m[1], args: m[2] || "" });
   }

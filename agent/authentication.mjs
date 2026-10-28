@@ -462,7 +462,12 @@ export function leakySignatureCheck(all) {
 // function or class is read too.
 function pyRouteBody(lines, startIdx) {
   let d = startIdx;
-  while (d < lines.length && d < startIdx + 40 && !/^\s*(?:async\s+)?def\b/.test(lines[d])) d++;
+  // A route on a class (flask-restx's `@ns.route` on a Resource, a MethodView) belongs to every method
+  // of it. Reading on to the first `def` judged the whole class by that one method.
+  while (d < lines.length && d < startIdx + 40 && !/^\s*(?:async\s+)?def\b/.test(lines[d])) {
+    if (/^\s*class\b/.test(lines[d])) return "";
+    d++;
+  }
   if (d >= lines.length || d >= startIdx + 40) d = startIdx;
   const indentOf = (l) => /^\s*/.exec(l)[0].length;
   const indent = indentOf(lines[d]);

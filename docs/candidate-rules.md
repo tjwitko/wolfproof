@@ -1586,7 +1586,7 @@ advisory. Six deliberate breakages were each caught by a test.
 and the class chain. That is the work that would let Rails be judged rather than reported. Also
 open: the class a Sinatra filter belongs to in a modular app.
 
-### 27. Flask's decorators and `before_request` hooks — done, not calibrated
+### 27. Flask's decorators and `before_request` hooks — done, calibrated
 
 Flask's two standard ways of protecting a view were not read: `@login_required` under the route, and
 a `before_request` hook that refuses a caller without a session. Both left the route reported open,
@@ -1607,11 +1607,31 @@ Measured: 17 tests, from 22 small apps with what must protect each route; ten de
 each caught. Writing the path test found a bug in the safe direction: the step that stripped
 parentheses took the closing `)` off `request.path.startswith(...)`, so the hook credited nothing.
 The calibration apps changed on no route, but their only Flask code is pygoat's two labs, which use
-neither form, so this is not measured on real applications yet.
+neither form.
+
+Measured on five real Flask applications, shallow clones of CTFd 71de7a6, flaskbb 737d76f, redash
+19505d5, microblog a975ef6 and pallets/flask d086db8 (whose tutorial is the Flask tutorial): 277
+routes, 25 newly protected and none newly open, each read against its source and each correct —
+microblog 19 (Flask-Login, and Flask-HTTPAuth's `basic_auth` and `token_auth` objects), the tutorial
+3 (its own `login_required`), redash 3 (Flask-Login). Two more microblog routes moved from a check in
+the handler to the decorator above it.
+
+Measuring found a misreading, fixed before it credited anything: a route declared on a class
+(flask-restx's `@ns.route` on a `Resource`, as CTFd's whole API is) took the decorators and body of
+the class's first method, so a guarded `get` would have credited an open `post`. A class route now
+reads neither. It moved no route in either set, and the #25 handler reading had the same defect.
+
+What stays open and should not: 111 CTFd routes carrying `@admins_only` or `@authed_only`, which
+decide through helpers — `if authed(): ... else: abort(403)`, where `authed()` returns
+`session.get("id")` — and #25 does not follow a helper call. 88 of CTFd's open routes are also
+declared on Resource classes. flaskbb registers `MethodView`s through its own `register_view`
+helper, which is not read as routes (no routes found, reported as such); redash's API is
+flask-restful resources added with `api.add_org_resource`, likewise.
 
 **Still open:** a blueprint's `url_prefix` is not part of the path read, which also makes a hook's
 path rule credit nothing for a prefixed blueprint; `LOGIN_DISABLED` switches Flask-Login's decorator
-off and is not read; Flask's `MethodView` classes with `decorators = [...]`.
+off and is not read; class-based views — a `MethodView` or a flask-restx `Resource` — whose methods
+would each need judging; a decorator or hook whose condition is a helper call (CTFd's `authed()`).
 
 ### 12. Considered and deferred
 
