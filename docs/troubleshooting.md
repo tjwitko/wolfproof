@@ -94,8 +94,9 @@ credential against configuration, a session or role, refused at the top of the h
 tests the wrong thing, or refuses with a status the client ignores, reads the same.
 
 **A route reported open whose handler does check the caller** — the check is in a helper the handler
-calls, after the work (a branch above it that does something and returns counts), or behind a condition that lets some callers through (`!featureOn && !isAdmin`
-refuses only while the feature is off). Move the check to the top of the handler, onto the route
+calls, after the work (a branch above it that does something and returns counts), behind a condition that lets some callers through (`!featureOn && !isAdmin`
+refuses only while the feature is off), or a session key that does not name the caller
+(`session["auth"]` counts, `session["s"]` and `session[KEY]` do not). Move the check to the top of the handler, onto the route
 (middleware, an attribute, a dependency), or mark the finding reviewed.
 
 **"declare dependencies that no scanner read"** — `osv-scanner` reads lockfiles, and of manifests

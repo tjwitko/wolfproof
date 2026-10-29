@@ -113,7 +113,9 @@ to have this shape, all of it:
   comparison (`hmac.compare_digest`, `FixedTimeEquals`, `hash_equals`, `MessageDigest.isEqual`) or a
   call that verifies a signature or token; a credential-named value compared with a configured or
   credential-named one, never with a literal (`sortKey != "date"` is validation) or its own
-  confirmation; or the caller's identity — a session, a principal, a signed-in user, a role. A name
+  confirmation; or the caller's identity — a principal, a signed-in user, a role, or a session key
+  that names the caller (`session.get("user_id")`, `session[:user_id]`, `req.session.userId`; not
+  `session["nonce"]` or `session.get("setup_git_device")`, which hold sign-in flow state). A name
   assigned earlier in the handler is read through its assignment. A call whose name only says it
   authenticates or authorizes counts with a 401, a 403 or the sign-in page, and not with a 404.
 - **A refusal that ends the request:** it returns, throws, aborts or halts — with 401, 403, 400,

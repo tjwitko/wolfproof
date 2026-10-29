@@ -518,7 +518,32 @@ const SIGNED = /\bhmac\s*\.\s*(?:new|New)\s*\(|\bcreateHmac\s*\(|\bHMACSHA\d+\b|
 
 // The caller's identity: a session, a principal or signed-in user, a role.
 const IDENTITY =
-  /\bcurrent_user\b|\brequest\s*\.\s*user\b|\bg\s*\.\s*user\b|\bsession\s*(?:\.\s*get\s*\(|\[)|\bin\s+session\b|\b(?:req|request)\s*\.\s*session\b|\breq\s*\.\s*user\b|\bisAuthenticated\b|\bis_authenticated\b|\bis_anonymous\b|\bUser\s*\.\s*(?:Identity|IsInRole|FindFirst|Claims|HasClaim)\b|\bHttpContext\s*\.\s*User\b|\b_?[cC]urrentContext\s*\.\s*\w+\s*\(|\bGet(?:Proper)?UserId\s*\(\s*User\b|\bGetUserByPrincipalAsync\s*\(\s*User\b|\bAuthorizeAsync\s*\(\s*User\b|\bgetUserPrincipal\s*\(|\bisUserInRole\s*\(|\bSecurityContextHolder\b|\bprincipal\b|\bauth\s*\(\s*\)\s*->\s*(?:check|user|id|guest)\b|\bAuth\s*::\s*(?:check|user|id|guest)\b|\$request\s*->\s*user\s*\(|\$this\s*->\s*getUser\s*\(|\bisGranted\s*\(|\$_SESSION\b|\bsessions\s*\.\s*get\b|\bcall\s*\.\s*principal\b|\blogged_in\?|\buser_signed_in\?|\bhas_perms?\s*\(|\bis_staff\b|\bis_superuser\b|\bhasRole\s*\(|\bhasAuthority\s*\(|\bIsInRole\s*\(|\b(?:[Ii]s_?)?(?:[Ss]igned_?[Ii]n|[Ll]ogged_?[Ii]n)\b|\bIsSigned\b/;
+  /\bcurrent_user\b|\brequest\s*\.\s*user\b|\bg\s*\.\s*user\b|\breq\s*\.\s*user\b|\bisAuthenticated\b|\bis_authenticated\b|\bis_anonymous\b|\bUser\s*\.\s*(?:Identity|IsInRole|FindFirst|Claims|HasClaim)\b|\bHttpContext\s*\.\s*User\b|\b_?[cC]urrentContext\s*\.\s*\w+\s*\(|\bGet(?:Proper)?UserId\s*\(\s*User\b|\bGetUserByPrincipalAsync\s*\(\s*User\b|\bAuthorizeAsync\s*\(\s*User\b|\bgetUserPrincipal\s*\(|\bisUserInRole\s*\(|\bSecurityContextHolder\b|\bprincipal\b|\bauth\s*\(\s*\)\s*->\s*(?:check|user|id|guest)\b|\bAuth\s*::\s*(?:check|user|id|guest)\b|\$request\s*->\s*user\s*\(|\$this\s*->\s*getUser\s*\(|\bisGranted\s*\(|\bsessions\s*\.\s*get\b|\bcall\s*\.\s*principal\b|\blogged_in\?|\buser_signed_in\?|\bhas_perms?\s*\(|\bis_staff\b|\bis_superuser\b|\bhasRole\s*\(|\bhasAuthority\s*\(|\bIsInRole\s*\(|\b(?:[Ii]s_?)?(?:[Ss]igned_?[Ii]n|[Ll]ogged_?[Ii]n)\b|\bIsSigned\b/;
+
+// A keyed session read is the caller's identity only when the key names the caller: Flask's
+// `session.get("user_id")`, Rails' `session[:user_id]`, `"uid" in session`, `$_SESSION['user']`,
+// Express's `req.session.userId`. A session also holds sign-in flow state -- CTFd's OAuth
+// `session["nonce"] != state`, its git setup's `session.get("setup_git_device")` -- and a check of
+// that says nothing about who is calling. A key that is not a literal says nothing either. Ktor's
+// typed `call.sessions.get<T>()` has no key and stays in IDENTITY above.
+const SESSION_READ =
+  /\bsession\s*(?:\.\s*get\s*\(\s*|\[\s*)(:\w+|"[^"]*"|'[^']*')|("[^"]*"|'[^']*')\s+(?:not\s+)?in\s+session\b|\$_SESSION\s*\[\s*("[^"]*"|'[^']*')|\b(?:req|request)\s*\.\s*session\s*(?:\.\s*get\s*\(\s*("[^"]*"|'[^']*')|\.\s*(\w+)|\[\s*("[^"]*"|'[^']*'))/g;
+const CALLER_WORD =
+  /^(?:user|users|userid|uid|id|account|member|login|logged|signed|auth|authenticated|principal|identity|role|roles|admin|email|username|owner|customer|staff|superuser|passport)$/;
+
+/** Does a key name the caller? Split on `_`, `-`, `:` and camel case: `_user_id`, `userId`, `:uid`. */
+function namesCaller(key) {
+  const words = key.replace(/^["':]|["']$/g, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/);
+  return words.some((w) => CALLER_WORD.test(w));
+}
+
+function sessionIdentity(text) {
+  for (const m of text.matchAll(SESSION_READ)) {
+    const key = m.slice(1).find((x) => x !== undefined);
+    if (key && namesCaller(key)) return true;
+  }
+  return false;
+}
 
 // A call whose name says it authenticates or authorizes the caller (Gitea's LFS handlers:
 // `authenticated := authenticate(ctx, repo, rv.Authorization, ...)`). Weaker than the evidence above --
@@ -723,7 +748,7 @@ function evidenceOf(cond, assigns) {
   // A signature when an HMAC is computed or a signature named; otherwise a secret compared.
   if (SECRET_CHECK.test(expanded)) return SIGNED.test(expanded) ? "signature" : "secret";
   if (comparesCredential(expanded)) return "credential";
-  if (IDENTITY.test(expanded)) return "identity";
+  if (IDENTITY.test(expanded) || sessionIdentity(expanded)) return "identity";
   if (AUTH_CALL.test(expanded)) return "authcall";
   return null;
 }

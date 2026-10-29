@@ -183,6 +183,13 @@ confirmation marks the account verified before its sign-in check), and a check p
 now reported open. A route that passed on such a check can now block: move the check to the top of
 the handler, or onto the route, or mark the finding reviewed if the route is meant to be public.
 
+**After v1.13.0: a session value counts as the caller only when its key names the caller.**
+`session.get("user_id")`, `session[:user_id]`, `"uid" in session` and `req.session.userId` still count.
+A check of sign-in flow state held in the session no longer does: CTFd's OAuth callback compares
+`session["nonce"]` with the `state` parameter, and that says nothing about who is calling. A key that
+is not a literal (`session[KEY]`) no longer counts either. Ktor's typed `call.sessions.get<T>()` is
+unchanged. A route that passed on such a check can now block.
+
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
 

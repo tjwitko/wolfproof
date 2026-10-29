@@ -207,6 +207,26 @@ end`, "the caller checked in the handler"],
          _context.SaveChanges();
          return Ok();
       }`, "a credential checked in the handler"],
+  ["Flask: no user id in the session, sent to sign in", "python", `def settings():
+    if not session.get("user_id"):
+        return redirect(url_for("auth.login"))
+    return render_template("settings.html")`, "the caller checked in the handler"],
+  ["Flask: a uid key missing from the session, 401", "python", `def settings():
+    if "uid" not in session:
+        abort(401)
+    return render_template("settings.html")`, "the caller checked in the handler"],
+  ["Django: no signed-in user in the session", "python", `def settings(request):
+    if not request.session.get("_auth_user_id"):
+        return redirect("/login")
+    return render(request, "settings.html")`, "the caller checked in the handler"],
+  ["CTFd's own sign-in key: the user's id in the session", "python", `def settings():
+    if not session.get("id"):
+        return redirect(url_for("auth.login"))
+    return render_template("settings.html")`, "the caller checked in the handler"],
+  ["Express: no current user in the session", "brace", `(req, res) => {
+  if (!req.session.currentUser) return res.redirect("/login");
+  res.render("settings");
+}`, "the caller checked in the handler"],
 ];
 
 const NO = [
@@ -351,6 +371,46 @@ const NO = [
     if token == os.environ["API_KEY"]:
         abort(403)
     return "ok"`],
+  ["CTFd's OAuth redirect: the session's nonce is sign-in flow state, not the caller", "python", `def oauth_redirect():
+    oauth_code = request.args.get("code")
+    state = request.args.get("state")
+    if session["nonce"] != state:
+        log("logins", "[{date}] {ip} - OAuth State validation mismatch")
+        error_for(endpoint="auth.login", message="OAuth State validation mismatch.")
+        return redirect(url_for("auth.login"))
+    return finish_login(oauth_code)`],
+  ["CTFd's git device token: a setup step held in the session", "python", `def device_token(provider_id):
+    provider = get_provider(provider_id)
+    device = session.get("setup_git_device")
+    if not device or device.get("provider") != provider_id:
+        raise GitError("No device login in progress")
+    return jsonify(provider.device_token(device["device_code"]))`],
+  ["Rails: an OAuth state in the session", "ruby", `def callback
+  return redirect_to(login_path) if session[:oauth_state].nil?
+  finish_sign_in
+end`],
+  ["Express: an OAuth state in the session", "brace", `(req, res) => {
+  if (!req.session.oauthState) return res.status(401).end();
+  finish(req, res);
+}`],
+  ["Django: a cart in the session", "python", `def checkout(request):
+    if not request.session.get("cart"):
+        return redirect("/login")
+    return render(request, "checkout.html")`],
+  ["a session key that is not a literal", "python", `def step():
+    if not session.get(STEP_KEY):
+        return redirect(url_for("auth.login"))
+    return render_template("step.html")`],
+  ["a database session's get is not a user's session", "python", `def item(id):
+    user = db.session.get(User, id)
+    if user is None:
+        return redirect(url_for("auth.login"))
+    return render_template("item.html", user=user)`],
+  ["an upload session's owner is not the caller's session", "python", `def chunk(upload_id):
+    upload_session = uploads.get(upload_id)
+    if not upload_session.get("owner"):
+        abort(403)
+    return save_chunk(upload_session)`],
 ];
 
 for (const [name, family, body, want] of YES) {

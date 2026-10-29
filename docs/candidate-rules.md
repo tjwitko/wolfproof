@@ -1589,9 +1589,19 @@ read the property pattern's brace as the if's block, a splitting bug that had do
 statements before a guard mattered. 16 tests, and each part of the change switched off fails at
 least one.
 
-Still open: a session value that holds flow state rather than the caller reads as identity. CTFd's
-OAuth `/redirect` compares `session["nonce"]` with the `state` parameter, and its git device-token
-route reads `session.get("setup_git_device")`. Both are credited, and neither checks who is calling.
+A third, fixed after the two above: any keyed session read counted as the caller's identity, and a
+session also holds sign-in flow state. CTFd's OAuth `/redirect` compares `session["nonce"]` with the
+`state` parameter, and its git device-token route reads `session.get("setup_git_device")`; both were
+credited, and neither checks who is calling. A keyed session read now counts only when its key names
+the caller, split into words on `_`, `-` and case: `user_id`, `_auth_user_id`, `uid`, `id`,
+`currentUser`, `:user_id`. A key that is not a literal does not count. Ktor's typed
+`call.sessions.get<T>()` has no key and is unchanged. Measured the same way on the files still on
+disk, the five Flask apps and the three recloned calibration repositories, 1,181 routes: exactly the
+two CTFd routes changed, both now open. Of the other calibration apps, whose checkouts had been
+removed from the scratch directory, the earlier dump shows only Gitea's 9 Go routes credited for the
+caller in the handler; they rest on `ctx.IsSigned` and `ctx.Doer`, not a session key, and the Gitea
+unit cases still pass, but Gitea itself was not re-run. 13 tests, and each part of the change
+switched off fails at least one.
 
 ### 26. Ruby filters credited to routes they do not run for — fixed
 
