@@ -167,6 +167,17 @@ Flask-Login, Flask-Security's and Flask-JWT-Extended's decorators, Flask-HTTPAut
 that refuses now protect the routes they run for. A Flask route open before can now pass, and a review
 of one now matches nothing and is reported as doing nothing: delete it.
 
+**After v1.13.0: a Python route on a class is not judged by its first method.** A flask-restx route,
+`@ns.route(...)` on a `Resource` class, was judged by the body of the class's first method, so a
+sign-in check in its `get` credited an open `post`. A route on a class is now judged by none of its
+methods: not by their bodies, not by `@login_required` on a method, and not by `method_decorators`.
+It is reported open unless the app's `before_request` hook protects it; a blueprint's hook does not,
+even when the `Api` is mounted on that blueprint. A class route that passed on its first method's
+check can now block: move the check into the app's `before_request` hook, or mark the finding
+reviewed once a person has read each method. A `MethodView` registered with `add_url_rule` is not
+read as a route by either version, so nothing changes for it. It moved no route on the calibration
+applications or on five real Flask applications.
+
 **After v1.13.0: Rails routes are reported as not checked, not as protected.** Lines in
 `config/routes.rb` were read as Sinatra routes, and a `before_action :authenticate…` in any controller
 marked them all protected — on Mastodon, its public profile page among them. Rails routing is now not
