@@ -1669,10 +1669,26 @@ declared on Resource classes. flaskbb registers `MethodView`s through its own `r
 helper, which is not read as routes (no routes found, reported as such); redash's API is
 flask-restful resources added with `api.add_org_resource`, likewise.
 
+A blueprint's hook did not reach a flask-restx route, fixed after v1.13.0. The route is declared on a
+Namespace or the Api, never on the blueprint, so `@bp.before_request` was matched to none of them,
+though Flask runs it for every route of an Api mounted on the blueprint. The reader now follows the
+route's receiver to its Api (`api.add_namespace(ns)` anywhere in the project, `ns =
+api.namespace(...)`, or `@api.route`) and the Api to its blueprint (`Api(bp)`, `Api(app=bp)`,
+`api.init_app(bp)`), through imports. Imports are resolved by the whole dotted path: the first version
+matched the last part alone, and on CTFd took `CTFd/users.py` for `CTFd.api.v1.users`, missing 61 of
+its 90 API routes. Two false credits found writing it, both now open: a hook that lets
+`request.endpoint` through was matched against a class route's first method name (`get`), while
+flask-restx names the endpoint `<namespace>_<class>`; and a path rule was matched against the route's
+own path, without its namespace's. Measured on the five Flask apps, Bitwarden, ktor-samples,
+dvcsharp-api and Gitea, 2,005 routes: no route changed, since none has a hook on a flask-restx
+blueprint. On a copy of CTFd with a refusing `@api.before_request` added, the hook is credited on all
+90 API routes and on none of the other 73, against none before. 7 tests, and each part of the change
+switched off fails at least one.
+
 **Still open:** a blueprint's `url_prefix` is not part of the path read, which also makes a hook's
 path rule credit nothing for a prefixed blueprint; `LOGIN_DISABLED` switches Flask-Login's decorator
-off and is not read; class-based views — a `MethodView` or a flask-restx `Resource` — whose methods
-would each need judging; a decorator or hook whose condition is a helper call (CTFd's `authed()`).
+off and is not read; a class route's methods, which would each need judging; a decorator or hook
+whose condition is a helper call (CTFd's `authed()`).
 
 ### 12. Considered and deferred
 

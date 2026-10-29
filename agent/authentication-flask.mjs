@@ -242,17 +242,101 @@ function sameBlueprint(hook, route) {
   return false;
 }
 
-function exempted(hook, route) {
+function exempted(hook, route, restx) {
   return hook.exemptions.some((e) => {
     if (!e.endpoints && !e.paths && !e.prefixes) return false;
+    // A route on a class is not named after its first method: flask-restx names a Resource's
+    // endpoint `<namespace>_<class>` (`public_things`). Which class an endpoint rule names is not
+    // read, so any endpoint rule is taken to reach it.
+    if (e.endpoints && (route.onClass || restx)) return true;
     if (e.endpoints?.some((ep) => ep === route.view || ep.endsWith(`.${route.view}`))) return true;
-    // A blueprint's url_prefix is not part of the path read here, so a path rule is taken to reach
-    // any route whose full path is not known.
-    const prefixed = /url_prefix\s*=/.test(route.text);
+    // A blueprint's url_prefix is not part of the path read here, nor is a flask-restx namespace's
+    // path, so a path rule is taken to reach any route whose full path is not known.
+    const prefixed = Boolean(restx) || /url_prefix\s*=/.test(route.text);
     if (e.paths?.some((p) => p === route.route || prefixed)) return true;
     if (e.prefixes?.some((p) => route.route.startsWith(p) || prefixed)) return true;
     return false;
   });
+}
+
+// --- flask-restx ---------------------------------------------------------------------------------
+// A flask-restx route is declared on a Namespace (`@ns.route`) or on the Api (`@api.route`), not on
+// the blueprint, so a blueprint's hook was never matched to it -- though Flask runs that hook for it
+// once the Api is mounted on the blueprint: `api = Api(bp)`, `Api(app=bp)`, `api.init_app(bp)`. The
+// chain read: the route's receiver, the Api that owns it (`ns = api.namespace(...)`, or
+// `api.add_namespace(ns)` anywhere in the project), and the blueprint that Api is mounted on.
+
+// The file a module names, from the importing file: `.things` and `..api` beside it, `CTFd.api.v1.users`
+// by its whole dotted path. Matching on the last part alone took CTFd's `CTFd/users.py` for
+// `CTFd.api.v1.users`. Where a dotted path matches in more than one place (two services in one
+// repository), the one whose root holds the importing file; otherwise it is not resolved.
+function moduleFile(module, file, files) {
+  const dots = /^\.*/.exec(module)[0].length;
+  const rest = module.slice(dots).replace(/\./g, "/");
+  let candidates;
+  if (dots) {
+    let base = path.posix.dirname(file.rel);
+    for (let k = 1; k < dots; k++) base = path.posix.dirname(base);
+    const target = rest ? path.posix.join(base, rest) : base;
+    candidates = files.filter((f) => f.rel === `${target}.py` || f.rel === path.posix.join(target, "__init__.py"));
+  } else {
+    const rootOf = (f) =>
+      [`${rest}.py`, `${rest}/__init__.py`].map((p) => (f.rel === p ? "" : f.rel.endsWith(`/${p}`) ? f.rel.slice(0, -p.length) : null)).find((r) => r !== null);
+    candidates = files.filter((f) => f !== file && rootOf(f) !== undefined);
+    if (candidates.length > 1) candidates = candidates.filter((f) => file.rel.startsWith(rootOf(f)));
+  }
+  candidates = candidates.filter((f) => f !== file);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+// Where a name used in a file is assigned: in that file, or in the module it is imported from
+// (`from .api import ns`, `from app.api import ns as things`, `from . import api` in a package).
+function definition(name, file, files, depth = 0) {
+  if (depth > 3) return null;
+  if (new RegExp(`^[ \\t]*${name}\\s*=(?!=)`, "m").test(file.text)) return { name, file };
+  for (const m of file.text.matchAll(/^[ \t]*from\s+([\w.]*)\s+import\s+(\([^)]*\)|[^\n]+)/gm)) {
+    for (const part of m[2].replace(/[()\n]/g, " ").split(",")) {
+      const [orig, alias] = part.trim().split(/\s+as\s+/);
+      if ((alias || orig) !== name) continue;
+      const target = moduleFile(m[1], file, files);
+      if (target) return definition(orig, target, files, depth + 1);
+    }
+  }
+  return null;
+}
+const same = (a, b) => a && b && a.name === b.name && a.file === b.file;
+const assigned = (def) => (new RegExp(`^[ \\t]*${def.name}\\s*=(?!=)\\s*([^\\n]*)`, "m").exec(def.file.text) || [])[1] || "";
+
+const projectFiles = new WeakMap();
+function filesOf(texts, rels) {
+  if (!projectFiles.has(texts)) projectFiles.set(texts, texts.map((text, i) => ({ text, rel: rels[i] })));
+  return projectFiles.get(texts);
+}
+
+/** For a flask-restx route: the Api it belongs to, and the blueprint that Api is mounted on, if any. */
+function restxOf(route, texts, rels) {
+  const files = filesOf(texts, rels);
+  const file = files.find((f) => f.rel === route.rel && f.text === route.text);
+  if (!file) return null;
+  const receiver = definition(route.receiver, file, files);
+  if (!receiver) return null;
+  const value = assigned(receiver);
+  let api = null;
+  let m;
+  if (/^(?:flask_restx\s*\.\s*)?Api\s*\(/.test(value)) api = receiver;
+  else if ((m = /^(\w+)\s*\.\s*namespace\s*\(/.exec(value))) api = definition(m[1], receiver.file, files);
+  else if (/^(?:flask_restx\s*\.\s*)?Namespace\s*\(/.test(value)) {
+    for (const f of files) {
+      for (const c of f.text.matchAll(/^[ \t]*(\w+)\s*\.\s*add_namespace\s*\(\s*(\w+)/gm)) {
+        if (same(definition(c[2], f, files), receiver)) api = definition(c[1], f, files);
+      }
+    }
+  } else return null;
+  if (!api) return { api: null, blueprint: null };
+  const at =
+    new RegExp(`^[ \\t]*${api.name}\\s*=\\s*(?:flask_restx\\s*\\.\\s*)?Api\\s*\\(\\s*(?:app\\s*=\\s*)?(\\w+)\\s*[,)]`, "m").exec(api.file.text) ||
+    new RegExp(`^[ \\t]*${api.name}\\s*\\.\\s*init_app\\s*\\(\\s*(?:app\\s*=\\s*)?(\\w+)\\s*[,)]`, "m").exec(api.file.text);
+  return { api, blueprint: at ? definition(at[1], api.file, files) : null };
 }
 
 /** What protects a Flask route from outside its body, or null. */
@@ -261,12 +345,16 @@ export function flaskRouteAuth(route, texts, rels) {
     const by = decoratorAuth(dec, route.text, texts);
     if (by) return by;
   }
-  for (const hook of hooksIn(texts, rels)) {
+  const hooks = hooksIn(texts, rels);
+  const restx = hooks.length ? restxOf(route, texts, rels) : null;
+  const files = filesOf(texts, rels);
+  for (const hook of hooks) {
     const reaches =
       hook.scope === "app"
         ? route.rel.startsWith(path.posix.dirname(hook.rel) === "." ? "" : `${path.posix.dirname(hook.rel)}/`)
-        : sameBlueprint(hook, route);
-    if (reaches && !exempted(hook, route)) return `a before_request hook (${hook.at})`;
+        : sameBlueprint(hook, route) ||
+          same(restx?.blueprint, { name: hook.receiver, file: files.find((f) => f.rel === hook.rel && f.text === hook.text) });
+    if (reaches && !exempted(hook, route, restx)) return `a before_request hook (${hook.at})`;
   }
   return null;
 }

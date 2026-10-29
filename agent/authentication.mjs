@@ -532,11 +532,11 @@ const pythonAdapter = {
   },
   // A route decorator on a class (flask-restx's `@ns.route` on a Resource; only Flask's extensions
   // put one there) is judged by none of the class's methods, so the function-view advice -- a
-  // decorator, a check at the top of the view -- would not move it. The app's `before_request` hook
-  // is what this check credits there.
+  // decorator, a check at the top of the view -- would not move it. A `before_request` hook, the
+  // app's or the blueprint's, is what this check credits there.
   idiomFor(r) {
     if (r.onClass)
-      return "for a route on a class (`@ns.route` on a flask-restx `Resource`), the app's `before_request` hook that refuses a caller who is not signed in: a check in one of its methods, `@login_required` on one, and `method_decorators` are not read";
+      return "for a route on a class (`@ns.route` on a flask-restx `Resource`), a `before_request` hook that refuses a caller who is not signed in, on the app or on the blueprint the route's `Api` is mounted on: a check in one of its methods, `@login_required` on one, and `method_decorators` are not read";
     return null;
   },
   frameworkOf: (text, texts) => frameworkIn(text, texts, PY_FRAMEWORKS),

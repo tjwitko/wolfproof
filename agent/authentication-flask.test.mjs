@@ -234,3 +234,152 @@ test("a route on a class is not judged by its first method's decorators or body"
   );
   assert.deepEqual(verdicts(report), { "ROUTE ": null, "ROUTE /export": null });
 });
+
+// --- flask-restx under a blueprint -----------------------------------------------------------------
+// A flask-restx route is declared on a Namespace or the Api, never on the blueprint, so a blueprint's
+// hook was not matched to it -- though Flask runs that hook for every route of an Api mounted on the
+// blueprint. CTFd's shape: the blueprint, the Api and the hook in the package's __init__, each
+// namespace in its own module, imported by its whole dotted path, beside a module of the same name.
+const lineOf = (text, needle) => text.split("\n").findIndex((l) => l.includes(needle)) + 1;
+const REFUSE = "    if not current_user.is_authenticated:\n        abort(401)\n";
+
+test("a blueprint's hook protects the flask-restx routes of an Api mounted on it, across modules", () => {
+  const init =
+    "from flask import Blueprint, abort\nfrom flask_login import current_user\nfrom flask_restx import Api\n\n" +
+    "from app.api.v1.users import users_namespace\nfrom .v1.teams import teams_namespace as teams\n\n" +
+    'api = Blueprint("api", __name__, url_prefix="/api/v1")\nAPI_v1 = Api(\n    api,\n    doc=False,\n)\n' +
+    'API_v1.add_namespace(users_namespace, "/users")\nAPI_v1.add_namespace(teams, "/teams")\n\n\n' +
+    "@api.before_request\ndef require_login():\n" + REFUSE;
+  const resource = (ns, cls) =>
+    `from flask_restx import Namespace, Resource\n\n${ns} = Namespace("${cls.toLowerCase()}")\n\n\n` +
+    `@${ns}.route("/<int:id>")\nclass ${cls}(Resource):\n    def delete(self, id):\n        return {}\n`;
+  const report = run(
+    {
+      "app/api/__init__.py": init,
+      "app/api/v1/users.py": resource("users_namespace", "Users"),
+      "app/api/v1/teams.py": resource("teams_namespace", "Teams"),
+      // The same names in other modules, read first: `app.admin.users` is not `app.api.v1.users`.
+      "app/admin/users.py": resource("users_namespace", "LegacyUsers").replace("/<int:id>", "/legacy/<int:id>"),
+      "app/admin/teams.py": resource("teams_namespace", "LegacyTeams").replace("/<int:id>", "/legacy-teams/<int:id>"),
+    },
+    checkAuthentication
+  );
+  const hook = `a before_request hook (app/api/__init__.py:${lineOf(init, "@api.before_request")})`;
+  const byFile = Object.fromEntries(report.routes.map((r) => [r.file, r.protectedBy]));
+  assert.deepEqual(byFile, {
+    "app/api/v1/users.py": hook,
+    "app/api/v1/teams.py": hook,
+    "app/admin/users.py": null,
+    "app/admin/teams.py": null,
+  });
+});
+
+test("api.namespace(), init_app and Api(app=bp) mount an Api on the blueprint too", () => {
+  const namespaced =
+    "from flask import Blueprint, abort\nfrom flask_login import current_user\nfrom flask_restx import Api, Resource\n\n" +
+    'bp = Blueprint("api", __name__)\napi = Api(doc=False)\napi.init_app(bp)\nns = api.namespace("things")\n\n\n' +
+    "@bp.before_request\ndef require_login():\n" + REFUSE +
+    '\n\n@ns.route("/things")\nclass Things(Resource):\n    def post(self):\n        return {}\n';
+  const onApi =
+    "from flask import Blueprint, abort\nfrom flask_login import current_user\nfrom flask_restx import Api, Resource\n\n" +
+    'bp = Blueprint("reports", __name__)\napi = Api(app=bp)\n\n\n' +
+    "@bp.before_request\ndef require_login():\n" + REFUSE +
+    '\n\n@api.route("/reports")\nclass Reports(Resource):\n    def post(self):\n        return {}\n';
+  const report = run({ "things.py": namespaced, "reports.py": onApi }, checkAuthentication);
+  assert.deepEqual(verdicts(report), {
+    "ROUTE /things": `a before_request hook (things.py:${lineOf(namespaced, "@bp.before_request")})`,
+    "ROUTE /reports": `a before_request hook (reports.py:${lineOf(onApi, "@bp.before_request")})`,
+  });
+});
+
+test("a flask-restx route stays open under another blueprint's hook, an Api it was never added to, or a hook that exempts by path or endpoint", () => {
+  const head = "from flask import Blueprint, Flask, abort, request\nfrom flask_login import current_user\nfrom flask_restx import Api, Namespace, Resource\n\n";
+  const route = (ns, p) => `\n\n@${ns}.route("${p}")\nclass C${p.replace(/\W/g, "")}(Resource):\n    def post(self):\n        return {}\n`;
+  const report = run(
+    {
+      // The hook is on `admin`; the Api is on `public`.
+      "other.py":
+        head + 'admin = Blueprint("admin", __name__)\npublic = Blueprint("public", __name__)\napi = Api(public)\nns = Namespace("a")\napi.add_namespace(ns)\n\n\n' +
+        "@admin.before_request\ndef require_login():\n" + REFUSE + route("ns", "/other"),
+      // Never added to the Api.
+      "unmounted.py":
+        head + 'bp = Blueprint("b", __name__)\napi = Api(bp)\nns = Namespace("b")\n\n\n@bp.before_request\ndef require_login():\n' + REFUSE + route("ns", "/unmounted"),
+      // A namespace's path is not read, so the full path of the route is not known.
+      "bypath.py":
+        head + 'bp = Blueprint("c", __name__)\napi = Api(bp)\nns = Namespace("c")\napi.add_namespace(ns)\n\n\n@bp.before_request\ndef require_login():\n' +
+        '    if request.path.startswith("/c/public"):\n        return\n' + REFUSE + route("ns", "/bypath"),
+      // flask-restx names this Resource's endpoint `public_cbyendpoint` (`<namespace>_<class>`), and the
+      // hook lets it through; the reader took the class's endpoint to be its first method's name.
+      "app/byendpoint.py":
+        head + 'app = Flask(__name__)\napi = Api(app)\nns = Namespace("public")\napi.add_namespace(ns)\n\n\n@app.before_request\ndef require_login():\n' +
+        '    if request.endpoint in ("public_cbyendpoint", "auth.login"):\n        return\n' + REFUSE + route("ns", "/byendpoint"),
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(verdicts(report), {
+    "ROUTE /other": null,
+    "ROUTE /unmounted": null,
+    "ROUTE /bypath": null,
+    "ROUTE /byendpoint": null,
+  });
+});
+
+test("two services with the same module paths: each Api's namespaces are its own service's", () => {
+  const init = (hook) =>
+    "from flask import Blueprint, abort\nfrom flask_login import current_user\nfrom flask_restx import Api\n\n" +
+    'from app.api.v1.users import users_namespace\n\napi = Blueprint("api", __name__)\nAPI = Api(api)\nAPI.add_namespace(users_namespace)\n' +
+    (hook ? "\n\n@api.before_request\ndef require_login():\n" + REFUSE : "");
+  const users = (p) => `from flask_restx import Namespace, Resource\n\nusers_namespace = Namespace("users")\n\n\n@users_namespace.route("${p}")\nclass Users(Resource):\n    def delete(self):\n        return {}\n`;
+  const report = run(
+    {
+      "services/a/app/api/__init__.py": init(false),
+      "services/a/app/api/v1/users.py": users("/a"),
+      "services/b/app/api/__init__.py": init(true),
+      "services/b/app/api/v1/users.py": users("/b"),
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(verdicts(report), {
+    "ROUTE /a": null,
+    "ROUTE /b": `a before_request hook (services/b/app/api/__init__.py:${lineOf(init(true), "@api.before_request")})`,
+  });
+});
+
+test("modules that import each other do not send the reader round in circles", () => {
+  const report = run(
+    {
+      "a.py": "from b import ns\n\n\n@ns.route(\"/a\")\nclass A(Resource):\n    def post(self):\n        return {}\n",
+      "b.py": "from flask import Blueprint, abort\nfrom flask_login import current_user\nfrom a import ns\n\nbp = Blueprint(\"b\", __name__)\n\n\n@bp.before_request\ndef require_login():\n" + REFUSE,
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(verdicts(report), { "ROUTE /a": null });
+});
+
+test("a module path that matches under two roots both holding the importer is not resolved", () => {
+  const init =
+    "from flask import Blueprint, abort\nfrom flask_login import current_user\nfrom flask_restx import Api\n\n" +
+    'from app.api.v1.users import users_namespace\n\napi = Blueprint("api", __name__)\nAPI = Api(api)\nAPI.add_namespace(users_namespace)\n' +
+    "\n\n@api.before_request\ndef require_login():\n" + REFUSE;
+  const users = (p) => `from flask_restx import Namespace, Resource\n\nusers_namespace = Namespace("users")\n\n\n@users_namespace.route("${p}")\nclass Users(Resource):\n    def delete(self):\n        return {}\n`;
+  const report = run(
+    { "x/app/api/v1/users.py": users("/outer"), "x/y/app/api/__init__.py": init, "x/y/app/api/v1/users.py": users("/inner") },
+    checkAuthentication
+  );
+  assert.deepEqual(verdicts(report), { "ROUTE /outer": null, "ROUTE /inner": null });
+});
+
+// The same holds for a class on a plain blueprint (a MethodView under `@bp.route`, as flask-smorest
+// declares them): its endpoint is not its first method's name.
+test("a hook's endpoint rule reaches a class route on a blueprint, which stays open", () => {
+  const report = run(
+    {
+      "views.py":
+        "from flask import Blueprint, abort, request\nfrom flask.views import MethodView\nfrom flask_login import current_user\n\n" +
+        'bp = Blueprint("b", __name__)\n\n\n@bp.before_request\ndef require_login():\n    if request.endpoint in ("b.Things",):\n        return\n' + REFUSE +
+        '\n\n@bp.route("/things")\nclass Things(MethodView):\n    def post(self):\n        return {}\n',
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(verdicts(report), { "ROUTE /things": null });
+});

@@ -2421,7 +2421,7 @@ const ADVICE_CASES = [
         '@ns.route("/reports")\nclass Reports(Resource):\n    def get(self):\n        return []\n\n' +
         "    def post(self):\n        return {}\n",
     },
-    says: /for a route on a class \(`@ns\.route` on a flask-restx `Resource`\), the app's `before_request` hook/,
+    says: /for a route on a class \(`@ns\.route` on a flask-restx `Resource`\), a `before_request` hook that refuses a caller who is not signed in, on the app or on the blueprint the route's `Api` is mounted on/,
     not: /under the route decorator|at the top of the view|FastAPI/,
   },
   {
@@ -2596,7 +2596,7 @@ test("a Flask function route and a class route each get their own fix", () => {
   const open = failures.find((f) => OPEN_ROUTE.test(f));
   assert.match(open, /2 of 2 endpoint/);
   assert.match(open, /under the route decorator, a `before_request` hook that refuses a caller who is not signed in, or a check at the top of the view/);
-  assert.match(open, /; or for a route on a class \(`@ns\.route` on a flask-restx `Resource`\), the app's `before_request` hook/);
+  assert.match(open, /; or for a route on a class \(`@ns\.route` on a flask-restx `Resource`\), a `before_request` hook/);
 });
 
 // --- Rails routing ------------------------------------------------------------------------------

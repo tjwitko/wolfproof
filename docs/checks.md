@@ -40,8 +40,8 @@ endpoints such as `/login` — and routes counted as protected by a check inside
 listed.
 
 The finding names the fix for the framework each open route is written in, and only forms this
-check credits. A Flask route on a class is told about the app's `before_request` hook, since a check
-in its methods or a decorator on one is not read.
+check credits. A Flask route on a class is told about a `before_request` hook, on the app or on the
+blueprint its `Api` is mounted on, since a check in its methods or a decorator on one is not read.
 
 **Covers:** Python (FastAPI, Flask), JavaScript/TypeScript (Express, Fastify, NestJS), Go
 (`net/http`, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra), C# (ASP.NET Core
@@ -73,14 +73,17 @@ imports it from that library, or a project's own decorator whose wrapper refuses
 rule for [checks inside the handler](#authentication-checked-inside-the-handler). A decorator above
 the route decorator protects nothing, because Flask registers the function before it is wrapped, and
 neither does `optional=True`. A `before_request` hook that refuses protects the routes it runs for:
-the app's hook every route under the app's directory, a blueprint's its own routes. A route the hook
+the app's hook every route under the app's directory, a blueprint's its own routes and those of a
+flask-restx `Api` mounted on it (`Api(bp)`, `Api(app=bp)`, `api.init_app(bp)`), followed through
+`api.add_namespace(ns)` or `api.namespace(...)` and the imports between modules. A route the hook
 lets through by `request.endpoint` or `request.path` stays open; a hook that lets requests through on
-any other condition protects nothing, and so does a path rule for a blueprint with a `url_prefix`,
-whose full paths are not read. Not read: a route registered by a call rather than a decorator —
+any other condition protects nothing, and so does a path rule for a blueprint with a `url_prefix` or
+for a flask-restx route, whose full paths are not read, and an endpoint rule for a route on a class,
+whose endpoint is not its first method's name (flask-restx names it `<namespace>_<class>`). Not read: a route registered by a call rather than a decorator —
 `add_url_rule(...)`, which is how a `MethodView` is registered, and flask-restx's `add_resource(...)` —
 which is not found as a route at all; the methods of a class a route decorator is on (flask-restx's
 `@ns.route` on a `Resource`), which are judged neither by their decorators nor by their bodies, so
-the route is open unless the app's `before_request` hook protects it; and a decorator that decides
+the route is open unless a `before_request` hook protects it; and a decorator that decides
 through a helper call (`if authed(): ...`).
 
 In Ruby, a Sinatra route counts as protected by a `before` filter whose block refuses the caller or

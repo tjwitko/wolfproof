@@ -160,8 +160,8 @@ FastAPI dependency, and every language's advice named all of that language's fra
 now names the fix for the framework each open route is written in, and only forms the check
 credits. A NestJS `@UseGuards(...)` written below the route decorator now counts,
 as one above it did. A Flask route on a class (`@ns.route` on a flask-restx `Resource`) is told
-about the app's `before_request` hook, the one form that counts for it, not a check at the top of
-the view.
+about a `before_request` hook, on the app or on the blueprint its `Api` is mounted on, the one form
+that counts for it, not a check at the top of the view.
 
 **After v1.13.0: Flask's decorators and `before_request` hooks count.** `@login_required` from
 Flask-Login, Flask-Security's and Flask-JWT-Extended's decorators, Flask-HTTPAuth's
@@ -173,9 +173,10 @@ of one now matches nothing and is reported as doing nothing: delete it.
 `@ns.route(...)` on a `Resource` class, was judged by the body of the class's first method, so a
 sign-in check in its `get` credited an open `post`. A route on a class is now judged by none of its
 methods: not by their bodies, not by `@login_required` on a method, and not by `method_decorators`.
-It is reported open unless the app's `before_request` hook protects it; a blueprint's hook does not,
-even when the `Api` is mounted on that blueprint. A class route that passed on its first method's
-check can now block: move the check into the app's `before_request` hook, or mark the finding
+It is reported open unless a `before_request` hook protects it: the app's, or that of the blueprint
+its `Api` is mounted on (`Api(bp)`, `api.init_app(bp)`). A hook that lets requests through by endpoint
+or path leaves it open, since its endpoint and full path are not read. A class route that passed on
+its first method's check can now block: move the check into such a hook, or mark the finding
 reviewed once a person has read each method. A `MethodView` registered with `add_url_rule` is not
 read as a route by either version, so nothing changes for it. It moved no route on the calibration
 applications or on five real Flask applications.
