@@ -75,9 +75,12 @@ neither does `optional=True`. A `before_request` hook that refuses protects the 
 the app's hook every route under the app's directory, a blueprint's its own routes. A route the hook
 lets through by `request.endpoint` or `request.path` stays open; a hook that lets requests through on
 any other condition protects nothing, and so does a path rule for a blueprint with a `url_prefix`,
-whose full paths are not read. Not read: class-based views (a `MethodView`, a flask-restx
-`Resource`), whose methods are judged neither by their decorators nor by their bodies, and a decorator
-that decides through a helper call (`if authed(): ...`).
+whose full paths are not read. Not read: a route registered by a call rather than a decorator —
+`add_url_rule(...)`, which is how a `MethodView` is registered, and flask-restx's `add_resource(...)` —
+which is not found as a route at all; the methods of a class a route decorator is on (flask-restx's
+`@ns.route` on a `Resource`), which are judged neither by their decorators nor by their bodies, so
+the route is open unless the app's `before_request` hook protects it; and a decorator that decides
+through a helper call (`if authed(): ...`).
 
 In Ruby, a Sinatra route counts as protected by a `before` filter whose block refuses the caller or
 checks a credential. A filter without a path protects every route; one with a path protects the
