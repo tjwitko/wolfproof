@@ -1561,6 +1561,38 @@ in a helper the handler calls (ktor-samples' `getOrThrow`, the reworked example 
 `docs/configuration.md`); Gitea's `ctx.Doer == nil`, which is that project's own name for the user.
 A route these leave open can be marked reviewed (#24).
 
+**Two defects, found measuring Flask (#27) and fixed after v1.13.0.** The rule promised that a guard
+after the work is not credited, and nothing enforced it: the reader collected guards and assignments
+and never looked at what else came first. CTFd's `/confirm` was credited for
+`if current_user.authed() is False: return redirect(login)`, below a branch that marks the account
+verified, commits and returns. Every top-level statement ahead of a guard must now be a read (an
+assignment to a name, or a lone call named get, load, find, fetch, read, lookup, must, check, ensure,
+require, assert, verify or validate, and not create, update, delete, save, set or add), a log line,
+or a branch that only refuses, answers an error or sets a response header. An else-if is behind its
+earlier arms. The second defect: the condition's evidence was read and its direction was not, so
+microblog's `if current_user.is_authenticated: return redirect(...)`, which keeps members off the
+password-reset pages, counted as authentication. The refusing side must now run for the caller who
+fails the check.
+
+Measured on the same files before and after: the 29 calibration applications (Bitwarden,
+ktor-samples and dvcsharp-api re-fetched at their manifest commits after a `/tmp` cleanup took their
+sources) and the five Flask apps (277 routes). All 22 credits the rule made at v1.13.0 still hold.
+Four routes changed, each read against its source: CTFd's two `/confirm` routes and microblog's
+`/reset_password_request` are now open, and microblog's `/reset_password/<token>` is credited for the
+reset token it verifies, not for the check that turns members away. The first version dropped four
+calibration credits, each for something that is not work: Gitea's LFS lock list (a
+`WWW-Authenticate` header set beside a 401, `repository.MustOwner(ctx)`), its comment reactions
+(`ctx.ServerError(...)`, and Go's `if err := comment.LoadIssue(ctx); err != nil`, whose `;` split
+the statement), dvcsharp-api's password reset (`ModelState.AddModelError` before each 400), and
+Bitwarden's invite-token policies, where `if (organizationAbility is not { UsePolicies: true })`
+read the property pattern's brace as the if's block, a splitting bug that had done no harm until
+statements before a guard mattered. 16 tests, and each part of the change switched off fails at
+least one.
+
+Still open: a session value that holds flow state rather than the caller reads as identity. CTFd's
+OAuth `/redirect` compares `session["nonce"]` with the `state` parameter, and its git device-token
+route reads `session.get("setup_git_device")`. Both are credited, and neither checks who is calling.
+
 ### 26. Ruby filters credited to routes they do not run for — fixed
 
 Found while checking that each framework's advice names a fix the check credits. Three ways a Ruby

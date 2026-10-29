@@ -104,6 +104,11 @@ visitor without a session to the sign-in page, used to be reported as open to an
 to have this shape, all of it:
 
 - **At the top level of the handler.** A check nested inside another branch protects one path.
+- **Before any work.** What may come first: reading into a name (`user = load(id)`, or a call named
+  for reading or checking, such as `comment.LoadIssue(ctx)`), a log line, and a branch that only
+  refuses or answers an error. A call that may write, a field set, or a branch that does work and
+  returns is a path the check never sees: CTFd's email confirmation marks the account verified and
+  returns before its sign-in check, so that check is not credited.
 - **A condition that tests the caller**, in one of three ways: a secret checked — a constant-time
   comparison (`hmac.compare_digest`, `FixedTimeEquals`, `hash_equals`, `MessageDigest.isEqual`) or a
   call that verifies a signature or token; a credential-named value compared with a configured or
@@ -118,11 +123,15 @@ to have this shape, all of it:
   in an app whose policy requires one declares it because it checks its own key.
 - **A refusal for every failure.** `if !valid || expired` refuses whenever the check fails.
   `if !featureOn && !isAdmin` refuses only while the feature is off, so it is not credited.
+- **Refusing the caller who fails.** `if current_user.is_authenticated: return redirect(...)` names
+  the caller and turns away the signed-in one, which is how a sign-in or password-reset page keeps
+  members out; it is not credited. The direction is read from negation (`!`, `not`), comparison
+  (`== null`, `is None`, `!= expected`, `.nil?`) and words for an anonymous caller (`is_anonymous`).
 
 Each route credited this way is listed in an advisory for a person to confirm, since crediting a
 check that is not one is the way this can be wrong in the dangerous direction. Not read: a check in a
-helper the handler calls (`require_admin()`), a guard after the work, and a check in a base class or
-filter the readers above do not know. Those routes stay open; a
+helper the handler calls (`require_admin()`), and a check in a base class or filter the readers above
+do not know. Those routes stay open; a
 [reviewed finding](configuration.md#reviewed-findings) is how to accept one.
 
 On the 29 calibration applications it credits 22 routes, each read against its source: Bitwarden's

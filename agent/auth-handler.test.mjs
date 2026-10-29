@@ -117,6 +117,96 @@ end`, "a credential checked in the handler"],
   ["the work in the if, the refusal in the else", "brace", `public IActionResult X(string key) {
     if (CoreHelpers.FixedTimeEquals(key, _settings.Key)) { return Ok(Do()); } else { return Unauthorized(); }
 }`, "a secret checked in the handler"],
+  ["Gitea's LFS lock list: reads, a header set beside a 401, a check-named call, then the guard", "brace", `func GetListLockHandler(ctx *context.Context) {
+	rv := getRequestContext(ctx)
+	repository, err := repo_model.GetRepositoryByOwnerAndName(ctx, rv.User, rv.Repo)
+	if err != nil {
+		log.Debug("Could not find repository: %s/%s - %s", rv.User, rv.Repo, err)
+		ctx.Resp.Header().Set("WWW-Authenticate", \`Basic realm="gitea-lfs"\`)
+		ctx.JSON(http.StatusUnauthorized, api.LFSLockError{Message: "no"})
+		return
+	}
+	repository.MustOwner(ctx)
+	context.CheckRepoScopedToken(ctx, repository, auth_model.Read)
+	if ctx.Written() {
+		return
+	}
+	authenticated := authenticate(ctx, repository, rv.Authorization, true, false)
+	if !authenticated {
+		ctx.JSON(http.StatusUnauthorized, api.LFSLockError{Message: "no"})
+		return
+	}
+	ctx.JSON(http.StatusOK, list(ctx))
+}`, "the caller checked in the handler"],
+  ["Gitea's comment reactions: an error answered and a load in an if header come first", "brace", `func ChangeCommentReaction(ctx *context.Context) {
+	comment, err := issues_model.GetCommentByID(ctx, ctx.PathParamInt64("id"))
+	if err != nil {
+		ctx.ServerError("GetCommentByID", err)
+		return
+	}
+	if err := comment.LoadIssue(ctx); err != nil {
+		ctx.ServerError("LoadIssue", err)
+		return
+	}
+	if !ctx.IsSigned || ctx.Doer.ID != comment.PosterID {
+		ctx.HTTPError(http.StatusForbidden)
+		return
+	}
+	react(ctx, comment)
+}`, "the caller checked in the handler"],
+  ["Flask-Login: an anonymous caller sent to sign in", "python", `def settings():
+    """The account page."""
+    if current_user.is_anonymous:
+        return redirect(url_for("auth.login"))
+    return render_template("settings.html")`, "the caller checked in the handler"],
+  ["Rails: no user in the session, sent to sign in", "ruby", `def edit
+  return redirect_to(login_path) if session[:user_id].nil?
+  render :edit
+end`, "the caller checked in the handler"],
+  ["Ktor: no session, sent to sign in", "brace", `get<Upload> {
+        val session = call.sessions.get<YouKubeSession>() ?: return@get call.respondRedirect(Login())
+        call.respond(upload(session))
+    }`, "the caller checked in the handler"],
+  ["microblog's password reset: a signed-in user turned away, then the reset token verified", "python", `def reset_password(token):
+    if current_user.is_authenticated:
+        return redirect(url_for('main.index'))
+    user = User.verify_reset_password_token(token)
+    if not user:
+        return redirect(url_for('main.index'))
+    return render_template('auth/reset_password.html')`, "a secret checked in the handler"],
+  ["Bitwarden's policies by invite token: a C# property pattern in the first if's condition", "brace", `public async Task<ListResponseModel<PolicyResponseModel>> GetByToken(Guid orgId, [FromQuery] string token)
+    {
+        var organizationAbility = await _organizationAbilityCacheService.GetOrganizationAbilityAsync(orgId);
+
+        if (organizationAbility is not { UsePolicies: true })
+        {
+            throw new NotFoundException();
+        }
+
+        var tokenValid = OrgUserInviteTokenable.ValidateOrgUserInviteStringToken(
+            _orgUserInviteTokenDataFactory, token, organizationUserId, email);
+
+        if (!tokenValid)
+        {
+            throw new NotFoundException();
+        }
+        return new ListResponseModel<PolicyResponseModel>(await Load(orgId));
+    }`, "a secret checked in the handler"],
+  ["dvcsharp-api's password reset: 400s that add model errors come before the key lookup", "brace", `public IActionResult Put([FromBody] PasswordResetRequest passwordResetRequest)
+      {
+         if(String.IsNullOrEmpty(passwordResetRequest.key)) {
+            ModelState.AddModelError("key", "Key is required for password reset");
+            return BadRequest(ModelState);
+         }
+         var resetRequest = _context.PasswordResetRequests.
+            Where(b => b.key == passwordResetRequest.key).FirstOrDefault();
+         if(resetRequest == null) {
+            ModelState.AddModelError("key", "Key not found in system");
+            return BadRequest(ModelState);
+         }
+         _context.SaveChanges();
+         return Ok();
+      }`, "a credential checked in the handler"],
 ];
 
 const NO = [
@@ -209,6 +299,58 @@ const NO = [
                 }
                 serve(session)
             }`],
+  ["CTFd's email confirmation: a branch that marks the account verified and returns, before the sign-in check", "python", `def confirm(data=None):
+    if data and request.method == "GET":
+        user_email = verify_email_confirm_token(data)
+        user = Users.query.filter_by(email=user_email).first_or_404()
+        user.verified = True
+        db.session.commit()
+        return redirect(url_for("auth.login"))
+
+    if current_user.authed() is False:
+        return redirect(url_for("auth.login"))
+    return render_template("confirm.html")`],
+  ["work at the top level before the guard", "python", `def publish():
+    db.session.commit()
+    if not current_user.is_authenticated:
+        abort(401)
+    return "ok"`],
+  ["a field written before the guard", "brace", `public IActionResult Confirm() {
+    _user.Verified = true;
+    if (!User.Identity.IsAuthenticated) { return Unauthorized(); }
+    return Ok();
+}`],
+  ["an earlier arm of the chain does the work, the guard is the else-if", "brace", `async (req, res) => {
+  if (req.query.token) {
+    await db.confirm(req.query.token);
+    return res.redirect("/");
+  } else if (!req.session.user) {
+    return res.status(401).end();
+  }
+  res.json(await db.all());
+}`],
+  ["a read-named call that writes", "python", `def join():
+    get_or_create(Member, email=request.form["email"])
+    if not current_user.is_authenticated:
+        abort(401)
+    return "ok"`],
+  ["microblog's reset request: the signed-in caller is the one turned away", "python", `def reset_password_request():
+    if current_user.is_authenticated:
+        return redirect(url_for('main.index'))
+    form = ResetPasswordRequestForm()
+    return render_template('auth/reset_password_request.html', form=form)`],
+  ["a session present is refused, not a session missing", "brace", `get("/login") {
+        val session = call.sessions.get<UserSession>()
+        if (session != null) {
+            return@get call.respondRedirect("/")
+        }
+        call.respond(loginPage())
+    }`],
+  ["a token that matches is refused", "python", `def item():
+    token = request.headers.get("X-Api-Key")
+    if token == os.environ["API_KEY"]:
+        abort(403)
+    return "ok"`],
 ];
 
 for (const [name, family, body, want] of YES) {

@@ -176,6 +176,13 @@ not-checked advisory does; a policy can drop `auth-rails-unread` once a person h
 A Sinatra `before` filter with a path now protects only the routes it matches, and a filter counts
 only on what its own block does.
 
+**After v1.13.0: a check inside a handler counts only before any work, and only against the caller
+who fails it.** v1.13.0 credited a check that came after a branch doing work for anyone (CTFd's email
+confirmation marks the account verified before its sign-in check), and a check pointing the wrong way
+(`if current_user.is_authenticated: return redirect(...)`, which turns away signed-in users). Both are
+now reported open. A route that passed on such a check can now block: move the check to the top of
+the handler, or onto the route, or mark the finding reviewed if the route is meant to be public.
+
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
 

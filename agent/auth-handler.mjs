@@ -20,6 +20,14 @@
 //     (401, 403, 400, 404, a redirect, an exception) -- or an if/else that ends the handler, with the
 //     refusal on one side and the work on the other.
 //
+//   - **Before any work.** Every top-level statement ahead of the guard reads (an assignment to a
+//     name), logs, or is a branch that only refuses. A branch that does work and returns -- CTFd's
+//     email confirmation, which marks the account verified before its sign-in check -- is a path the
+//     guard never sees.
+//   - **Refusing the caller who fails.** `if current_user.is_authenticated: return redirect(...)`
+//     names the caller and turns away the signed-in one; the condition's direction is read, not only
+//     its evidence.
+//
 // Everything else is not credited, and the route stays open: a check behind a helper the handler
 // calls, a guard after the work, a refusal that does not end the request.
 
@@ -74,6 +82,99 @@ function closeOf(masked, open) {
   return -1;
 }
 
+// --- work before the guard ------------------------------------------------------------------------
+//
+// A guard protects the route only if nothing ahead of it has acted. What may come first: reading
+// something into a name, a log line or flash message, and a branch that only refuses. Anything else
+// -- a call, a field written, a loop, a branch that does work and returns -- is work, and a guard
+// after it is not credited. Unknown statements count as work: a missed guard leaves a route open,
+// which a reviewed finding settles; an invented one hides it.
+
+const SEP = String.raw`\s*(?:\?\.|\.|::|->)\s*`;
+// `log(...)`, `logger.info(...)`, `_logger.LogWarning(...)`, `console.log(...)`, `Log::warning(...)`,
+// `flash(...)` -- not `login_user(...)`.
+const QUIET_CALL = new RegExp(
+  String.raw`^\s*(?:await\s+)?(?:\$?[\w$]+(?:\s*\(\s*\))?${SEP})*(?:[\w$]*_)?(?:[Ll]og|[Ll]ogger|[Ll]ogging|LOG|flash)(?:[A-Z]\w*)?(?:${SEP}\w+)?\s*\(`,
+);
+const COMPOUND = /^\s*(?:if|else|elif|elsif|unless|for|foreach|while|do|try|catch|except|finally|with|switch|match|case|begin|loop|select|go)\b/;
+const BARE_RETURN = /^\s*(?:return|break)\b\s*(?:@\w+)?\s*(?:nil|null|None|false|undefined)?\s*;?\s*$/;
+
+/** Assignment to a plain name (`x = ...`, `val x: T = ...`, `a, b := ...`, `$x = ...`), or to Flask's `g`. */
+function plainAssignment(m) {
+  let depth = 0;
+  for (let k = 0; k < m.length; k++) {
+    const ch = m[k];
+    if ("([{".includes(ch)) depth++;
+    else if (")]}".includes(ch)) depth--;
+    else if (ch === "=" && depth === 0) {
+      if (m[k + 1] === "=" || m[k + 1] === ">" || "=!<>".includes(m[k - 1] || "")) {
+        if (m[k + 1] === "=") k++;
+        continue;
+      }
+      const lhs = m.slice(0, k).replace(/:$/, "").replace(/\[\]/g, "").replace(/^\s*g\s*\.\s*(?=\w+\s*$)/, "");
+      return /^\s*[\w$@\s,:<>?]+$/.test(lhs) && /[\w$]\s*$/.test(lhs);
+    }
+  }
+  return false;
+}
+
+// A response header set (`WWW-Authenticate` beside a 401), or an error answered: neither acts.
+const RESPONSE_ONLY =
+  /^\s*(?:[\w$]+\s*(?:\?\.|\.|->)\s*)*(?:Header\s*\(\s*\)\s*\.\s*(?:Set|Add)|setHeader|set_header|AddHeader|addHeader|header)\s*\(|\bModelState\s*\.\s*AddModelError\s*\(|\b(?:ServerError|InternalServerError|StatusInternalServerError)\b|\bstatus\s*\(\s*5\d\d\b/;
+// A call named for reading or checking, alone as a statement: `comment.LoadIssue(ctx)`,
+// `repository.MustOwner(ctx)`, `CheckRepoScopedToken(...)`. Reading ahead of a guard is what an
+// assignment does too; a call named for anything else may write.
+const READ_CALL = new RegExp(
+  String.raw`^\s*(?:await\s+)?(?:\$?[\w$]+(?:\s*\(\s*\))?${SEP})*(?:[\w$]+_)?(?![\w$]*(?:[Cc]reate|[Uu]pdate|[Dd]elete|[Ss]ave|[Ii]nsert|[Rr]emove|[Ww]rite|[Ss]end|[Ss]et[A-Z_]|[Aa]dd[A-Z_]|[Pp]ut[A-Z_]))(?:[Gg]et|[Ll]oad|[Ff]ind|[Ff]etch|[Rr]ead|[Ll]ookup|[Mm]ust|[Cc]heck|[Ee]nsure|[Rr]equire|[Aa]ssert|[Vv]erify|[Vv]alidate)(?:[A-Z_]\w*)?\s*\(`,
+);
+
+/** A statement that does nothing a caller could want done: a log line, a string, `pass`, a brace. */
+function quietStatement(m) {
+  if (!m.trim() || /^\s*(?:[{}]|pass|;)\s*$/.test(m) || /^\s*["'`]/.test(m) || QUIET_CALL.test(m)) return true;
+  // A read call counts only when the call is the whole statement, not `load(x).delete()`.
+  const r = READ_CALL.exec(m);
+  if (!r) return false;
+  const close = closeOf(m, r.index + r[0].length - 1);
+  return close >= 0 && /^\s*;?\s*$/.test(m.slice(close + 1));
+}
+
+/** A branch's statements at its own top level, as source text. */
+function pieces(branch, family) {
+  let text = branch;
+  let masked = maskStrings(text, family === "python" ? "python" : "brace");
+  const open = /^\s*\{/.exec(masked);
+  if (open) {
+    const close = closeOf(masked, open[0].length - 1);
+    text = text.slice(open[0].length, close < 0 ? text.length : close);
+    masked = masked.slice(open[0].length, close < 0 ? masked.length : close);
+  }
+  const out = [];
+  let depth = 0;
+  let start = 0;
+  for (let k = 0; k <= masked.length; k++) {
+    const ch = masked[k];
+    if (ch && "([{".includes(ch)) depth++;
+    else if (ch && ")]}".includes(ch)) depth--;
+    else if (k === masked.length || (depth <= 0 && (ch === ";" || ch === "\n"))) {
+      const s = text.slice(start, k);
+      // A chained call on the next line continues the statement.
+      if (/^\s*\??\./.test(masked.slice(start, k)) && out.length) out[out.length - 1] += s;
+      else if (s.trim()) out.push(s);
+      start = k + 1;
+    }
+  }
+  return out;
+}
+
+/** Does the branch do nothing but refuse: refusals, log lines, a bare return? */
+function refusesOnly(branch, family) {
+  return pieces(branch, family).every((s) => {
+    const m = maskStrings(s, family === "python" ? "python" : "brace");
+    if (COMPOUND.test(m)) return false;
+    return quietStatement(m) || BARE_RETURN.test(m) || REFUSAL.test(s) || RESPONSE_ONLY.test(m);
+  });
+}
+
 // --- top-level statements ------------------------------------------------------------------------
 //
 // Each family yields { guards, assigns }: a guard is { cond, branches: [text...], ends, last }, where
@@ -109,11 +210,13 @@ function braceStatements(body) {
         start = k + 1;
       }
     } else if (depth === 0 && (ch === ";" || ch === "\n")) {
+      // Go's `if err := load(); err != nil {`: the `;` is inside the if's header.
+      if (ch === ";" && /^\s*(?:if|for|switch|select)\b[^{]*$/.test(masked.slice(start, k))) continue;
       if (ch === "\n") {
         // A line ending in an operator, or followed by one, continues.
         const before = masked.slice(start, k).trimEnd();
         const after = masked.slice(k + 1, k + 40).trimStart();
-        if (!before || /[=+\-*/%&|<>?:,.(!]$/.test(before) || /^(?:[.?:&|+\-*/]|else\b|\?\?|\?:)/.test(after) || /^(?:if|else if|while|for)\b[^{]*$/.test(before.trim())) continue;
+        if (!before || /[=+\-*/%&|<>?:,.(!]$/.test(before) || /^(?:[.?:&|+\-*/]|else\b|\?\?|\?:)/.test(after) || /^(?:if|else if|while|for)\b[^{]*$/.test(withoutParens(before.trim()))) continue;
       }
       stmts.push([start, k]);
       start = k + 1;
@@ -121,21 +224,29 @@ function braceStatements(body) {
   }
   if (start < end) stmts.push([start, end]);
   const live = stmts.filter(([a, b]) => masked.slice(a, b).trim());
+  let work = false;
   live.forEach(([a, b], n) => {
     const m = masked.slice(a, b);
     const t = body.slice(a, b);
     const isLast = n === live.length - 1;
     const iff = /^\s*if\b\s*/.exec(m);
     if (iff) {
+      // A later arm of an if/else-if chain runs only when the earlier conditions failed; an earlier
+      // arm that did work is a path around it.
+      let chainWork = work;
       for (const g of ifChain(body, masked, a + m.indexOf("if") + 2, b)) {
-        guards.push({ ...g, last: isLast });
+        guards.push({ ...g, last: isLast, afterWork: chainWork });
+        if (!refusesOnly(g.branches[0], "brace")) chainWork = true;
+        if (g.branches[1] !== undefined && !refusesOnly(g.branches[1], "brace")) chainWork = true;
       }
+      work = chainWork;
       return;
     }
-    // `x ?: return ...`, `x ?? throw ...`: the left side is the condition, the right the refusal.
+    let quiet = quietStatement(m) || plainAssignment(m) || /^\s*(?:var\s+\w+(?:\s+[\w.*[\]]+)?|defer\b.*)\s*$/.test(m);
+    // `x ?: return ...`, `x ?? throw ...`: the left side is the condition, refused when it is null.
     const coalesce = /(\?:|\?\?)\s*(return\b|throw\b|run\s*\{|abort\b)/.exec(m);
     if (coalesce) {
-      guards.push({ cond: t.slice(0, coalesce.index), branches: [t.slice(coalesce.index + coalesce[1].length)], ends: true, last: isLast, unless: true });
+      guards.push({ cond: t.slice(0, coalesce.index), branches: [t.slice(coalesce.index + coalesce[1].length)], ends: true, last: isLast, positive: true, afterWork: work });
     }
     // PHP's abort_unless(cond, 403) and abort_if, Laravel's throw_unless/throw_if.
     const pa = /^\s*(abort_unless|abort_if|throw_unless|throw_if)\s*\(/.exec(m);
@@ -144,13 +255,28 @@ function braceStatements(body) {
       const c = closeOf(masked, o);
       const inner = body.slice(o + 1, c < 0 ? b : c);
       const comma = splitTop(masked.slice(o + 1, c < 0 ? b : c));
-      guards.push({ cond: inner.slice(0, comma[0]), branches: [`abort(${inner.slice(comma[0] + 1)})`], ends: true, last: isLast, self: true, positive: /unless/.test(pa[1]) });
+      guards.push({ cond: inner.slice(0, comma[0]), branches: [`abort(${inner.slice(comma[0] + 1)})`], ends: true, last: isLast, self: true, positive: /unless/.test(pa[1]), afterWork: work });
+      quiet = true;
     }
-    if (SELF_REFUSING.test(t)) guards.push({ cond: t, branches: [], ends: true, last: isLast, self: true, selfRefusing: true });
+    if (SELF_REFUSING.test(t)) {
+      guards.push({ cond: t, branches: [], ends: true, last: isLast, self: true, selfRefusing: true, afterWork: work });
+      quiet = true;
+    }
     const as = ASSIGN_BRACE.exec(m);
     if (as && !/^\s*(?:return|throw|if|while|for)\b/.test(m)) assigns.set(as[1], t.slice(m.indexOf(as[2])));
+    if (!quiet) work = true;
   });
   return { guards, assigns };
+}
+
+/** Text with every parenthesised part removed: an if's header without its condition. */
+function withoutParens(s) {
+  let t = s;
+  for (let prev; prev !== t; ) {
+    prev = t;
+    t = t.replace(/\([^()]*\)/g, "");
+  }
+  return t;
 }
 
 /**
@@ -292,11 +418,16 @@ function pythonStatements(body) {
   };
   const tops = [];
   for (let j = i; j < lines.length; j++) if (lines[j].trim() && ind(j) === indent) tops.push(j);
+  // Lines that start a statement, for telling work from reading: not a docstring's inside, not the
+  // closing bracket of a call spread over lines.
+  const starts = tops.filter((j) => masked[j].trim() && !/^\s*[)\]}]/.test(masked[j]));
   const guards = [];
   const assigns = new Map();
-  tops.forEach((j, n) => {
+  let work = false;
+  starts.forEach((j) => {
     const line = lines[j];
-    const isLast = n === tops.length - 1;
+    const isLast = j === tops[tops.length - 1];
+    const n = tops.indexOf(j);
     const iff = /^\s*if\s+([\s\S]*?):\s*(.*)$/.exec(line);
     if (iff) {
       const [blk, after] = iff[2].trim() ? [iff[2], j + 1] : blockFrom(j);
@@ -305,17 +436,26 @@ function pythonStatements(body) {
       if (els && ind(after) === indent) branches.push(els[1].trim() ? els[1] : blockFrom(after)[0]);
       // An `elif` continues the chain; its own condition is judged when its line is reached.
       const elif = after < lines.length && /^\s*elif\b/.test(lines[after] || "");
-      guards.push({ cond: iff[1], branches, ends: true, hasElse: Boolean(els) || elif, last: isLast || (Boolean(els) && n >= tops.length - 2) });
+      guards.push({ cond: iff[1], branches, ends: true, hasElse: Boolean(els) || elif, last: isLast || (Boolean(els) && n >= tops.length - 2), afterWork: work });
+      if (!branches.every((b) => refusesOnly(b, "python"))) work = true;
       return;
     }
     const elif = /^\s*elif\s+([\s\S]*?):\s*(.*)$/.exec(line);
     if (elif) {
       const [blk] = elif[2].trim() ? [elif[2]] : blockFrom(j);
-      guards.push({ cond: elif[1], branches: [blk], ends: true, hasElse: true, last: isLast });
+      guards.push({ cond: elif[1], branches: [blk], ends: true, hasElse: true, last: isLast, afterWork: work });
+      if (!refusesOnly(blk, "python")) work = true;
+      return;
+    }
+    // The `else` of an `if` already read; an `except` or `finally` follows a `try`, which is work.
+    const els = /^\s*else\s*:\s*(.*)$/.exec(line);
+    if (els) {
+      if (!refusesOnly(els[1].trim() ? els[1] : blockFrom(j)[0], "python")) work = true;
       return;
     }
     const as = /^\s*(\w+)\s*(?::\s*[\w.[\]]+\s*)?=(?!=)\s*(.+)$/.exec(line);
     if (as) assigns.set(as[1], as[2]);
+    if (!(quietStatement(masked[j]) || plainAssignment(masked[j]))) work = true;
   });
   return { guards, assigns };
 }
@@ -330,13 +470,15 @@ function rubyStatements(body) {
   const assigns = new Map();
   const tops = [];
   for (let j = first; j < lines.length; j++) if (lines[j].trim() && ind(j) === indent && !/^\s*(?:end|else|elsif)\b/.test(lines[j])) tops.push(j);
+  let work = false;
   tops.forEach((j, n) => {
     const line = lines[j];
     const isLast = n === tops.length - 1;
     // `halt 401 unless ok`, `return redirect('/login') if session[:user].nil?`
     const mod = /^\s*(.+?)\s+(if|unless)\s+(.+)$/.exec(line);
     if (mod && !/^\s*(?:if|unless)\b/.test(line)) {
-      guards.push({ cond: mod[3], branches: [mod[1]], ends: true, last: isLast, positive: mod[2] === "unless" });
+      guards.push({ cond: mod[3], branches: [mod[1]], ends: true, last: isLast, positive: mod[2] === "unless", afterWork: work });
+      if (!refusesOnly(mod[1], "ruby")) work = true;
       return;
     }
     const iff = /^\s*(if|unless)\s+(.+)$/.exec(line);
@@ -351,12 +493,15 @@ function rubyStatements(body) {
         if (ind(j2) === indent && /^\s*else\b/.test(lines[j2])) { into = other; continue; }
         into.push(lines[j2]);
       }
-      out.push({ cond: iff[2], branches: [then.join("\n"), ...(other.length ? [other.join("\n")] : [])], ends: true, hasElse: other.length > 0, last: isLast, positive: iff[1] === "unless" });
+      out.push({ cond: iff[2], branches: [then.join("\n"), ...(other.length ? [other.join("\n")] : [])], ends: true, hasElse: other.length > 0, last: isLast, positive: iff[1] === "unless", afterWork: work });
       guards.push(...out);
+      if (!out[0].branches.every((b) => refusesOnly(b, "ruby"))) work = true;
       return;
     }
     const as = /^\s*@?(\w+)\s*=(?!=)\s*(.+)$/.exec(line);
     if (as) assigns.set(as[1], as[2]);
+    const m = maskStrings(line, "brace");
+    if (!(quietStatement(m) || plainAssignment(m))) work = true;
   });
   return { guards, assigns };
 }
@@ -494,7 +639,11 @@ function covers(cond, refuseWhen, assigns, depth = 0) {
     return covers(neg[1], refuseWhen === "true" ? "false" : "true", assigns, depth + 1);
   }
   const { ops, terms } = connectives(t);
-  if (ops.size === 0) return evidenceOf(t, assigns);
+  if (ops.size === 0) {
+    const kind = evidenceOf(t, assigns);
+    // The refusing side must run for the caller who fails the check, not the one who passes it.
+    return kind && failing(t, assigns) === (refuseWhen === "true") ? kind : null;
+  }
   if (ops.size > 1) return null;
   const op = [...ops][0];
   if ((refuseWhen === "true") !== (op === "or")) return null;
@@ -503,6 +652,66 @@ function covers(cond, refuseWhen, assigns, depth = 0) {
     if (kind) return kind;
   }
   return null;
+}
+
+// --- the condition's direction ----------------------------------------------------------------------
+//
+// Is a term true when the caller fails the check? `!valid`, `user == null`, `token != expected`,
+// `current_user.is_anonymous` are; `valid`, `user != null`, `token == expected`,
+// `current_user.is_authenticated` are not. Read from the term's negations, its comparison, and words
+// that name an anonymous caller; a name assigned earlier is read through its assignment.
+
+const ANONYMOUS = /\bis_?[Aa]nonymous\b|\bIsAnonymous\b|\bisGuest\b|\bis_guest\b|\bguest\s*\(|\bguest\?/;
+const NULLISH = /^\s*(?:null|None|nil|undefined|NULL|false|False|FALSE)\s*$/;
+const TRUE = /^\s*(?:true|True|TRUE)\s*$/;
+// Checks for a value that is not there: `.nil?`, `string.IsNullOrEmpty(key)`, PHP's `empty($user)`.
+const ABSENT_CHECK = /\.\s*(?:nil|blank|empty)\?|\.\s*(?:isEmpty|isBlank|IsEmpty)\b|\bIsNullOr(?:Empty|WhiteSpace)\s*\(|\bis_?[Nn]ull\s*\(|^\s*empty\s*\(/;
+
+/** The term's top-level comparison: { equal, left, right }, or null for none. */
+function comparison(t) {
+  const m = maskStrings(t, "brace");
+  let depth = 0;
+  for (let k = 0; k < m.length; k++) {
+    const ch = m[k];
+    if ("([{".includes(ch)) depth++;
+    else if (")]}".includes(ch)) depth--;
+    if (depth !== 0) continue;
+    const rest = m.slice(k);
+    const op =
+      /^(?:===|!==|==|!=|<>)/.exec(rest) ||
+      (/\s/.test(m[k - 1] || "") && /^(?:is\s+not|not\s+in|is|in)(?=\s)/.exec(rest)) ||
+      /^\.\s*equals\s*\(/.exec(rest);
+    if (!op) continue;
+    const equal = !/^(?:!|<>|is\s+not|not\s+in)/.test(op[0]);
+    let right = t.slice(k + op[0].length);
+    if (/equals/.test(op[0])) right = right.replace(/\)\s*$/, "");
+    return { equal, left: t.slice(0, k), right };
+  }
+  return null;
+}
+
+function failing(term, assigns, depth = 0) {
+  let t = stripParens(term);
+  let neg = false;
+  for (let m; (m = /^(?:!|not\s+)\s*/.exec(t)); ) {
+    neg = !neg;
+    t = stripParens(t.slice(m[0].length));
+  }
+  t = t.replace(/^\s*await\s+/, "");
+  let fails;
+  const cmp = comparison(t);
+  if (cmp) {
+    const lit = NULLISH.test(cmp.right) || NULLISH.test(cmp.left) ? "absent" : TRUE.test(cmp.right) || TRUE.test(cmp.left) ? "present" : "value";
+    // `x == null` fails; `x == true` and `token == expected` pass.
+    fails = lit === "absent" ? cmp.equal : !cmp.equal;
+  } else if (/^[A-Za-z_$][\w$]*$/.test(t.trim()) && assigns.has(t.trim()) && depth < 4) {
+    const via = failing(assigns.get(t.trim()), assigns, depth + 1);
+    if (via === null) return null;
+    fails = via;
+  } else {
+    fails = ANONYMOUS.test(t) || ABSENT_CHECK.test(t);
+  }
+  return fails !== neg;
 }
 
 function evidenceOf(cond, assigns) {
@@ -537,6 +746,7 @@ export function handlerGuard(bodies, family) {
     if (!body) continue;
     const { guards, assigns } = family === "python" ? pythonStatements(body) : family === "ruby" ? rubyStatements(body) : braceStatements(body);
     for (const g of guards) {
+      if (g.afterWork) continue;
       if (g.selfRefusing) return REASONS.identity;
       // A branch that refuses must end the request, or be one side of an if/else that ends the
       // handler -- the other side doing the work. Its condition must then refuse every failure.
