@@ -40,7 +40,8 @@ endpoints such as `/login` — and routes counted as protected by a check inside
 listed.
 
 The finding names the fix for the framework each open route is written in, and only forms this
-check credits.
+check credits. A Flask route on a class is told about the app's `before_request` hook, since a check
+in its methods or a decorator on one is not read.
 
 **Covers:** Python (FastAPI, Flask), JavaScript/TypeScript (Express, Fastify, NestJS), Go
 (`net/http`, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra), C# (ASP.NET Core

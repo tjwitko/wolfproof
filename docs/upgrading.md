@@ -159,7 +159,9 @@ with the check in the handler of a route declared below it. In an Express app wi
 FastAPI dependency, and every language's advice named all of that language's frameworks. The advice
 now names the fix for the framework each open route is written in, and only forms the check
 credits. A NestJS `@UseGuards(...)` written below the route decorator now counts,
-as one above it did.
+as one above it did. A Flask route on a class (`@ns.route` on a flask-restx `Resource`) is told
+about the app's `before_request` hook, the one form that counts for it, not a check at the top of
+the view.
 
 **After v1.13.0: Flask's decorators and `before_request` hooks count.** `@login_required` from
 Flask-Login, Flask-Security's and Flask-JWT-Extended's decorators, Flask-HTTPAuth's

@@ -2401,6 +2401,29 @@ const ADVICE_CASES = [
     says: /`@login_required` \(Flask-Login\) under the route decorator, a `before_request` hook/,
     not: /FastAPI|Depends/,
   },
+  // A route on a class is judged by none of its methods, so "a check at the top of the view" and
+  // "@login_required under the route decorator" would leave it open.
+  {
+    name: "Flask class",
+    framework: "Flask",
+    open: {
+      "app.py":
+        'from flask import Flask, abort\nfrom flask_login import current_user\nfrom flask_restx import Api, Namespace, Resource\n\n' +
+        'app = Flask(__name__)\napi = Api(app)\nns = Namespace("reports")\napi.add_namespace(ns)\n\n\n' +
+        '@ns.route("/reports")\nclass Reports(Resource):\n    def get(self):\n        if not current_user.is_authenticated:\n            abort(401)\n        return []\n\n' +
+        "    def post(self):\n        return {}\n",
+    },
+    fixed: {
+      "app.py":
+        'from flask import Flask, abort\nfrom flask_login import current_user\nfrom flask_restx import Api, Namespace, Resource\n\n' +
+        'app = Flask(__name__)\napi = Api(app)\nns = Namespace("reports")\napi.add_namespace(ns)\n\n\n' +
+        "@app.before_request\ndef require_login():\n    if not current_user.is_authenticated:\n        abort(401)\n\n\n" +
+        '@ns.route("/reports")\nclass Reports(Resource):\n    def get(self):\n        return []\n\n' +
+        "    def post(self):\n        return {}\n",
+    },
+    says: /for a route on a class \(`@ns\.route` on a flask-restx `Resource`\), the app's `before_request` hook/,
+    not: /under the route decorator|at the top of the view|FastAPI/,
+  },
   {
     framework: "Express",
     open: { "server.js": "const express = require('express');\nconst app = express();\napp.get('/reports', (req, res) => res.json([]));\n" },
@@ -2513,7 +2536,7 @@ const ADVICE_CASES = [
 ];
 
 for (const c of ADVICE_CASES) {
-  test(`advice for a ${c.framework} route names the ${c.framework} fix, and the fix passes`, () => {
+  test(`advice for a ${c.name || c.framework} route names the ${c.name || c.framework} fix, and the fix passes`, () => {
     const report = run(c.open, checkAuthentication);
     assert.deepEqual(
       report.routes.map((r) => r.framework),
@@ -2558,6 +2581,22 @@ test("the advice names the fix for each framework that has an open route, and on
   assert.match(open, /abort\(401\)/);
   assert.match(open, /app\.use\(requireAuth\)/);
   assert.doesNotMatch(open, /RequireAuthorization|\[Authorize\]/, "the C# route is protected, so its fix is not advice");
+});
+
+test("a Flask function route and a class route each get their own fix", () => {
+  const { failures } = run(
+    {
+      "app.py":
+        'from flask import Flask\nfrom flask_restx import Api, Namespace, Resource\n\napp = Flask(__name__)\napi = Api(app)\n' +
+        'ns = Namespace("reports")\napi.add_namespace(ns)\n\n\n@app.get("/health-report")\ndef health_report():\n    return []\n\n\n' +
+        '@ns.route("/reports")\nclass Reports(Resource):\n    def post(self):\n        return {}\n',
+    },
+    authenticationFailures
+  );
+  const open = failures.find((f) => OPEN_ROUTE.test(f));
+  assert.match(open, /2 of 2 endpoint/);
+  assert.match(open, /under the route decorator, a `before_request` hook that refuses a caller who is not signed in, or a check at the top of the view/);
+  assert.match(open, /; or for a route on a class \(`@ns\.route` on a flask-restx `Resource`\), the app's `before_request` hook/);
 });
 
 // --- Rails routing ------------------------------------------------------------------------------

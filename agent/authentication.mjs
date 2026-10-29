@@ -460,14 +460,21 @@ export function leakySignatureCheck(all) {
 // It starts at the `def`, past any further decorators -- a second decorator used to end the body at
 // its own line -- and runs while lines are indented past the `def`, so a route defined inside a
 // function or class is read too.
-function pyRouteBody(lines, startIdx) {
-  let d = startIdx;
-  // A route on a class (flask-restx's `@ns.route` on a Resource, a MethodView) belongs to every method
-  // of it. Reading on to the first `def` judged the whole class by that one method.
-  while (d < lines.length && d < startIdx + 40 && !/^\s*(?:async\s+)?def\b/.test(lines[d])) {
-    if (/^\s*class\b/.test(lines[d])) return "";
-    d++;
+/** Is the route decorator at `startIdx` on a class rather than a function? */
+function onClass(lines, startIdx) {
+  for (let d = startIdx; d < lines.length && d < startIdx + 40; d++) {
+    if (/^\s*(?:async\s+)?def\b/.test(lines[d])) return false;
+    if (/^\s*class\b/.test(lines[d])) return true;
   }
+  return false;
+}
+
+function pyRouteBody(lines, startIdx) {
+  // A route on a class (flask-restx's `@ns.route` on a Resource) belongs to every method of it.
+  // Reading on to the first `def` judged the whole class by that one method.
+  if (onClass(lines, startIdx)) return "";
+  let d = startIdx;
+  while (d < lines.length && d < startIdx + 40 && !/^\s*(?:async\s+)?def\b/.test(lines[d])) d++;
   if (d >= lines.length || d >= startIdx + 40) d = startIdx;
   const indentOf = (l) => /^\s*/.exec(l)[0].length;
   const indent = indentOf(lines[d]);
@@ -523,6 +530,15 @@ const pythonAdapter = {
     Flask:
       "`@login_required` (Flask-Login) under the route decorator, a `before_request` hook that refuses a caller who is not signed in, or a check at the top of the view (`abort(401)`)",
   },
+  // A route decorator on a class (flask-restx's `@ns.route` on a Resource; only Flask's extensions
+  // put one there) is judged by none of the class's methods, so the function-view advice -- a
+  // decorator, a check at the top of the view -- would not move it. The app's `before_request` hook
+  // is what this check credits there.
+  idiomFor(r) {
+    if (r.onClass)
+      return "for a route on a class (`@ns.route` on a flask-restx `Resource`), the app's `before_request` hook that refuses a caller who is not signed in: a check in one of its methods, `@login_required` on one, and `method_decorators` are not read";
+    return null;
+  },
   frameworkOf: (text, texts) => frameworkIn(text, texts, PY_FRAMEWORKS),
   family: "python",
   handlerBodies(r) {
@@ -546,6 +562,7 @@ const pythonAdapter = {
         context: signature,
         body: pyRouteBody(lines, line),
         line,
+        ...(onClass(lines, line) ? { onClass: true } : {}),
         // What a Flask decorator or hook needs to know whether it runs for this route.
         ...(flask
           ? {
@@ -1471,6 +1488,7 @@ export function checkAuthentication(projectDir) {
           protectedBy: declared || inHandler,
           ...(inHandler ? { inHandler: true } : {}),
           ...(r.anonymous ? { anonymous: true } : {}),
+          ...(r.onClass ? { onClass: true } : {}),
         });
       }
     }
@@ -1629,7 +1647,7 @@ export function authenticationFailures(projectDir, { reviews = [] } = {}) {
   // add a FastAPI dependency, or a Laravel one told about `#[IsGranted]`, is sent somewhere else.
   const idiomOf = (r) => {
     const adapter = ADAPTERS.find((a) => a.name === r.language);
-    return (r.framework && adapter.idioms?.[r.framework]) || adapter.idiom;
+    return adapter.idiomFor?.(r) || (r.framework && adapter.idioms?.[r.framework]) || adapter.idiom;
   };
   const idioms = [...new Set(open.map(idiomOf))];
 
