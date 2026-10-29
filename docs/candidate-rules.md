@@ -1597,11 +1597,10 @@ the caller, split into words on `_`, `-` and case: `user_id`, `_auth_user_id`, `
 `currentUser`, `:user_id`. A key that is not a literal does not count. Ktor's typed
 `call.sessions.get<T>()` has no key and is unchanged. Measured the same way on the files still on
 disk, the five Flask apps and the three recloned calibration repositories, 1,181 routes: exactly the
-two CTFd routes changed, both now open. Of the other calibration apps, whose checkouts had been
-removed from the scratch directory, the earlier dump shows only Gitea's 9 Go routes credited for the
-caller in the handler; they rest on `ctx.IsSigned` and `ctx.Doer`, not a session key, and the Gitea
-unit cases still pass, but Gitea itself was not re-run. 13 tests, and each part of the change
-switched off fails at least one.
+two CTFd routes changed, both now open. Of the other calibration apps, the earlier dump shows only
+Gitea's 9 Go routes credited for the caller in the handler; Gitea, recloned at its manifest commit,
+reproduces that dump route for route, and none of its 824 routes changed. 13 tests, and each part of
+the change switched off fails at least one.
 
 ### 26. Ruby filters credited to routes they do not run for — fixed
 
