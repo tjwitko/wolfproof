@@ -175,6 +175,13 @@ blueprint registered on a helper's parameter is read as what the helper is calle
 module-level name the parameter shadows, which credited routes the hook lets through. A Flask route open before can now pass, and a review
 of one now matches nothing and is reported as doing nothing: delete it.
 
+**After v1.13.0: a Flask hook installed by a function counts, and one never installed does not.** A
+`before_request` hook inside `def init_app(app)`, or added with `target.before_request(check)`, now
+protects the routes of whatever each call passes it, and a hook on an app imported from another module
+protects that app's routes; an app's hook reaches the routes under the directory the app is made in.
+A hook in a function nobody calls, on a parameter named like the module's app, was credited and no
+longer is: a route that passed on it can now block.
+
 **After v1.13.0: a Flask route whose rule is a call is checked.** A route written as
 `@routes.route(org_scoped_rule("/login"))` was not found, so nothing checked it: 19 of redash's. It is
 now found, shown by the path written in it, and judged like any other route, so one with nothing

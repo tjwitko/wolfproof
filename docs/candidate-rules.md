@@ -1766,9 +1766,36 @@ the 6 routes it expects unknown. c1 to c8 unchanged route for route. 1 test, 28 
 switched off, 29 fail it, and the other two, an unclosed `{` and a lone `}` in a template, are
 templates Python refuses. Median of 7 runs: redash 148 to 153 ms, CTFd 247 to 251 ms.
 
-**Still open:** a `before_request` hook on a parameter (`def init_app(app): @app.before_request`) is
-not read, since what it runs for is not followed back as a registration is, so its routes are left
-open; a flask-restx `Api` mounted on a parameter likewise; a rule built from a module attribute or
+A hook on a parameter was not read, fixed after v1.13.0, and one in a function nobody calls was
+credited. A hook's target was its receiver's name looked up in the hook's own file: `def init_app(app):
+@app.before_request`, as redash and CTFd write theirs (CTFd's seven in `init_request_processors(app)`),
+found no `app = ...` there and protected nothing, while `def never_called(app): @app.before_request`
+beside `app = Flask(__name__)` credited the module's app with a hook Flask never installs. The target
+is now followed back with the registration reader: a parameter to what each call passes, so a helper
+called on two blueprints is a hook on each; an imported name to its module; a function never called,
+passed as a value, or nested gives up. A target not traced to an app or a blueprint, a project
+object with its own `before_request` among them, protects nothing. An app's hook, and a blueprint's
+`before_app_request`, now reach the routes under the directory of the file the app is made in, not
+the hook's: CTFd's hooks live in `CTFd/utils/initialization/`. Blueprints are matched by where they
+are defined rather than by name and import, which made the old matcher unused.
+
+Measured: no hook on a parameter in the calibration applications refuses anyone (CTFd's seven and
+redash's three set up sessions, tracking and CSRF), so all 61 directories are unchanged, routes and
+exemptions alike. On a copy of CTFd with a refusing hook added inside `init_request_processors(app)`,
+letting `/api/v1/users` and `/setup` through: none of 163 routes credited before, 144 after, the
+other 19 exactly the ones the same hook leaves open written at module level. The test's four apps,
+run in Flask 3.1.3 with its test client and no session, refuse `/home`, `/admin/stats`, `/one`,
+`/two`, `/third` and `/fourth` and answer 200 on `/public` and `/open`, each as the test expects;
+the earlier code differs on 6 of 8: `/home`, `/admin/stats` and `/third` left open, `/open` credited,
+and `/one` and `/two` credited to the hook in the function never called. 11 parts
+switched off, each fails the test. Median of 7 runs: redash 153 to 156 ms, CTFd 252 to 255 ms; the
+CTFd copy 255 to 620 ms, the cost of judging 163 routes against a hook, which the module-level
+version of it costs either way (550 to 554 ms).
+
+**Still open:** a flask-restx `Api` mounted on a parameter is not followed back as a hook's target is,
+so a blueprint hook does not reach its routes; an app made by a project factory (`app =
+create_app()`) is not known to be an app, so a hook on it, imported elsewhere, protects nothing and
+its blueprints' prefixes are not read; a rule built from a module attribute or
 anything else not listed above (`settings.PREFIX + "/x"`), whose full path stays unknown;
 `LOGIN_DISABLED` switches Flask-Login's decorator
 off and is not read; a class route's methods, which would each need judging; a decorator or hook

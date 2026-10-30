@@ -79,11 +79,17 @@ imports it from that library, or a project's own decorator whose wrapper refuses
 rule for [checks inside the handler](#authentication-checked-inside-the-handler). A decorator above
 the route decorator protects nothing, because Flask registers the function before it is wrapped, and
 neither does `optional=True`. A `before_request` hook that refuses protects the routes it runs for:
-the app's hook every route under the app's directory, a blueprint's its own routes and those of a
+the app's hook every route under the directory of the file the app is made in, a blueprint's
+`before_app_request` likewise, a blueprint's own hook its own routes and those of a
 flask-restx `Api` mounted on it (`Api(bp)`, `Api(app=bp)`, `api.init_app(bp)`), followed through
 `api.add_namespace(ns)` or `api.namespace(...)` and the imports between modules. A route the hook
 lets through by `request.endpoint` or `request.path` stays open; a hook that lets requests through on
-any other condition protects nothing. A path rule (`request.path == ...`, `request.path in (...)`,
+any other condition protects nothing. What a hook is installed on is followed back as a
+registration's target is (below), so a hook in `def init_app(app): @app.before_request`, or
+`target.before_request(check)`, runs for whatever each call passes, and one on an app imported from
+another module runs for that app; a hook in a function never called, also passed as a value, or
+nested in another, and one installed on anything not traced to an app or a blueprint, protects
+nothing. A path rule (`request.path == ...`, `request.path in (...)`,
 `request.path.startswith(...)`) is matched against the route's full path: the `url_prefix` its
 blueprint is registered with, or else the one in `Blueprint(...)`, a parent blueprint's before it,
 and for a flask-restx route the `Api`'s `prefix` and the namespace's path (the one `add_namespace`

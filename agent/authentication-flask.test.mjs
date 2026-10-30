@@ -594,6 +594,62 @@ test("a route whose rule is a call is found, and its full paths are what the cal
   });
 });
 
+// Redash and CTFd install their hooks inside `def init_app(app)` and `def init_request_processors(app)`.
+// Such a hook was read only when its receiver's name was assigned an app in the same file, which also
+// credited a hook in a function nobody calls, on a parameter shadowing the module's `app`.
+test("a hook installed on a parameter runs for what each call passes, and one never installed protects nothing", () => {
+  const refuse = (name, on = "app") => `    @${on}.before_request\n    def ${name}():\n        if "user_id" not in session:\n            abort(401)\n`;
+  const files = {
+    "pkg/__init__.py": "",
+    "pkg/app.py":
+      "from flask import Flask\n\nfrom pkg import admin as admin_module\nfrom pkg import views\nfrom pkg.hooks import install\nfrom pkg.sec import security\n\n\n" +
+      "def create_app():\n    app = Flask(__name__)\n    security.init_app(app)\n    install(admin_module.admin)\n    app.register_blueprint(views.bp)\n    app.register_blueprint(admin_module.admin)\n    return app\n\n\napp = create_app()\n",
+    "pkg/sec/__init__.py": "",
+    "pkg/sec/security.py":
+      "from flask import abort, request, session\n\n\ndef init_app(app):\n    @app.before_request\n    def require_login():\n" +
+      '        if request.path == "/public":\n            return\n        if "user_id" not in session:\n            abort(401)\n',
+    "pkg/hooks.py":
+      'from flask import abort, session\n\n\ndef require_admin():\n    if "admin" not in session:\n        abort(403)\n\n\ndef install(target):\n    target.before_request(require_admin)\n',
+    "pkg/admin.py": 'from flask import Blueprint\n\nadmin = Blueprint("admin", __name__, url_prefix="/admin")\n\n\n@admin.get("/stats")\ndef stats():\n    return "stats"\n',
+    "pkg/views.py":
+      'from flask import Blueprint\n\nbp = Blueprint("views", __name__)\n\n\n@bp.get("/public")\ndef public():\n    return "public"\n\n\n@bp.get("/home")\ndef home():\n    return "home"\n',
+    "other/__init__.py": "",
+    "other/app.py":
+      "from flask import Blueprint, Flask, abort, session\n\napp = Flask(__name__)\nHOOKS = []\n" +
+      'one = Blueprint("one", __name__)\ntwo = Blueprint("two", __name__)\n\n\n' +
+      'def check_member():\n    if "user_id" not in session:\n        abort(401)\n\n\ndef guard(target):\n    target.before_request(check_member)\n\n\n' +
+      "class Registry:\n    def before_request(self, f):\n        self.f = f\n        return f\n\n\nregistry = Registry()\n" +
+      "guard(one)\nguard(two)\nguard(registry)\n\n\n" +
+      "def never_called(app):\n" + refuse("refuse") + "\n\ndef passed_around(app):\n" + refuse("refuse_too") + "\n\nHOOKS.append(passed_around)\n\n\n" +
+      "def setup():\n    def nested(app):\n" + refuse("refuse_three").replace(/^/gm, "    ") + "\n    return nested\n\n\n" +
+      '@app.get("/open")\ndef open_view():\n    return "open"\n\n\n' +
+      '@one.get("/one")\ndef one_view():\n    return "one"\n\n\n@two.get("/two")\ndef two_view():\n    return "two"\n\n\n' +
+      "app.register_blueprint(one)\napp.register_blueprint(two)\n",
+    "third/__init__.py": "",
+    "third/app.py": 'from flask import Flask\n\napp = Flask(__name__)\n\n\n@app.get("/third")\ndef third():\n    return "third"\n\n\nimport third.hooks  # noqa: E402, F401\n',
+    "third/hooks.py": "from flask import abort, session\n\nfrom third.app import app\n\n\n" + refuse("gate").replace(/^    /gm, ""),
+    "fourth/__init__.py": "",
+    "fourth/app.py":
+      'from flask import Blueprint, Flask, abort, session\n\napp = Flask(__name__)\nside = Blueprint("side", __name__)\n\n\n' +
+      "def watch(bp):\n" + refuse("everywhere", "bp").replace("before_request", "before_app_request") + "\n\nwatch(side)\napp.register_blueprint(side)\n\n\n" +
+      '@app.get("/fourth")\ndef fourth():\n    return "fourth"\n',
+  };
+  const report = run(files, checkAuthentication);
+  // Checked in Flask 3.1.3 with its test client and no session: /home, /admin/stats and /third refuse,
+  // /public and /open answer 200; /one and /two, each a blueprint `guard` is called with, refuse, and
+  // `guard(registry)` installs nothing on the app; /fourth refuses, by a blueprint's before_app_request.
+  assert.deepEqual(verdicts(report), {
+    "GET /home": `a before_request hook (pkg/sec/security.py:${lineOf(files["pkg/sec/security.py"], "@app.before_request")})`,
+    "GET /public": null,
+    "GET /stats": `a before_request hook (pkg/hooks.py:${lineOf(files["pkg/hooks.py"], "def require_admin")})`,
+    "GET /open": null,
+    "GET /one": `a before_request hook (other/app.py:${lineOf(files["other/app.py"], "def check_member")})`,
+    "GET /two": `a before_request hook (other/app.py:${lineOf(files["other/app.py"], "def check_member")})`,
+    "GET /third": `a before_request hook (third/hooks.py:${lineOf(files["third/hooks.py"], "@app.before_request")})`,
+    "GET /fourth": `a before_request hook (fourth/app.py:${lineOf(files["fourth/app.py"], "@bp.before_app_request")})`,
+  });
+});
+
 test("a path rule reaches a route whose variables can take the path it names, and a rule whose values are not written out reaches every route", () => {
   const head = "from flask import Flask, abort, request, session\n\napp = Flask(__name__)\n";
   const get = (p) => `\n\n@app.get("${p}")\ndef v${p.replace(/\W/g, "")}():\n    return ""\n`;

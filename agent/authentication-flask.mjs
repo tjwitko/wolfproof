@@ -196,7 +196,7 @@ function hookCredit(body) {
   return reason ? { exemptions } : null;
 }
 
-const stem = (rel) => (path.posix.basename(rel) === "__init__.py" ? path.posix.basename(path.posix.dirname(rel)) : path.posix.basename(rel, ".py"));
+const offsetOf = (lines, d) => lines.slice(0, d).reduce((n, l) => n + l.length + 1, 0);
 
 /** Every hook in the project that refuses, with whom it runs for. */
 const projectHooks = new WeakMap();
@@ -211,43 +211,37 @@ function hooksIn(texts, rels) {
       if (!m) return;
       let def = d + 1;
       while (def < lines.length && /^\s*@/.test(lines[def])) def++;
-      if (def < lines.length && /^\s*(?:async\s+)?def\b/.test(lines[def])) found.push({ receiver: m[1], kind: m[2], body: defBlock(lines, def).join("\n"), line: d + 1 });
+      if (def < lines.length && /^\s*(?:async\s+)?def\b/.test(lines[def])) found.push({ receiver: m[1], kind: m[2], body: defBlock(lines, def).join("\n"), line: d + 1, index: offsetOf(lines, d) });
     });
     for (const m of text.matchAll(/^\s*(\w+)\s*\.\s*(before_request|before_app_request)\s*\(\s*(\w+)\s*\)/gm)) {
       const d = lines.findIndex((l) => new RegExp(`^\\s*(?:async\\s+)?def\\s+${m[3]}\\s*\\(`).test(l));
-      if (d >= 0) found.push({ receiver: m[1], kind: m[2], body: defBlock(lines, d).join("\n"), line: d + 1 });
+      if (d >= 0) found.push({ receiver: m[1], kind: m[2], body: defBlock(lines, d).join("\n"), line: d + 1, index: m.index });
     }
+    const files = filesOf(texts, rels);
+    const classes = flaskClasses(files);
     for (const h of found) {
       const credit = hookCredit(h.body);
       if (!credit) continue;
-      const classes = flaskClasses(filesOf(texts, rels));
-      const kind = [...text.matchAll(new RegExp(`^\\s*${h.receiver}\\s*=\\s*(?:flask\\s*\\.\\s*)?(\\w+)\\s*\\(`, "gm"))].map((m) => classes.get(m[1])).find(Boolean);
-      const isApp = kind === "Flask";
-      const isBlueprint = kind === "Blueprint";
-      // A blueprint's before_app_request runs for the whole app, as the app's own hook does.
-      const scope = h.kind === "before_app_request" || isApp ? "app" : isBlueprint ? "blueprint" : null;
-      if (scope) hooks.push({ ...h, ...credit, scope, rel: rels[i], text, at: `${rels[i]}:${h.line}` });
+      const own = { rel: rels[i], text, at: `${rels[i]}:${h.line}` };
+      // What the hook is installed on, followed back as a registration's target is (sourcesOf): a
+      // parameter to what each call passes, an imported name to its module. Matched by name in the file
+      // instead, `def never_called(app): @app.before_request` beside `app = Flask(...)` credited the
+      // module's app with a hook that is never installed. A hook whose target is not traced to an app or
+      // a blueprint protects nothing; one installed on several is a hook on each.
+      for (const src of sourcesOf(h.receiver, files[i], h.index, files) || []) {
+        const target = resolve(src.expr, src.file, files);
+        const call = callOf(target, [...classes.keys()].join("|"));
+        const kind = call && classes.get(call.callee);
+        if (!kind) continue;
+        // An app's hook, and a blueprint's before_app_request, run for the routes under the app's own
+        // directory -- the directory of the file the app is made in, not the hook's.
+        if (h.kind === "before_app_request" || kind === "Flask") hooks.push({ ...h, ...credit, ...own, scope: "app", appRel: target.file.rel });
+        else hooks.push({ ...h, ...credit, ...own, scope: "blueprint", blueprint: target });
+      }
     }
   });
   projectHooks.set(texts, hooks);
   return hooks;
-}
-
-// Does the route's receiver name the hook's blueprint? The same file, or a file importing that name
-// from the hook's module (`from .auth import bp`, or `from . import main` in the package's
-// __init__.py). Two blueprints both called `bp` in different modules are not one blueprint.
-function sameBlueprint(hook, route) {
-  if (route.receiver !== hook.receiver) return false;
-  if (route.rel === hook.rel) return true;
-  for (const m of route.text.matchAll(/^[ \t]*from\s+([\w.]*)\s+import\s+(\([^)]*\)|[^\n]+)/gm)) {
-    const names = m[2].replace(/#[^\n]*/g, "").replace(/[()\n]/g, " ").split(",").map((p) => p.trim().split(/\s+as\s+/).pop());
-    if (!names.includes(route.receiver)) continue;
-    const module = m[1];
-    if (/^\.+$/.test(module)) {
-      if (path.posix.basename(hook.rel) === "__init__.py" && path.posix.dirname(hook.rel) === path.posix.dirname(route.rel)) return true;
-    } else if (module.split(".").pop() === stem(hook.rel)) return true;
-  }
-  return false;
 }
 
 // Does one of the hook's rules let this route through? `serving.paths` are the route's full paths as
@@ -929,9 +923,12 @@ function restxOf(route, texts, rels) {
 // Does the hook run for the route? An app's hook for the routes under the app's directory; a
 // blueprint's for its own routes, and for a flask-restx route served through an Api mounted on it.
 function reaches(hook, route, serving, files) {
-  if (hook.scope === "app") return route.rel.startsWith(path.posix.dirname(hook.rel) === "." ? "" : `${path.posix.dirname(hook.rel)}/`);
-  if (!serving.restx) return sameBlueprint(hook, route);
-  return same(serving.blueprint, { name: hook.receiver, file: files.find((f) => f.rel === hook.rel && f.text === hook.text) });
+  if (hook.scope === "app") {
+    const dir = path.posix.dirname(hook.appRel);
+    return route.rel.startsWith(dir === "." ? "" : `${dir}/`);
+  }
+  if (serving.restx) return same(serving.blueprint, hook.blueprint);
+  return same(resolve(route.receiver, files.find((f) => f.rel === route.rel && f.text === route.text), files), hook.blueprint);
 }
 
 /** What protects a Flask route from outside its body, or null. */
