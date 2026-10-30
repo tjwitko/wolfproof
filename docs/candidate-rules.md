@@ -1895,6 +1895,25 @@ the helper's hook rather than the app's. 8
 parts of the Api reading and 13 of the name reading switched off, each fails a test. Timing
 unchanged (CTFd probe 599 to 616 ms).
 
+A hook in code that never runs was credited, fixed after v1.13.0, found while testing the name
+reading above. Hooks were read wherever they were written; only one on a parameter was traced to
+calls. So `def setup(): admin.before_request(refuse)`, never called, a decorator hook inside such a
+function, a helper called only from it, one only put in a list, and a nested function never called
+all credited `refuse` on routes Flask serves to anyone (checked, all 200). A hook now counts only
+where the code installing it runs: at module level, or in a function called from code that runs,
+followed up through its callers, with a nested function's call looked for inside the function around
+it. A top-level function that makes a Flask app counts as running though nothing in the project
+calls it: Flask's CLI calls `create_app` itself, and a server names its factory in its own config;
+two existing tests, whose factories are never called, are this case.
+
+Measured: all 64 directories unchanged. The calibration applications have no hook that refuses
+anyone, so this says only that nothing else moved; the CTFd and microblog probes, whose refusing
+hooks are in `init_request_processors(app)` and on `microblog.py`'s `app`, keep their credits. The test's app answers in Flask 3.1.3's
+test client as the test expects on all 7 routes; the earlier code credits 5 that Flask serves to
+anyone. 8 parts switched off, each fails the test. Timing: unchanged on the calibration apps; the CTFd
+probe, whose refusing hook is inside `init_request_processors(app)`, 634 to 676 ms, the cost of
+finding who calls that function.
+
 **Still open:** a rule built from a module attribute or
 anything else not listed above (`settings.PREFIX + "/x"`), whose full path stays unknown;
 `LOGIN_DISABLED` switches Flask-Login's decorator

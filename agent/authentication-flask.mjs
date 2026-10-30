@@ -221,7 +221,7 @@ function hooksIn(texts, rels) {
     const classes = flaskClasses(files);
     for (const h of found) {
       const credit = hookCredit(h.body);
-      if (!credit) continue;
+      if (!credit || !runsAtAll(files[i], h.index, files)) continue;
       const own = { rel: rels[i], text, at: `${rels[i]}:${h.line}` };
       // What the hook is installed on, followed back as a registration's target is (sourcesOf): a
       // parameter to what each call passes, an imported name to its module. Matched by name in the file
@@ -715,6 +715,44 @@ function runsOnce(file, index, files, depth = 0) {
 }
 function madeOnce(made, files) {
   return made.at !== undefined && runsOnce(made.file, made.at, files);
+}
+
+// Does the code at this point run at all? At module level it does; in a function, if the function is
+// called from code that runs, followed up through its callers -- a top-level function from wherever
+// callsOf finds it called, a nested one from inside the function around it. Hooks were read wherever
+// they were written, so `def setup(): admin.before_request(refuse)`, never called, credited admin's
+// routes with a hook Flask never installs. An app factory runs though nothing in the project calls
+// it: Flask's CLI calls `create_app` itself, and a server is told the factory in its own config, so a
+// top-level function that makes a Flask app counts. A function only passed as a value, or a method,
+// is not known to run.
+function makesApp(fn, files) {
+  const apps = [...flaskClasses(files)].filter(([, kind]) => kind === "Flask").map(([name]) => name);
+  const re = new RegExp(`(?<![\\w])(?:\\w+\\s*\\.\\s*)?(?:${apps.join("|")})\\s*\\(`);
+  return logicalLines(fn.file).some((l) => l.start > fn.at && re.test(l.text) && scopesAt(fn.file, l.start).find((s) => s.def)?.def.at === fn.at);
+}
+const runsCache = new WeakMap();
+function runsAtAll(file, index, files, depth = 0) {
+  if (depth > 6) return false;
+  const scopes = scopesAt(file, index);
+  const at = scopes.findIndex((s) => s.def || s.cls);
+  if (at < 0) return true;
+  if (scopes[at].cls) return false;
+  const fn = scopes[at].def;
+  const outer = scopes.slice(at + 1).find((s) => s.def || s.cls);
+  if (outer?.cls) return false;
+  if (!outer) {
+    if (!runsCache.has(files)) runsCache.set(files, new Map());
+    const cache = runsCache.get(files);
+    const key = `${fn.file.rel}\0${fn.at}`;
+    if (!cache.has(key)) cache.set(key, makesApp(fn, files) || (callsOf(fn, files) || []).some((c) => runsAtAll(c.file, c.index, files, depth + 1)));
+    return cache.get(key);
+  }
+  const call = new RegExp(`(?<![\\w.])${fn.name}\\s*\\(`);
+  return logicalLines(file).some((l) => {
+    if (l.start <= fn.at || /^[ \t]*(?:async\s+)?def\b/.test(l.text)) return false;
+    const m = call.exec(l.text);
+    return !!m && scopesAt(file, l.start).find((s) => s.def)?.def.at === outer.def.at && runsAtAll(file, l.start + m.index, files, depth + 1);
+  });
 }
 
 // Is a route declared on `routeDef` on the object a hook was put on? The hook was put on `via`, which

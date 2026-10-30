@@ -856,6 +856,40 @@ test("a name is the one Python reads where it is used", () => {
   });
 });
 
+// Hooks were read wherever they were written. One in a function nobody calls is never installed, and
+// was credited on the routes of the blueprint it names.
+test("a hook counts only where the code installing it runs", () => {
+  const bp = (name) => `${name} = Blueprint("${name}", __name__, url_prefix="/${name}")\n`;
+  const get = (on, path) => `\n\n@${on}.get("${path}")\ndef v_${on}():\n    return ""\n`;
+  const app =
+    "from flask import Blueprint, Flask, abort, session\n\n" + ["admin", "dec", "side", "deep", "passed"].map(bp).join("") +
+    'HOOKS = []\n\n\ndef refuse():\n    if "user_id" not in session:\n        abort(401)\n\n\n' +
+    "def setup_never_called():\n    admin.before_request(refuse)\n\n\n" +
+    'def decorate_never_called():\n    @dec.before_request\n    def own():\n        if "user_id" not in session:\n            abort(401)\n\n\n' +
+    "def live_inner():\n    side.before_request(refuse)\n\n\ndef live_outer():\n    live_inner()\n\n\n" +
+    "def dead_outer():\n    deep_inner()\n\n\ndef deep_inner():\n    deep.before_request(refuse)\n\n\n" +
+    "def setup_passed():\n    passed.before_request(refuse)\n\n\n" +
+    'def helper_a():\n    la = Blueprint("la", __name__, url_prefix="/la")\n\n    def install():\n        la.before_request(refuse)\n\n    return la\n\n\n' +
+    "def install():\n    pass\n\n\n" +
+    'def helper_b():\n    lb = Blueprint("lb", __name__, url_prefix="/lb")\n\n    def install():\n        lb.before_request(refuse)\n\n    install()\n    return lb\n\n\n' +
+    "HOOKS.append(setup_passed)\nlive_outer()\ninstall()\nla_bp = helper_a()\nlb_bp = helper_b()\n" +
+    get("admin", "/x") + get("dec", "/d") + get("side", "/s") + get("deep", "/p") + get("passed", "/q") + get("la_bp", "/a") + get("lb_bp", "/b") +
+    "\n\napp = Flask(__name__)\nfor each in (admin, dec, side, deep, passed, la_bp, lb_bp):\n    app.register_blueprint(each)\n";
+  const report = run({ "app.py": app }, checkAuthentication);
+  const refuse = `a before_request hook (app.py:${lineOf(app, "def refuse")})`;
+  // Checked in Flask 3.1.3 with its test client and no session: /side/s and /lb/b refuse; /admin/x,
+  // /dec/d, /deep/p, /passed/q and /la/a answer 200.
+  assert.deepEqual(verdicts(report), {
+    "GET /x": null, // setup_never_called()
+    "GET /d": null, // a decorator in a function never called
+    "GET /s": refuse, // live_inner(), called from live_outer(), called at module level
+    "GET /p": null, // deep_inner(), called only from dead_outer(), never called
+    "GET /q": null, // setup_passed, only put in a list
+    "GET /a": null, // a nested function never called: the install() called at module level is another
+    "GET /b": refuse, // a nested function its function calls
+  });
+});
+
 test("a path rule reaches a route whose variables can take the path it names, and a rule whose values are not written out reaches every route", () => {
   const head = "from flask import Flask, abort, request, session\n\napp = Flask(__name__)\n";
   const get = (p) => `\n\n@app.get("${p}")\ndef v${p.replace(/\W/g, "")}():\n    return ""\n`;

@@ -92,9 +92,12 @@ lets through by `request.endpoint` or `request.path` stays open; a hook that let
 any other condition protects nothing. What a hook is installed on is followed back as a
 registration's target is (below), so a hook in `def init_app(app): @app.before_request`, or
 `target.before_request(check)`, runs for whatever each call passes, and one on an app imported from
-another module runs for that app; a hook in a function never called, also passed as a value, or
-nested in another, and one installed on anything not traced to an app or a blueprint, protects
-nothing. A path rule (`request.path == ...`, `request.path in (...)`,
+another module runs for that app; one installed on anything not traced to an app or a blueprint
+protects nothing. A hook counts only where the code installing it runs: at module level, or in a
+function called from code that runs, followed up through its callers (a nested function from inside
+the one around it), or in a top-level function that makes a Flask app, which Flask's CLI or the
+server calls. A hook in a function never called, only passed as a value, called only from such a
+function, or in a method protects nothing. A path rule (`request.path == ...`, `request.path in (...)`,
 `request.path.startswith(...)`) is matched against the route's full path: the `url_prefix` its
 blueprint is registered with, or else the one in `Blueprint(...)`, a parent blueprint's before it,
 and for a flask-restx route the `Api`'s `prefix` and the namespace's path (the one `add_namespace`
