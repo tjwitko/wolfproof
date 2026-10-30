@@ -120,12 +120,16 @@ makes. A rule
 written as a call of the project's own function (`@routes.route(org_scoped_rule("/login"))`) is read
 the same way, its arguments bound to the function's parameters and each `return` read, every branch
 alike, so redash's is both "/login" and "/<org_slug>/login"; string literals, f-strings, `+`,
-`str.format` and conditional expressions are followed. A rule is read as a literal only when the
+`str.format` and conditional expressions are followed, and a name or `module.NAME` the rule reads
+(`BASE + "/one"`, `f"{BASE}/x"`, `settings.PREFIX + "/x"`) is what it is assigned where Python reads
+it — every assignment of it in that scope, if there are several. A name also written by `NAME += ...`,
+or as `module.NAME = ...` from anywhere, or assigned from the environment or any other call not
+followed, is not known. A rule is read as a literal only when the
 literal is its whole first argument: `"/a" if ON else "/b"` is "/a" or "/b", and `"/x" + SUFFIX` is
 not "/x". Such a route is shown by the path written in it, the first one written. A route's
 variables match any value, so a rule for "/docs/intro" opens "/docs/<page>". A path rule reaches every
-route whose full path cannot be read — a prefix that is not a literal, a rule built from anything
-else (`settings.PREFIX + "/x"`), a blueprint registered on a
+route whose full path cannot be read — a prefix that is not a literal (`url_prefix=PREFIX` among
+them), a rule built from anything else (`os.environ.get(...) + "/x"`), a blueprint registered on a
 parameter of a function never called or also passed as a value, of a nested function or a method, or
 in a loop over anything but a list written out — and so does a rule whose values are not written out
 (`request.path in PUBLIC`). An endpoint rule reaches a route

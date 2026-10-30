@@ -901,31 +901,31 @@ function fieldsOf(body) {
 }
 
 /** The strings a rule expression can be, in `file` with `env` binding names to their values; or null. */
-function ruleValues(expr, env, file, files, depth = 0) {
+function ruleValues(expr, env, file, files, depth = 0, index) {
   const e = expr.trim();
   if (depth > 4 || !e) return null;
   const branches = branchesOf(e);
   if (branches) {
-    const both = branches.map((b) => ruleValues(b, env, file, files, depth + 1));
+    const both = branches.map((b) => ruleValues(b, env, file, files, depth + 1, index));
     return both.every(Boolean) ? [...new Set(both.flat())] : null;
   }
   const sum = splitTop(e, "+");
-  if (sum.length > 1) return product(sum.map((s) => ruleValues(s, env, file, files, depth + 1)));
+  if (sum.length > 1) return product(sum.map((s) => ruleValues(s, env, file, files, depth + 1, index)));
   let m;
   if ((m = /^([rRuUfF]{0,2})(['"])((?:(?!\2)[^\\\n])*)\2$/.exec(e))) {
     if (!/f/i.test(m[1])) return [m[3]];
     const parts = fieldsOf(m[3]);
-    return parts && product(parts.map((p) => (typeof p === "string" ? [p] : (env.get(p.field) ?? null))));
+    return parts && product(parts.map((p) => (typeof p === "string" ? [p] : nameValues(p.field, env, file, files, depth, index))));
   }
-  if (/^\w+$/.test(e)) return env.get(e) ?? null;
-  if (e.startsWith("(") && e.endsWith(")") && partsAt(e, 0)?.end === e.length - 1) return ruleValues(e.slice(1, -1), env, file, files, depth + 1);
+  if (/^\w+(?:\s*\.\s*\w+)?$/.test(e)) return nameValues(e, env, file, files, depth, index);
+  if (e.startsWith("(") && e.endsWith(")") && partsAt(e, 0)?.end === e.length - 1) return ruleValues(e.slice(1, -1), env, file, files, depth + 1, index);
   if ((m = /^[rRuU]?(['"])((?:(?!\1)[^\\\n])*)\1\s*\.\s*format\s*\(/.exec(e))) {
     const args = argsAt(e, m[0].length - 1);
     const parts = fieldsOf(m[2]);
     if (!parts || !args || args.spread || args.end !== e.length - 1) return null;
     let next = 0;
     const value = (f) => (f === "" ? args.positional[next++] : /^\d+$/.test(f) ? args.positional[+f] : args.keywords[f]);
-    return product(parts.map((p) => (typeof p === "string" ? [p] : ((a) => (a === undefined ? null : ruleValues(a, env, file, files, depth + 1)))(value(p.field)))));
+    return product(parts.map((p) => (typeof p === "string" ? [p] : ((a) => (a === undefined ? null : ruleValues(a, env, file, files, depth + 1, index)))(value(p.field)))));
   }
   if ((m = /^(\w+(?:\s*\.\s*\w+)?)\s*\(/.exec(e))) {
     const args = argsAt(e, m[0].length - 1);
@@ -937,7 +937,7 @@ function ruleValues(expr, env, file, files, depth = 0) {
     for (const [i, p] of params.entries()) {
       const arg = (p.positional ? args.positional[i] : undefined) ?? args.keywords[p.name];
       // A default is evaluated where the function is defined, with nothing bound.
-      const v = arg !== undefined ? ruleValues(arg, env, file, files, depth + 1) : p.given !== undefined ? ruleValues(p.given, new Map(), fn.file, files, depth + 1) : null;
+      const v = arg !== undefined ? ruleValues(arg, env, file, files, depth + 1, index) : p.given !== undefined ? ruleValues(p.given, new Map(), fn.file, files, depth + 1, fn.at) : null;
       if (!v) return null;
       bound.set(p.name, v);
     }
@@ -945,7 +945,7 @@ function ruleValues(expr, env, file, files, depth = 0) {
     if (!returns?.length) return null;
     const out = [];
     for (const r of returns) {
-      const v = ruleValues(r.expr, bound, fn.file, files, depth + 1);
+      const v = ruleValues(r.expr, bound, fn.file, files, depth + 1, r.index);
       if (!v) return null;
       out.push(...v);
     }
@@ -955,9 +955,30 @@ function ruleValues(expr, env, file, files, depth = 0) {
   return null;
 }
 
+// A name a rule reads: a parameter's bound values, or else what the name is assigned where Python
+// reads it (definition()) -- `PREFIX = "/api"`, `settings.PREFIX` in another module. Every
+// assignment of it in that scope, if there are several, since which ran last before the decorator is
+// not read. Unknown if anything else writes it: `NAME += ...`, or `module.NAME = ...` anywhere.
+function nameValues(e, env, file, files, depth, index) {
+  if (env.has(e)) return env.get(e);
+  if (depth > 4) return null;
+  const def = resolve(e, file, files, index);
+  if (!def || def.call) return null;
+  if (files.some((f) => new RegExp(`(?:^[ \\t]*${def.name}\\s*[-+*/%|&^@]=|\\.\\s*${def.name}\\s*=(?!=))`, "m").test(f.text))) return null;
+  const scope = scopeOf(def.name, def.file, def.at);
+  const out = [];
+  for (const l of assignmentsOf(def.name, def.file)) {
+    if (scopeOf(def.name, def.file, l.start) !== scope) continue;
+    const v = ruleValues(assigned({ ...def, at: l.start }), new Map(), def.file, files, depth + 1, l.start);
+    if (!v) return null;
+    out.push(...v);
+  }
+  return out.length ? [...new Set(out)] : null;
+}
+
 /** Each rule a route can have: the literal in its decorator, or what the call there can return. */
 function rulesOf(route, file, files) {
-  return route.ruleExpr === undefined ? [route.route] : file ? ruleValues(route.ruleExpr, new Map(), file, files) : null;
+  return route.ruleExpr === undefined ? [route.route] : file ? ruleValues(route.ruleExpr, new Map(), file, files, 0, routeAt(route)) : null;
 }
 
 // Where a route's decorator is in its file, for reading its receiver as Python does there.
@@ -1013,21 +1034,11 @@ function moduleFile(module, file, files) {
 // one's hook. A definition records where it is (`at`), and two are the same only at the same place.
 function definition(name, file, files, depth = 0, index) {
   if (depth > 3) return null;
-  const re = new RegExp(`^[ \\t]*${name}\\s*=(?!=)`);
-  const lines = logicalLines(file).filter((l) => re.test(l.text));
+  const lines = assignmentsOf(name, file);
   if (lines.length) {
-    const defsAt = (at) => scopesAt(file, at).filter((s) => s.def || s.cls);
-    const global = new RegExp(`^[ \\t]*global\\s[^\\n]*\\b${name}\\b`, "m");
-    const own = (l) => {
-      const scope = defsAt(l.start)[0];
-      if (!scope) return null;
-      if (scope.cls) return "class";
-      const body = logicalLines(file).filter((x) => x.start > scope.def.at && defsAt(x.start)[0]?.def?.at === scope.def.at);
-      return body.some((x) => global.test(x.text)) ? null : scope.def.at;
-    };
-    const chain = index === undefined ? [] : defsAt(index).filter((s) => s.def).map((s) => s.def.at);
+    const chain = index === undefined ? [] : scopesAt(file, index).filter((s) => s.def).map((s) => s.def.at);
     for (const at of [...chain, null]) {
-      const found = lines.find((l) => own(l) === at);
+      const found = lines.find((l) => scopeOf(name, file, l.start) === at);
       if (found) return { name, file, at: found.start };
     }
   }
@@ -1042,6 +1053,38 @@ function definition(name, file, files, depth = 0, index) {
   return null;
 }
 const same = (a, b) => a && b && a.name === b.name && a.file === b.file && a.at === b.at;
+
+// The lines of a file that assign `name`, and the scope an assignment at `at` is in: the `at` of the
+// function it is local to, null for the module (a function that declares the name `global` writes the
+// module's), or "class" for a class body.
+const assignmentCache = new WeakMap();
+function assignmentsOf(name, file) {
+  if (!assignmentCache.has(file)) assignmentCache.set(file, new Map());
+  const cache = assignmentCache.get(file);
+  if (!cache.has(name)) {
+    const re = new RegExp(`^[ \\t]*${name}\\s*=(?!=)`);
+    cache.set(name, logicalLines(file).filter((l) => re.test(l.text)));
+  }
+  return cache.get(name);
+}
+const scopeCache = new WeakMap();
+function scopeOf(name, file, at) {
+  if (!scopeCache.has(file)) scopeCache.set(file, new Map());
+  const cache = scopeCache.get(file);
+  const key = `${name}\0${at}`;
+  if (cache.has(key)) return cache.get(key);
+  const defsAt = (x) => scopesAt(file, x).filter((s) => s.def || s.cls);
+  const scope = defsAt(at)[0];
+  let out = null;
+  if (scope?.cls) out = "class";
+  else if (scope) {
+    const global = new RegExp(`^[ \\t]*global\\s[^\\n]*\\b${name}\\b`);
+    const body = logicalLines(file).filter((x) => x.start > scope.def.at && global.test(x.text) && defsAt(x.start)[0]?.def?.at === scope.def.at);
+    out = body.length ? null : scope.def.at;
+  }
+  cache.set(key, out);
+  return out;
+}
 // What a definition is assigned: the rest of its own line, comments and all brackets included.
 const assigned = (def) => (def?.at === undefined ? "" : (lineAt(def.file, def.at)?.text || "").replace(/^[^=]*=\s*/, "").replace(/#[^\n]*$/, "").trim());
 

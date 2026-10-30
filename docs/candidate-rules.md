@@ -1914,9 +1914,29 @@ anyone. 8 parts switched off, each fails the test. Timing: unchanged on the cali
 probe, whose refusing hook is inside `init_request_processors(app)`, 634 to 676 ms, the cost of
 finding who calls that function.
 
-**Still open:** a rule built from a module attribute or
-anything else not listed above (`settings.PREFIX + "/x"`), whose full path stays unknown;
-`LOGIN_DISABLED` switches Flask-Login's decorator
+A rule built from a module's names was not read, fixed after v1.13.0. `@app.get(BASE + "/one")` with
+`BASE = "/api"` had no known path, so a hook's path rule was taken to reach it and a route the hook
+refuses was reported open. A name or `module.NAME` a rule reads, when it is not a parameter of the
+function the rule is in, is now what it is assigned, found as Python finds it at that point (the
+reading from the Api fix above): `from consts import BASE`, `consts.V` where `V = BASE + "/v1"`, a
+function's own local, an f-string field. A name assigned more than once in its scope is any of its
+values, since which ran last before the decorator is not read; one also written by `+=`, or as
+`module.NAME = ...` anywhere, or assigned from a call not followed (`os.environ.get(...)`), is not
+known. The rule reader now carries where it reads, so a helper's `return` reads the helper's names,
+not its caller's.
+
+Measured: all 64 directories, all full paths and c1 to c9 unchanged; no calibration app builds a rule
+from a name, and flaskbb's prefixes come from `app.config[...]`, which stays unknown. The test's app
+answers its 19 routes in Flask 3.1.3's test client as the test expects, two of them (`/m2/x1`,
+`/e2/q2`) left open on purpose where Flask refuses; the earlier code leaves 5 open that Flask refuses
+(`/api/one2`, `/api/v1/two2`, `/loc2`, `/api/three2`, `/v2/q`).
+12 parts of the reading and 7 of the scope reading it rests on switched off; each fails a test but
+one, a cache keyed by place without the name, which is the same key since one line assigns one name.
+Moving the scope reading out of `definition()` first made it 10% slower on the CTFd probe, a regular
+expression rebuilt for every line; built once and cached, the probe is 658 to 646 ms.
+
+**Still open:** a `url_prefix`, Api `prefix` or namespace path built from a name (`url_prefix=PREFIX`),
+read as a literal only; `LOGIN_DISABLED` switches Flask-Login's decorator
 off and is not read; a class route's methods, which would each need judging; a decorator or hook
 whose condition is a helper call (CTFd's `authed()`).
 

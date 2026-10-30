@@ -175,6 +175,11 @@ blueprint registered on a helper's parameter is read as what the helper is calle
 module-level name the parameter shadows, which credited routes the hook lets through. A Flask route open before can now pass, and a review
 of one now matches nothing and is reported as doing nothing: delete it.
 
+**After v1.13.0: a Flask rule built from a module's names has a known path.** `@app.get(BASE +
+"/one")` with `BASE = "/api"` now has the full path `/api/one`, so a hook's path rule is matched against
+it rather than taken to reach it: a route open before can now pass. A name written by `+=`, from
+another module, or from the environment still has no known path.
+
 **After v1.13.0: a Flask hook counts only where the code installing it runs.** A `before_request`
 hook in a function nothing calls, or calls only from such a function, or only stores, was credited,
 and no longer is: a route that passed on it can now block. A hook in an app factory still counts

@@ -836,6 +836,7 @@ test("an Api is mounted on what its call is given, followed back, in any file", 
 test("a name is the one Python reads where it is used", () => {
   const app =
     "from flask import Blueprint, Flask, abort, request, session\n\n\nclass Settings:\n    app = None\n\n\n" +
+    'def decoy():\n    admin = Blueprint("decoy", __name__, url_prefix="/decoy")\n    return admin\n\n\n' +
     'def init():\n    global admin\n    admin = Blueprint("admin", __name__, url_prefix="/admin")\n\n\n' +
     'def refuse():\n    if "user_id" not in session:\n        abort(401)\n\n\n' +
     'def helper():\n    app = Blueprint("local", __name__)\n\n    def install():\n        app.before_request(refuse)\n\n    install()\n    return app\n\n\n' +
@@ -851,7 +852,7 @@ test("a name is the one Python reads where it is used", () => {
   assert.deepEqual(verdicts(report), {
     "GET /w": `a before_request hook (app.py:${lineOf(app, "@app.before_request")})`, // the module's app, not Settings.app
     "GET /y": null, // `refuse` is put on helper()'s local `app`, not on this one
-    "GET /x": refuse, // `admin`, assigned in init() under `global`
+    "GET /x": refuse, // `admin`, assigned in init() under `global`, not decoy()'s local one
     "GET /z": refuse, // what helper() returns: its own `app`, which install() puts the hook on
   });
 });
@@ -887,6 +888,55 @@ test("a hook counts only where the code installing it runs", () => {
     "GET /q": null, // setup_passed, only put in a list
     "GET /a": null, // a nested function never called: the install() called at module level is another
     "GET /b": refuse, // a nested function its function calls
+  });
+});
+
+// `@app.get(BASE + "/one")` with `BASE = "/api"` had no known path, so a hook's path rule was taken to
+// reach it. A name the rule reads is now what it is assigned, where Python reads it.
+test("a rule built from a module's names is what they are assigned", () => {
+  const consts =
+    'import os\n\nBASE = "/api"\nV = BASE + "/v1"\nMODE = "/m1"\nMODE = "/m2"\nAUG = "/a"\nAUG += "/b"\nENVP = os.environ.get("ENVP", "/e")\nW = "/w0"\n' +
+    'V2 = "/v2"\nMIX = "/k"\nMIX = os.environ.get("MIX", "/e2")\nBASE2 = "/c"\n\n\n' +
+    'def elsewhere():\n    V2 = "/zzz"\n    return V2\n\n\ndef join_base(rule):\n    BASE2 = "/fn"\n    return BASE2 + rule\n\n\nTAIL = "/t"\n';
+  const get = (rule, name) => `\n\n@app.get(${rule})\ndef ${name}():\n    return ""\n`;
+  const app =
+    "from flask import Flask, abort, request, session\n\nimport consts\nfrom consts import BASE\n\n" +
+    'LOCAL = "/loc"\nLOCALP = "/outer"\napp = Flask(__name__)\nconsts.W = "/w1"\n\n\n' +
+    'def under(rule):\n    return BASE + rule\n\n\ndef shadow(BASE):\n    return BASE + "/s"\n\n\n' +
+    "@app.before_request\ndef gate():\n" +
+    '    if request.path in ("/api/one", "/api/v1/two", "/loc", "/api/three", "/m2/x", "/api/four", "/other/s", "/m1/x1", "/zzz/q", "/inner/r", "/fn/j"):\n        return\n' +
+    '    if "user_id" not in session:\n        abort(401)\n' +
+    get('BASE + "/one"', "one") + get('BASE + "/one2"', "one2") + get('consts.V + "/two"', "two") + get('consts.V + "/two2"', "two2") +
+    get("LOCAL", "loc") + get('LOCAL + "2"', "loc2") + get('f"{BASE}/three"', "three") + get('consts.MODE + "/x"', "x") +
+    get('consts.AUG + "/y"', "y") + get('consts.ENVP + "/z"', "z") + get('under("/four")', "four") + get('shadow("/other")', "other") +
+    get('consts.W + "/w"', "w") + get('f"{BASE}/three2"', "three2") + get('consts.MODE + "/x1"', "x1") + get('consts.V2 + "/q"', "q") +
+    get('consts.MIX + "/q2"', "q2") + get('consts.join_base("/j")', "j") +
+    '\n\ndef create_routes():\n    LOCALP = "/inner"\n\n    @app.get(LOCALP + "/r")\n    def r():\n        return ""\n\n\ncreate_routes()\n';
+  const report = run({ "app.py": app, "consts.py": consts }, checkAuthentication);
+  const gate = `a before_request hook (app.py:${lineOf(app, "@app.before_request")})`;
+  // Checked in Flask 3.1.3 with its test client and no session: the routes at /api/one, /api/v1/two,
+  // /loc, /api/three, /m2/x, /api/four, /other/s, /inner/r and /fn/j answer 200, and every other route
+  // refuses -- /m2/x1 and /e2/q2 too, which are left open here on purpose.
+  assert.deepEqual(verdicts(report), {
+    'GET BASE + "/one"': null, // "/api/one", let through
+    'GET BASE + "/one2"': gate, // "/api/one2", known and not let through
+    'GET consts.V + "/two"': null, // "/api/v1/two": V is BASE + "/v1", in another module
+    'GET consts.V + "/two2"': gate,
+    "GET LOCAL": null, // "/loc"
+    'GET LOCAL + "2"': gate,
+    'GET f"{BASE}/three"': null,
+    'GET consts.MODE + "/x"': null, // "/m1/x" or "/m2/x": both assignments are read
+    'GET consts.AUG + "/y"': null, // AUG += ...: not known
+    'GET consts.ENVP + "/z"': null, // from the environment: not known
+    "GET /four": null, // under("/four"): a helper reading BASE
+    "GET /other": null, // shadow("/other"): the parameter BASE, not the module's
+    'GET consts.W + "/w"': null, // written from app.py as consts.W: not known
+    'GET f"{BASE}/three2"': gate,
+    'GET consts.MODE + "/x1"': null, // "/m1/x1", let through, is one of its paths
+    'GET consts.V2 + "/q"': gate, // "/v2/q": the "/zzz" assigned inside elsewhere() is not the module's
+    'GET consts.MIX + "/q2"': null, // one assignment from the environment: not known
+    "GET /j": null, // join_base("/j"): "/fn/j", its own BASE2, not the module's "/c"
+    'GET LOCALP + "/r"': null, // "/inner/r": create_routes()'s own LOCALP
   });
 });
 
