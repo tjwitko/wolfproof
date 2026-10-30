@@ -682,6 +682,7 @@ test("an app or blueprint made by a factory is the one the factory returns", () 
       '@api.route("/items")\nclass Items(Resource):\n    def get(self):\n        return []\n',
     "pkg/views.py": 'from flask import Blueprint\n\nbp = Blueprint("views", __name__)\n\n\n@bp.get("/home")\ndef home():\n    return "home"\n',
     "wsgi.py": 'from pkg import create_app\n\napp = create_app()\n\n\n@app.get("/direct")\ndef direct():\n    return "direct"\n\n\nimport hooks  # noqa: E402, F401\n',
+    "cli.py": 'from pkg import create_app\n\nother = create_app()\n\n\n@other.get("/o")\ndef o():\n    return "o"\n',
     "hooks.py":
       "from flask import abort, request, session\n\nfrom wsgi import app\n\n\n@app.before_request\ndef require_login():\n" +
       '    if request.path in ("/elsewhere", "/admin/open", "/admin/late", "/admin/staff", "/api/items", "/p2/z"):\n        return\n    if "user_id" not in session:\n        abort(401)\n',
@@ -695,6 +696,7 @@ test("an app or blueprint made by a factory is the one the factory returns", () 
   // are left open here because `either` has a return not traced and pick2() a prefix not written out.
   assert.deepEqual(verdicts(report), {
     "GET /direct": hook, // on the app itself, outside the package the app is made in
+    "GET /o": null, // on another app create_app() makes, in cli.py, which the hook is not on
     "GET /home": hook,
     "GET /stats": hook, // "/admin/stats", the prefix given to what make_admin() returns
     "GET /open": admin, // "/admin/open", let through by the app's hook
@@ -705,6 +707,53 @@ test("an app or blueprint made by a factory is the one the factory returns", () 
     "GET /z": null, // "/p1/z" or "/p2/z": either blueprint pick() returns
     "GET /z2": null,
     "ROUTE /items": api, // "/api/items", on an Api mounted on what make_api_bp() returns
+  });
+});
+
+// `return Blueprint(...)` and `return Flask(...)` were not followed, so what such a factory made was
+// unknown. And two calls of one factory make two blueprints: read as one, a hook put on `b1` was
+// credited on `b2`'s routes, which Flask serves to anyone.
+test("a factory returning the app or blueprint it makes is followed, and each call of it makes its own", () => {
+  const app =
+    "from flask import Blueprint, Flask, abort, request, session\n\n\ndef create_app():\n    return Flask(__name__)\n\n\n" +
+    'def make_b(name):\n    bp = Blueprint(name, __name__)\n    return bp\n\n\ndef make_c():\n    return Blueprint("c", __name__, url_prefix="/c")\n\n\n' +
+    'def make_e():\n    e = Blueprint("e", __name__)\n\n    @e.get("/w")\n    def w():\n        return "w"\n\n    return e\n\n\n' +
+    'def make_g(name):\n    g = Blueprint(name, __name__)\n\n    @g.get("/v")\n    def v():\n        return "v"\n\n    return g\n\n\n' +
+    'def make_k():\n    k = Blueprint("k", __name__)\n\n    @k.get("/u")\n    def u():\n        return "u"\n\n    return k\n\n\n' +
+    'def setup():\n    made = make_k()\n    return made\n\n\n' +
+    'def make_t():\n    return Blueprint("t", __name__, url_prefix="/t") if ON else Blueprint("t", __name__, url_prefix="/t2")\n\n\n' +
+    'def refuse():\n    if "user_id" not in session:\n        abort(401)\n\n\n' +
+    'def make_h(name):\n    h = Blueprint(name, __name__)\n    h.before_request(refuse)\n\n    @h.get("/hh")\n    def hh():\n        return "hh"\n\n    return h\n\n\n' +
+    'ON = False\napp = create_app()\nb1 = make_b("one")\nb2 = make_b("two")\nb1.before_request(refuse)\nc = make_c()\n\n\n' +
+    '@app.before_request\ndef gate():\n    if request.path in ("/one/x", "/two/y", "/z", "/g1/v", "/g2/v", "/k1/u", "/k2/u", "/h1/hh", "/h2/hh", "/h1/mine", "/t2/s", "/pl"):\n        return\n    if "user_id" not in session:\n        abort(401)\n\n\n' +
+    '@app.get("/direct")\ndef direct():\n    return "direct"\n\n\n@b1.get("/x")\ndef x():\n    return "x"\n\n\n' +
+    '@b2.get("/y")\ndef y():\n    return "y"\n\n\n@c.get("/z")\ndef z():\n    return "z"\n\n\n' +
+    'app.register_blueprint(b1, url_prefix="/one")\napp.register_blueprint(b2, url_prefix="/two")\n' +
+    'app.register_blueprint(c)\napp.register_blueprint(c, name="c2", url_prefix="/c2")\napp.register_blueprint(make_e(), url_prefix="/e")\n' +
+    'made = []\nfor n in ("g1", "g2"):\n    last = make_g(n)\n    made.append(last)\nlast.before_request(refuse)\n' +
+    'for each in made:\n    app.register_blueprint(each, url_prefix="/" + each.name)\n' +
+    'first = setup()\nsecond = setup()\nfirst.before_request(refuse)\n' +
+    'h1 = make_h("h1")\nh2 = make_h("h2")\nt = make_t()\nplain = Blueprint("plain", __name__)\nalias = plain\nalias.before_request(refuse)\n\n\n' +
+    '@t.get("/s")\ndef s():\n    return "s"\n\n\n@plain.get("/pl")\ndef pl():\n    return "pl"\n\n\n@h1.get("/mine")\ndef mine():\n    return "mine"\n\n\n' +
+    'app.register_blueprint(h1, url_prefix="/h1")\napp.register_blueprint(h2, url_prefix="/h2")\napp.register_blueprint(t)\napp.register_blueprint(plain)\n' +
+    'app.register_blueprint(first, url_prefix="/k1", name="k1")\napp.register_blueprint(second, url_prefix="/k2", name="k2")\n';
+  const report = run({ "app.py": app }, checkAuthentication);
+  const gate = `a before_request hook (app.py:${lineOf(app, "@app.before_request")})`;
+  const refuse = `a before_request hook (app.py:${lineOf(app, "def refuse")})`;
+  // Checked in Flask 3.1.3 with its test client and no session: /two/y, /g1/v, /k2/u and /t2/s answer 200,
+  // the app's hook letting them through and `refuse` not on their blueprints; every other route refuses.
+  assert.deepEqual(verdicts(report), {
+    "GET /direct": gate, // on the app create_app() returns
+    "GET /x": refuse, // "/one/x", let through by the app's hook
+    "GET /y": null, // b2 is not b1
+    "GET /z": gate, // "/c/z" and "/c2/z", the prefix make_c()'s Blueprint gives, and not "/z"
+    "GET /w": gate, // "/e/w", registered as make_e() returns it
+    "GET /v": null, // made in a loop: the hook is on the last one only
+    "GET /u": null, // make_k() runs once per call of setup(), which runs twice
+    "GET /hh": refuse, // put on the blueprint inside make_h(), so on both it makes
+    "GET /mine": refuse, // on h1, which make_h() put the hook on
+    "GET /s": null, // "/t/s" or "/t2/s": a conditional expression is not followed
+    "GET /pl": refuse, // put on `alias`, which is `plain`
   });
 });
 

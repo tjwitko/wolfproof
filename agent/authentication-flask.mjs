@@ -228,15 +228,18 @@ function hooksIn(texts, rels) {
       // instead, `def never_called(app): @app.before_request` beside `app = Flask(...)` credited the
       // module's app with a hook that is never installed. A hook whose target is not traced to an app or
       // a blueprint protects nothing; one installed on several is a hook on each.
-      const targets = (sourcesOf(h.receiver, files[i], h.index, files) || []).flatMap((src) => madeBy(resolve(src.expr, src.file, files), files) || []);
-      for (const target of targets) {
+      const targets = (sourcesOf(h.receiver, files[i], h.index, files) || []).flatMap((src) => {
+        const via = resolve(src.expr, src.file, files);
+        return (madeBy(via, files) || []).map((target) => ({ target, via }));
+      });
+      for (const { target, via } of targets) {
         const call = callOf(target, [...classes.keys()].join("|"));
         const kind = call && classes.get(call.callee);
         if (!kind) continue;
         // An app's hook, and a blueprint's before_app_request, run for the routes under the app's own
         // directory -- the directory of the file the app is made in, not the hook's.
-        if (h.kind === "before_app_request" || kind === "Flask") hooks.push({ ...h, ...credit, ...own, scope: "app", appRel: target.file.rel, on: target });
-        else hooks.push({ ...h, ...credit, ...own, scope: "blueprint", blueprint: target });
+        if (h.kind === "before_app_request" || kind === "Flask") hooks.push({ ...h, ...credit, ...own, scope: "app", appRel: target.file.rel, on: target, via });
+        else hooks.push({ ...h, ...credit, ...own, scope: "blueprint", blueprint: target, via });
       }
     }
   });
@@ -362,6 +365,7 @@ export function argsAt(text, open) {
 // The call a name is assigned from, when it is one of `callees`: `bp = Blueprint(...)`.
 function callOf(def, callees) {
   if (!def) return null;
+  if (def.call) return new RegExp(`^(?:${callees})$`).test(def.call.callee) ? def.call : null;
   const m = new RegExp(`^[ \\t]*${def.name}\\s*=(?!=)\\s*(?:\\w+\\s*\\.\\s*)?(${callees})\\s*\\(`, "m").exec(def.file.text);
   return m ? { callee: m[1], args: argsAt(def.file.text, m.index + m[0].length - 1) } : null;
 }
@@ -618,8 +622,24 @@ function elementsOf(expr, file, index, files) {
 
 // The app or blueprint a name stands for: the `Flask(...)` or `Blueprint(...)` call it is assigned, or
 // what it is assigned followed back as far as such a call -- for `app = create_app()`, each `return`
-// of the project's function; for `alias = admin`, admin. Without it a hook on `app` imported from wsgi.py protected nothing and a blueprint made
-// by a factory had no prefix. A `return None` gives nothing; anything else not traced makes it null.
+// of the project's function; for `alias = admin`, admin. Without it a hook on `app` imported from
+// wsgi.py protected nothing and a blueprint made by a factory had no prefix. A `return None` gives
+// nothing; anything else not traced makes it null.
+//
+// A call written where the value is, `return Blueprint("api", __name__)`, has no name, so it is known
+// by where it is written. It was not known at all, and neither was what such a factory made.
+function constructedAt(src, files) {
+  const e = src.expr.trim();
+  const m = new RegExp(`^(?:\\w+\\s*\\.\\s*)?(${[...flaskClasses(files).keys()].join("|")})\\s*\\(`).exec(e);
+  const args = m && argsAt(e, m[0].length - 1);
+  if (!args || args.end !== e.length - 1) return null;
+  return { name: `${m[1]}@${src.index}`, file: src.file, at: src.index, call: { callee: m[1], args } };
+}
+function madeOf(src, files, seen) {
+  if (src.expr.trim() === "None") return [];
+  const made = constructedAt(src, files);
+  return made ? [made] : madeBy(resolve(src.expr, src.file, files), files, seen);
+}
 const madeCache = new WeakMap();
 function madeBy(def, files, seen = new Set()) {
   if (!def) return null;
@@ -637,8 +657,7 @@ function madeBy(def, files, seen = new Set()) {
       if (sources) {
         out = [];
         for (const src of sources) {
-          if (src.expr.trim() === "None") continue;
-          const made = madeBy(resolve(src.expr, src.file, files), files, new Set(seen).add(key));
+          const made = madeOf(src, files, new Set(seen).add(key));
           if (!made) {
             out = null;
             break;
@@ -652,6 +671,33 @@ function madeBy(def, files, seen = new Set()) {
   return out;
 }
 const sameMade = (def, target, files) => madeBy(def, files)?.some((m) => same(m, target)) ?? false;
+
+// Does the code at this point run once? Not inside a loop, and inside functions each called from one
+// place that runs once. A factory called twice makes two blueprints, and a hook put on one of them
+// (`b1.before_request(...)`) is not on the other: read as one, `b2`'s routes were credited with it.
+function runsOnce(file, index, files, depth = 0) {
+  if (depth > 4) return false;
+  const scopes = scopesAt(file, index);
+  if (scopes.some((s) => s.loop)) return false;
+  const defs = scopes.filter((s) => s.def);
+  if (!defs.length) return true;
+  // A factory is a top-level function (functionOf), so its body is one def deep.
+  const calls = callsOf(defs[0].def, files);
+  if (calls?.length !== 1) return false;
+  return runsOnce(calls[0].file, calls[0].index, files, depth + 1);
+}
+function madeOnce(made, files) {
+  const at = made.at ?? logicalLines(made.file).find((l) => new RegExp(`^[ \\t]*${made.name}\\s*=(?!=)`).test(l.text))?.start;
+  return at !== undefined && runsOnce(made.file, at, files);
+}
+
+// Is a route declared on `routeDef` on the object a hook was put on? The hook was put on `via`, which
+// is `target` once followed back. A hook put on the name the factory itself makes runs on everything
+// the factory makes; one put on a name a call of it was assigned only on that, unless it runs once.
+function onHooked(routeDef, target, via, files) {
+  if (!sameMade(routeDef, target, files)) return false;
+  return same(via, target) || same(routeDef, via) || madeOnce(target, files);
+}
 
 // The url_prefix each registration gives an app's or blueprint's routes: [null] for an app, one per
 // `register_blueprint` call for a blueprint. The blueprint registered, and what it is registered on,
@@ -977,10 +1023,10 @@ function reaches(hook, route, serving, files) {
     const dir = path.posix.dirname(hook.appRel);
     if (route.rel.startsWith(dir === "." ? "" : `${dir}/`)) return true;
     // A route declared on what the hook is on, wherever it is: `app = create_app()` in wsgi.py.
-    return sameMade(resolve(route.receiver, files.find((f) => f.rel === route.rel && f.text === route.text), files), hook.on, files);
+    return onHooked(resolve(route.receiver, files.find((f) => f.rel === route.rel && f.text === route.text), files), hook.on, hook.via, files);
   }
   if (serving.restx) return same(serving.blueprint, hook.blueprint);
-  return sameMade(resolve(route.receiver, files.find((f) => f.rel === route.rel && f.text === route.text), files), hook.blueprint, files);
+  return onHooked(resolve(route.receiver, files.find((f) => f.rel === route.rel && f.text === route.text), files), hook.blueprint, hook.via, files);
 }
 
 /** What protects a Flask route from outside its body, or null. */

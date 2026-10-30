@@ -102,8 +102,13 @@ written out, and a call of the project's own function to what that function retu
 assigned what a project function returns (`app = create_app()`, `admin = make_admin()`) or another
 name (`staff = admin`) is the app or blueprint that function makes, so a route or hook on the `app`
 of a `wsgi.py` belongs to the app made in `create_app`, and a factory's blueprint has the prefix it is
-registered with. A factory with a `return` not traced to such a name is not known, and neither is
-one returning `Blueprint(...)` directly. A rule
+registered with; a factory that returns `Blueprint(...)` or `Flask(...)` directly is read the same
+way. A factory with a `return` not traced to one of these, a conditional expression among them, is not
+known. Each call of a factory makes its own app or blueprint: a hook put on what one call returned
+(`b1.before_request(...)`) reaches the routes declared on that name, and those declared inside the
+factory or on another of its results only where the factory runs once — one call, not in a loop,
+from code that itself runs once. A hook put on the blueprint inside the factory is on every one it
+makes. A rule
 written as a call of the project's own function (`@routes.route(org_scoped_rule("/login"))`) is read
 the same way, its arguments bound to the function's parameters and each `return` read, every branch
 alike, so redash's is both "/login" and "/<org_slug>/login"; string literals, f-strings, `+` and

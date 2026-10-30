@@ -1817,9 +1817,36 @@ earlier code leaves 6 of them open that Flask refuses (`/direct`, `/home`, `/adm
 `/admin/staff`, `/x/thing`, `/api/items`). 12 parts switched off, each fails the test.
 Timing unchanged on redash, CTFd and microblog.
 
+A factory returning `Blueprint(...)` or `Flask(...)` directly was not followed, fixed after v1.13.0,
+and fixing it found a false credit in the factory reading just above. The call written in place has
+no name, so it is now known by the file and line it is written on. And two calls of one factory make
+two objects, which the factory reading took as one: with `b1 = make_b()`, `b2 = make_b()` and
+`b1.before_request(refuse)`, `b2`'s routes were credited with the hook, which Flask serves to anyone.
+A hook put on the name one call was assigned now reaches the routes declared on that name, and others
+of the factory's only where the factory runs once: one call site, not inside a loop, in code that
+itself runs once, followed up through the functions calling it. A hook put inside the factory, on
+the name it builds, is on everything it makes. Two checks written first changed no outcome and were
+taken out: a guard for factories nested in functions, which are never followed (functionOf takes
+top-level functions only), and following a constructor written inside `register_blueprint(...)`,
+which cannot carry a declared route.
+
+Measured: all 64 directories unchanged, the CTFd and microblog probes among them, and every full
+path on the Flask applications and on c1 to c9 and c11 unchanged; no calibration app returns its app
+or blueprint inline or calls a blueprint factory twice. The test's app, run in Flask 3.1.3's test
+client without a session, answers each of its 15 URLs as the test expects; the earlier code credits 4
+of its routes Flask serves to anyone (`/two/y`, `/g1/v`, `/k2/u`, and `/o` on a second
+`create_app()` in cli.py) and leaves 3 open that Flask refuses (`/direct`, `/e/w`, `/c/z`). 14 parts
+switched off, each fails a test. Timing unchanged.
+
+Not handled, by choice: a hook on one module's `app = create_app()` is credited on the routes the
+factory declares, though another module serving its own `create_app()` without the hook serves them
+open. In the test, cli.py's app answers 200 on `/home`. A project's other calls of its factory are
+usually a worker, a CLI or tests, and treating each as a server would leave every factory app's hook
+uncredited.
+
 **Still open:** a flask-restx `Api` mounted on a parameter is not followed back as a hook's target is,
-so a blueprint hook does not reach its routes; a factory returning `Blueprint(...)` or `Flask(...)`
-directly rather than through a name; a rule built from a module attribute or
+so a blueprint hook does not reach its routes; a factory returning a conditional expression
+(`Blueprint(...) if ON else Blueprint(...)`); a rule built from a module attribute or
 anything else not listed above (`settings.PREFIX + "/x"`), whose full path stays unknown;
 `LOGIN_DISABLED` switches Flask-Login's decorator
 off and is not read; a class route's methods, which would each need judging; a decorator or hook

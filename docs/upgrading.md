@@ -177,8 +177,11 @@ of one now matches nothing and is reported as doing nothing: delete it.
 
 **After v1.13.0: an app or blueprint made by a factory is known.** A hook on `app = create_app()`
 imported from wsgi.py now protects that app's routes, a route declared there has a full path, and a
-blueprint assigned from a factory (`admin = make_admin()`) has the prefix it is registered with. A
-route open before can now pass; none that passed before is reported open by this.
+blueprint assigned from a factory (`admin = make_admin()`) has the prefix it is registered with, as
+does a factory returning `Blueprint(...)` or `Flask(...)` directly. A route open before can now pass.
+Each call of a factory makes its own blueprint: a hook put on one call's result (`b1 = make_b()`)
+protects the routes declared on that name, not those of `b2 = make_b()`, and those declared inside the
+factory only when it runs once.
 
 **After v1.13.0: a Flask hook installed by a function counts, and one never installed does not.** A
 `before_request` hook inside `def init_app(app)`, or added with `target.before_request(check)`, now
