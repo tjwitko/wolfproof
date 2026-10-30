@@ -81,8 +81,13 @@ the route decorator protects nothing, because Flask registers the function befor
 neither does `optional=True`. A `before_request` hook that refuses protects the routes it runs for:
 the app's hook every route under the directory of the file the app is made in, a blueprint's
 `before_app_request` likewise, a blueprint's own hook its own routes and those of a
-flask-restx `Api` mounted on it (`Api(bp)`, `Api(app=bp)`, `api.init_app(bp)`), followed through
-`api.add_namespace(ns)` or `api.namespace(...)` and the imports between modules. A route the hook
+flask-restx `Api` mounted on it (`Api(bp)`, `Api(app=bp)`, `api.init_app(bp)` in any file), followed
+through `api.add_namespace(ns)` or `api.namespace(...)` and the imports between modules. What an Api
+is mounted on is followed back as a registration's target is, so `def mount(target): Api(target)`
+is mounted on what each call passes, and a route served through several mounts is protected only
+where each is. A name is the one Python reads where it is used: a function's own assignment of it,
+else an enclosing function's, else the module's (or one declared `global`), not the first assignment
+of that name anywhere in the file. A route the hook
 lets through by `request.endpoint` or `request.path` stays open; a hook that lets requests through on
 any other condition protects nothing. What a hook is installed on is followed back as a
 registration's target is (below), so a hook in `def init_app(app): @app.before_request`, or

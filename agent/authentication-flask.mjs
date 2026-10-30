@@ -229,7 +229,7 @@ function hooksIn(texts, rels) {
       // module's app with a hook that is never installed. A hook whose target is not traced to an app or
       // a blueprint protects nothing; one installed on several is a hook on each.
       const targets = (sourcesOf(h.receiver, files[i], h.index, files) || []).flatMap((src) => {
-        const via = resolve(src.expr, src.file, files);
+        const via = resolve(src.expr, src.file, files, src.index);
         return (madeBy(via, files) || []).map((target) => ({ target, via }));
       });
       for (const { target, via } of targets) {
@@ -366,8 +366,9 @@ export function argsAt(text, open) {
 function callOf(def, callees) {
   if (!def) return null;
   if (def.call) return new RegExp(`^(?:${callees})$`).test(def.call.callee) ? def.call : null;
-  const m = new RegExp(`^[ \\t]*${def.name}\\s*=(?!=)\\s*(?:\\w+\\s*\\.\\s*)?(${callees})\\s*\\(`, "m").exec(def.file.text);
-  return m ? { callee: m[1], args: argsAt(def.file.text, m.index + m[0].length - 1) } : null;
+  const value = assigned(def);
+  const m = new RegExp(`^(?:\\w+\\s*\\.\\s*)?(${callees})\\s*\\(`).exec(value);
+  return m ? { callee: m[1], args: argsAt(value, m[0].length - 1) } : null;
 }
 
 // The module a name stands for: `from . import auth`, `from app import views as v`, `import app.views as v`.
@@ -387,10 +388,10 @@ function moduleOf(alias, file, files) {
 }
 
 // Where `bp` or `auth.bp` is assigned, from the file that uses it.
-function resolve(expr, file, files) {
+function resolve(expr, file, files, index) {
   const m = /^(\w+)(?:\s*\.\s*(\w+))?$/.exec(expr.trim());
   if (!m) return null;
-  if (!m[2]) return definition(m[1], file, files);
+  if (!m[2]) return definition(m[1], file, files, 0, index);
   const mod = moduleOf(m[1], file, files);
   return mod ? definition(m[2], mod, files) : null;
 }
@@ -636,11 +637,10 @@ function elementsOf(expr, file, index, files) {
   let e = expr.trim();
   let at = { file, index };
   if (/^\w+$/.test(e)) {
-    const def = definition(e, file, files);
-    const line = def && logicalLines(def.file).find((l) => new RegExp(`^[ \\t]*${e}\\s*=(?!=)`).test(l.text));
-    if (!line) return null;
-    e = line.text.replace(/^[^=]*=\s*/, "").replace(/#[^\n]*$/, "").trim();
-    at = { file: def.file, index: line.start };
+    const def = definition(e, file, files, 0, index);
+    if (!def) return null;
+    e = assigned(def);
+    at = { file: def.file, index: def.at };
   }
   const parts = /^[[(]/.test(e) ? partsAt(e, 0) : null;
   if (parts?.end !== e.length - 1) return null;
@@ -666,12 +666,12 @@ function constructedAt(src, files) {
 function madeOf(src, files, seen) {
   if (src.expr.trim() === "None") return [];
   const made = constructedAt(src, files);
-  return made ? [made] : madeBy(resolve(src.expr, src.file, files), files, seen);
+  return made ? [made] : madeBy(resolve(src.expr, src.file, files, src.index), files, seen);
 }
 const madeCache = new WeakMap();
 function madeBy(def, files, seen = new Set()) {
   if (!def) return null;
-  const key = `${def.file.rel}\0${def.name}`;
+  const key = `${def.file.rel}\0${def.name}\0${def.at}`;
   if (!madeCache.has(files)) madeCache.set(files, new Map());
   const cache = madeCache.get(files);
   if (seen.size === 0 && cache.has(key)) return cache.get(key);
@@ -679,9 +679,8 @@ function madeBy(def, files, seen = new Set()) {
   if (!seen.has(key)) {
     if (callOf(def, [...flaskClasses(files).keys()].join("|"))) out = [def];
     else {
-      const line = logicalLines(def.file).find((l) => new RegExp(`^[ \\t]*${def.name}\\s*=(?!=)`).test(l.text));
-      const value = line && line.text.replace(/^[^=]*=\s*/, "").replace(/#[^\n]*$/, "").trim();
-      const sources = value ? sourcesOf(value, def.file, line.start, files) : null;
+      const value = assigned(def);
+      const sources = value ? sourcesOf(value, def.file, def.at, files) : null;
       if (sources) {
         out = [];
         for (const src of sources) {
@@ -715,8 +714,7 @@ function runsOnce(file, index, files, depth = 0) {
   return runsOnce(calls[0].file, calls[0].index, files, depth + 1);
 }
 function madeOnce(made, files) {
-  const at = made.at ?? logicalLines(made.file).find((l) => new RegExp(`^[ \\t]*${made.name}\\s*=(?!=)`).test(l.text))?.start;
-  return at !== undefined && runsOnce(made.file, at, files);
+  return made.at !== undefined && runsOnce(made.file, made.at, files);
 }
 
 // Is a route declared on `routeDef` on the object a hook was put on? The hook was put on `via`, which
@@ -738,7 +736,7 @@ function prefixesOf(def, files, depth = 0) {
   if (depth === 0) {
     if (!prefixCache.has(files)) prefixCache.set(files, new Map());
     const cache = prefixCache.get(files);
-    const key = `${def.file.rel}\0${def.name}`;
+    const key = `${def.file.rel}\0${def.name}\0${def.at}`;
     if (!cache.has(key)) cache.set(key, prefixesOf(def, files, 1));
     return cache.get(key);
   }
@@ -767,7 +765,7 @@ function prefixesOf(def, files, depth = 0) {
     for (const m of f.text.matchAll(/^[ \t]*([\w.]+?)\s*\.\s*register_blueprint\s*\(/gm)) {
       const args = argsAt(f.text, m.index + m[0].length - 1);
       const first = args && (args.keywords.blueprint ?? args.positional[0]);
-      const registered = first && sourcesOf(first, f, m.index, files)?.filter((s) => sameMade(resolve(s.expr, s.file, files), def, files));
+      const registered = first && sourcesOf(first, f, m.index, files)?.filter((s) => sameMade(resolve(s.expr, s.file, files, s.index), def, files));
       if (!registered?.length) continue;
       const given = args.spread ? UNREAD : literal(args.keywords.url_prefix);
       if (given === UNREAD) return null;
@@ -776,7 +774,7 @@ function prefixesOf(def, files, depth = 0) {
         const owners = sourcesOf(m[1], f, m.index, files, 0, r.pin);
         if (!owners) return null;
         for (const o of owners) {
-          const parents = prefixesOf(resolve(o.expr, o.file, files), files, depth + 1);
+          const parents = prefixesOf(resolve(o.expr, o.file, files, o.index), files, depth + 1);
           if (!parents) return null;
           for (const s of parents) out.push(s != null && prefix != null ? `${s.replace(/\/+$/, "")}/${prefix.replace(/^\/+/, "")}` : prefix ?? s);
         }
@@ -924,12 +922,15 @@ function rulesOf(route, file, files) {
   return route.ruleExpr === undefined ? [route.route] : file ? ruleValues(route.ruleExpr, new Map(), file, files) : null;
 }
 
+// Where a route's decorator is in its file, for reading its receiver as Python does there.
+const routeAt = (route) => route.text.split("\n").slice(0, route.line - 1).reduce((n, l) => n + l.length + 1, 0);
+
 const joinRule = (prefix, rule) => (prefix == null ? rule : rule ? `${prefix.replace(/\/+$/, "")}/${rule.replace(/^\/+/, "")}` : prefix);
 
 /** The full paths of a route declared on an app or a blueprint, or null. */
 function routePaths(route, file, files) {
   const rules = rulesOf(route, file, files);
-  const prefixes = rules && file && prefixesOf(resolve(route.receiver, file, files), files);
+  const prefixes = rules && file && prefixesOf(resolve(route.receiver, file, files, routeAt(route)), files);
   return prefixes ? [...new Set(prefixes.flatMap((p) => rules.map((r) => joinRule(p, r))))] : null;
 }
 
@@ -966,9 +967,32 @@ function moduleFile(module, file, files) {
 
 // Where a name used in a file is assigned: in that file, or in the module it is imported from
 // (`from .api import ns`, `from app.api import ns as things`, `from . import api` in a package).
-function definition(name, file, files, depth = 0) {
+//
+// In the file, as Python reads the name at `index`: the assignment in the innermost function around
+// that point that makes one, else the module's own (or a function's that declares the name global).
+// The first assignment anywhere in the file was taken instead, so two functions that each make a
+// local `api = Api(bp)` were one Api, and one mounted on an open blueprint was credited with the other
+// one's hook. A definition records where it is (`at`), and two are the same only at the same place.
+function definition(name, file, files, depth = 0, index) {
   if (depth > 3) return null;
-  if (new RegExp(`^[ \\t]*${name}\\s*=(?!=)`, "m").test(file.text)) return { name, file };
+  const re = new RegExp(`^[ \\t]*${name}\\s*=(?!=)`);
+  const lines = logicalLines(file).filter((l) => re.test(l.text));
+  if (lines.length) {
+    const defsAt = (at) => scopesAt(file, at).filter((s) => s.def || s.cls);
+    const global = new RegExp(`^[ \\t]*global\\s[^\\n]*\\b${name}\\b`, "m");
+    const own = (l) => {
+      const scope = defsAt(l.start)[0];
+      if (!scope) return null;
+      if (scope.cls) return "class";
+      const body = logicalLines(file).filter((x) => x.start > scope.def.at && defsAt(x.start)[0]?.def?.at === scope.def.at);
+      return body.some((x) => global.test(x.text)) ? null : scope.def.at;
+    };
+    const chain = index === undefined ? [] : defsAt(index).filter((s) => s.def).map((s) => s.def.at);
+    for (const at of [...chain, null]) {
+      const found = lines.find((l) => own(l) === at);
+      if (found) return { name, file, at: found.start };
+    }
+  }
   for (const m of file.text.matchAll(/^[ \t]*from\s+([\w.]*)\s+import\s+(\([^)]*\)|[^\n]+)/gm)) {
     for (const part of m[2].replace(/#[^\n]*/g, "").replace(/[()\n]/g, " ").split(",")) {
       const [orig, alias] = part.trim().split(/\s+as\s+/);
@@ -979,8 +1003,9 @@ function definition(name, file, files, depth = 0) {
   }
   return null;
 }
-const same = (a, b) => a && b && a.name === b.name && a.file === b.file;
-const assigned = (def) => (new RegExp(`^[ \\t]*${def.name}\\s*=(?!=)\\s*([^\\n]*)`, "m").exec(def.file.text) || [])[1] || "";
+const same = (a, b) => a && b && a.name === b.name && a.file === b.file && a.at === b.at;
+// What a definition is assigned: the rest of its own line, comments and all brackets included.
+const assigned = (def) => (def?.at === undefined ? "" : (lineAt(def.file, def.at)?.text || "").replace(/^[^=]*=\s*/, "").replace(/#[^\n]*$/, "").trim());
 
 const projectFiles = new WeakMap();
 function filesOf(texts, rels) {
@@ -998,55 +1023,83 @@ function nsPathOf(args) {
   return typeof name === "string" ? `/${name}`.replace(/\/+$/, "") : UNREAD;
 }
 
-// One Api a flask-restx route is served through: the blueprint it is mounted on, and the route's
-// full paths there. Each Api mounted elsewhere is served separately and has to be protected too.
-function mountOf(api, nsPath, route, files) {
-  if (!api) return { restx: true, blueprint: null, paths: null };
+// The Apis a flask-restx route is served through: one for each blueprint the Api is mounted on, with
+// the route's full paths there. Each must be protected. What the Api is mounted on (`Api(bp)`,
+// `Api(app=bp)`, `api.init_app(bp)` in any file) is followed back from where it is written, as a
+// registration's target is: read by name in the Api's file instead, `def mount(bp): Api(bp)` called
+// with another blueprint took the module's `bp`, and credited that blueprint's hook on routes Flask
+// serves to anyone.
+function mountsOf(api, nsPath, route, files) {
+  const unknown = [{ restx: true, blueprint: null, paths: null }];
+  if (!api) return unknown;
   const call = callOf(api, "Api");
-  let target = call?.args && !call.args.spread ? call.args.keywords.app ?? call.args.positional[0] : undefined;
-  if (target === undefined || target === "None") {
-    const m = new RegExp(`^[ \\t]*${api.name}\\s*\\.\\s*init_app\\s*\\(`, "m").exec(api.file.text);
-    const args = m && argsAt(api.file.text, m.index + m[0].length - 1);
-    target = args ? args.keywords.app ?? args.positional[0] : undefined;
+  const targets = [];
+  const given = call?.args && !call.args.spread ? call.args.keywords.app ?? call.args.positional[0] : undefined;
+  if (given !== undefined && given !== "None") targets.push({ expr: given, file: api.file, index: api.at });
+  else {
+    for (const f of files) {
+      for (const m of f.text.matchAll(/^[ \t]*([\w.]+?)\s*\.\s*init_app\s*\(/gm)) {
+        if (!same(resolve(m[1], f, files, m.index), api)) continue;
+        const args = argsAt(f.text, m.index + m[0].length - 1);
+        const t = args && !args.spread ? args.keywords.app ?? args.positional[0] : undefined;
+        if (t === undefined) return unknown;
+        targets.push({ expr: t, file: f, index: m.index });
+      }
+    }
   }
-  const made = target ? madeBy(resolve(target, api.file, files), files) : null;
-  const blueprint = made?.length === 1 ? made[0] : null;
-  const prefixes = prefixesOf(blueprint, files);
+  if (!targets.length) return unknown;
   const apiPrefix = !call?.args || call.args.spread ? UNREAD : literal(call.args.keywords.prefix) ?? "";
-  let paths = null;
   const rules = rulesOf(route, files.find((f) => f.rel === route.rel && f.text === route.text), files);
-  if (prefixes && rules && apiPrefix !== UNREAD && nsPath !== UNREAD) {
-    // A resource added after the blueprint is registered skips the Api's prefix.
-    paths = [...new Set(rules.flatMap((rule) => prefixes.flatMap((p) => [(p || "") + apiPrefix + nsPath + rule, ...(p && apiPrefix ? [p + nsPath + rule] : [])])))];
+  const out = [];
+  for (const t of targets) {
+    const sources = sourcesOf(t.expr, t.file, t.index, files);
+    if (!sources) return unknown;
+    for (const src of sources) {
+      const via = resolve(src.expr, src.file, files, src.index);
+      const made = madeBy(via, files);
+      if (!made?.length) {
+        out.push(...unknown);
+        continue;
+      }
+      for (const blueprint of made) {
+        const prefixes = prefixesOf(blueprint, files);
+        let paths = null;
+        if (prefixes && rules && apiPrefix !== UNREAD && nsPath !== UNREAD) {
+          // A resource added after the blueprint is registered skips the Api's prefix.
+          paths = [...new Set(rules.flatMap((rule) => prefixes.flatMap((p) => [(p || "") + apiPrefix + nsPath + rule, ...(p && apiPrefix ? [p + nsPath + rule] : [])])))];
+        }
+        out.push({ restx: true, blueprint, via, paths });
+      }
+    }
   }
-  return { restx: true, blueprint, paths };
+  return out;
 }
 
-/** For a flask-restx route, each Api it is served through (see mountOf); null for any other route. */
+/** For a flask-restx route, each Api it is served through (see mountsOf); null for any other route. */
 function restxOf(route, texts, rels) {
   const files = filesOf(texts, rels);
   const file = files.find((f) => f.rel === route.rel && f.text === route.text);
   if (!file) return null;
-  const receiver = definition(route.receiver, file, files);
+  const receiver = definition(route.receiver, file, files, 0, routeAt(route));
   if (!receiver) return null;
   const value = assigned(receiver);
   const apis = [];
   let m;
   if (/^(?:flask_restx\s*\.\s*)?Api\s*\(/.test(value)) apis.push({ api: receiver, nsPath: "" });
-  else if ((m = /^(\w+)\s*\.\s*namespace\s*\(/.exec(value))) apis.push({ api: definition(m[1], receiver.file, files), nsPath: nsPathOf(callOf(receiver, "namespace")?.args) });
+  else if ((m = /^(\w+)\s*\.\s*namespace\s*\(/.exec(value))) apis.push({ api: definition(m[1], receiver.file, files, 0, receiver.at), nsPath: nsPathOf(callOf(receiver, "namespace")?.args) });
   else if (/^(?:flask_restx\s*\.\s*)?Namespace\s*\(/.test(value)) {
     const own = nsPathOf(callOf(receiver, "Namespace")?.args);
     for (const f of files) {
       for (const c of f.text.matchAll(/^[ \t]*([\w.]+?)\s*\.\s*add_namespace\s*\(/gm)) {
         const args = argsAt(f.text, c.index + c[0].length - 1);
         const first = args && (args.keywords.ns ?? args.positional[0]);
-        if (!first || !same(resolve(first, f, files), receiver)) continue;
+        if (!first || !same(resolve(first, f, files, c.index), receiver)) continue;
         const given = args.spread ? UNREAD : literal(args.keywords.path ?? args.positional[1]);
-        apis.push({ api: resolve(c[1], f, files), nsPath: given === UNREAD ? UNREAD : given || own });
+        apis.push({ api: resolve(c[1], f, files, c.index), nsPath: given === UNREAD ? UNREAD : given || own });
       }
     }
   } else return null;
-  return apis.length ? apis.map(({ api, nsPath }) => mountOf(api, nsPath, route, files)) : [{ restx: true, blueprint: null, paths: null }];
+  return apis.length ? apis.flatMap(({ api, nsPath }) => mountsOf(api, nsPath, route, files)) : [{ restx: true, blueprint: null, paths: null }];
 }
 
 // Does the hook run for the route? An app's hook for the routes under the app's directory; a
@@ -1056,10 +1109,10 @@ function reaches(hook, route, serving, files) {
     const dir = path.posix.dirname(hook.appRel);
     if (route.rel.startsWith(dir === "." ? "" : `${dir}/`)) return true;
     // A route declared on what the hook is on, wherever it is: `app = create_app()` in wsgi.py.
-    return onHooked(resolve(route.receiver, files.find((f) => f.rel === route.rel && f.text === route.text), files), hook.on, hook.via, files);
+    return onHooked(resolve(route.receiver, files.find((f) => f.rel === route.rel && f.text === route.text), files, routeAt(route)), hook.on, hook.via, files);
   }
-  if (serving.restx) return same(serving.blueprint, hook.blueprint);
-  return onHooked(resolve(route.receiver, files.find((f) => f.rel === route.rel && f.text === route.text), files), hook.blueprint, hook.via, files);
+  if (serving.restx) return !!serving.via && onHooked(serving.via, hook.blueprint, hook.via, files);
+  return onHooked(resolve(route.receiver, files.find((f) => f.rel === route.rel && f.text === route.text), files, routeAt(route)), hook.blueprint, hook.via, files);
 }
 
 /** What protects a Flask route from outside its body, or null. */

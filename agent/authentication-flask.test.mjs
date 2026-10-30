@@ -778,6 +778,84 @@ test("a factory returning the app or blueprint it makes is followed, and each ca
   });
 });
 
+// An Api mounted on a parameter (`def mount(target): Api(target)`) or by `api.init_app(bp)` in another
+// file had no blueprint, so a blueprint's hook did not reach its routes; and one whose parameter
+// shadowed a module-level blueprint was credited with that blueprint's hook.
+test("an Api is mounted on what its call is given, followed back, in any file", () => {
+  const resource = (ns, path, cls) => `\n\n@${ns}.route("${path}")\nclass ${cls}(Resource):\n    def get(self):\n        return []\n`;
+  const mounter = (fn, ns) => `\n\ndef ${fn}(target):\n    made = Api(target, doc=False)\n    made.add_namespace(${ns})\n`;
+  const files = {
+    "svc/__init__.py": "",
+    "svc/api.py": 'from flask_restx import Api, Namespace, Resource\n\napi = Api(None, doc=False)\nns = Namespace("items")\n' + resource("ns", "/list", "Items") + "\n\napi.add_namespace(ns)\n",
+    "svc/admin.py":
+      'from flask import Blueprint\nfrom flask_restx import Api\n\napi = Api(doc=False)\nopen_bp = Blueprint("open", __name__, url_prefix="/open")\napi.init_app(open_bp)\n',
+    "svc/extra.py":
+      "import flask\nfrom flask_restx import Api, Namespace, Resource\n\n" +
+      'ns2 = Namespace("more")\nns3 = Namespace("many")\nns4 = Namespace("odd")\nns5 = Namespace("pair")\n' +
+      resource("ns2", "/all", "More") + resource("ns3", "/many", "Many") + resource("ns4", "/odd", "Odd") + resource("ns5", "/pair", "Pair") +
+      mounter("mount", "ns2") + mounter("mount_many", "ns3") + mounter("mount_odd", "ns4") +
+      '\n\ndef unknown_blueprint():\n    return getattr(flask, "Blueprint")("ext", __name__, url_prefix="/ext")\n' +
+      '\n\ndef make_bp(name):\n    made = flask.Blueprint(name, __name__)\n    return made\n',
+    "svc/app.py":
+      "from flask import Blueprint, Flask, abort, session\nfrom flask_restx import Api\n\nfrom svc import admin\nfrom svc.api import api\n" +
+      "from svc.extra import make_bp, mount, mount_many, mount_odd, ns5, unknown_blueprint\n\n\n" +
+      'def refuse():\n    if "user_id" not in session:\n        abort(401)\n\n\n' +
+      'def create_app():\n    app = Flask(__name__)\n    bp = Blueprint("api", __name__, url_prefix="/api")\n    bp.before_request(refuse)\n' +
+      "    api.init_app(bp)\n    app.register_blueprint(bp)\n" +
+      '    g1 = Blueprint("g1", __name__, url_prefix="/g1")\n    g2 = Blueprint("g2", __name__, url_prefix="/g2")\n    g3 = Blueprint("g3", __name__, url_prefix="/g3")\n' +
+      '    for each in (g1, g2, g3):\n        each.before_request(refuse)\n    plain = Blueprint("plain", __name__, url_prefix="/p")\n    ext = unknown_blueprint()\n' +
+      "    mount(g1)\n    mount_many(g2)\n    mount_many(plain)\n    mount_odd(g3)\n    mount_odd(ext)\n" +
+      '    k1 = make_bp("k1")\n    k2 = make_bp("k2")\n    k2.before_request(refuse)\n    pair_api = Api(k1, doc=False)\n    pair_api.add_namespace(ns5)\n' +
+      '    for each in (g1, g2, g3, plain, ext, admin.open_bp):\n        app.register_blueprint(each)\n' +
+      '    app.register_blueprint(k1, url_prefix="/k1")\n    app.register_blueprint(k2, url_prefix="/k2")\n    return app\n\n\napp = create_app()\n',
+    "other/__init__.py": "",
+    "other/app.py":
+      "from flask import Blueprint, Flask, abort, session\nfrom flask_restx import Api, Namespace, Resource\n\n" +
+      'bp = Blueprint("guarded", __name__, url_prefix="/guarded")\nother = Blueprint("other", __name__, url_prefix="/other")\nns = Namespace("things")\n\n\n' +
+      '@bp.before_request\ndef require_login():\n    if "user_id" not in session:\n        abort(401)\n' + resource("ns", "/things", "Things") +
+      "\n\ndef mount(bp):\n    api = Api(bp, doc=False)\n    api.add_namespace(ns)\n\n\nmount(other)\napp = Flask(__name__)\napp.register_blueprint(bp)\napp.register_blueprint(other)\n",
+  };
+  const report = run(files, checkAuthentication);
+  const refuse = `a before_request hook (svc/app.py:${lineOf(files["svc/app.py"], "def refuse")})`;
+  // Checked in Flask 3.1.3 with its test client and no session: /api/items/list, /g1/more/all,
+  // /g2/many/many and /g3/odd/odd refuse; /p/many/many, /ext/odd/odd, /k1/pair/pair and
+  // /other/things/things answer 200.
+  assert.deepEqual(verdicts(report), {
+    "ROUTE /list": refuse, // api.init_app(bp) in create_app(), not admin.py's `api`
+    "ROUTE /all": refuse, // Api(target) inside mount(), called with g1
+    "ROUTE /many": null, // on g2, and on `plain`
+    "ROUTE /odd": null, // on g3, and on what unknown_blueprint() returns, not traced
+    "ROUTE /pair": null, // on k1; the hook is on k2, another call of make_bp()
+    "ROUTE /things": null, // mount(other): the parameter, not the module's guarded `bp`
+  });
+});
+
+// A name was the first assignment of it anywhere in its file. So a helper's local `app` was the
+// module's app, a class attribute could be, and a blueprint made under `global` in a function was not
+// the module's name it is.
+test("a name is the one Python reads where it is used", () => {
+  const app =
+    "from flask import Blueprint, Flask, abort, request, session\n\n\nclass Settings:\n    app = None\n\n\n" +
+    'def init():\n    global admin\n    admin = Blueprint("admin", __name__, url_prefix="/admin")\n\n\n' +
+    'def refuse():\n    if "user_id" not in session:\n        abort(401)\n\n\n' +
+    'def helper():\n    app = Blueprint("local", __name__)\n\n    def install():\n        app.before_request(refuse)\n\n    install()\n    return app\n\n\n' +
+    "app = Flask(__name__)\ninit()\nadmin.before_request(refuse)\nlocal_bp = helper()\n\n\n" +
+    '@app.before_request\ndef gate():\n    if request.path in ("/y", "/admin/x", "/l/z"):\n        return\n    if "user_id" not in session:\n        abort(401)\n\n\n' +
+    '@app.get("/w")\ndef w():\n    return "w"\n\n\n@app.get("/y")\ndef y():\n    return "y"\n\n\n' +
+    '@admin.get("/x")\ndef x():\n    return "x"\n\n\n@local_bp.get("/z")\ndef z():\n    return "z"\n\n\n' +
+    'app.register_blueprint(admin)\napp.register_blueprint(local_bp, url_prefix="/l")\n';
+  const report = run({ "app.py": app }, checkAuthentication);
+  const refuse = `a before_request hook (app.py:${lineOf(app, "def refuse")})`;
+  // Checked in Flask 3.1.3 with its test client and no session: /y answers 200; /w, /admin/x and /l/z
+  // refuse.
+  assert.deepEqual(verdicts(report), {
+    "GET /w": `a before_request hook (app.py:${lineOf(app, "@app.before_request")})`, // the module's app, not Settings.app
+    "GET /y": null, // `refuse` is put on helper()'s local `app`, not on this one
+    "GET /x": refuse, // `admin`, assigned in init() under `global`
+    "GET /z": refuse, // what helper() returns: its own `app`, which install() puts the hook on
+  });
+});
+
 test("a path rule reaches a route whose variables can take the path it names, and a rule whose values are not written out reaches every route", () => {
   const head = "from flask import Flask, abort, request, session\n\napp = Flask(__name__)\n";
   const get = (p) => `\n\n@app.get("${p}")\ndef v${p.replace(/\W/g, "")}():\n    return ""\n`;

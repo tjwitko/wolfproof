@@ -1864,8 +1864,38 @@ through) and reads `"/x9" + PREFIX` and `"/d1" if ... else PREFIX` as "/x9" and 
 rules test now also counts its routes, which caught a decorator read by both route patterns. Not
 done: an `or` (`existing or Blueprint(...)`), which is not a choice between two equals.
 
-**Still open:** a flask-restx `Api` mounted on a parameter is not followed back as a hook's target is,
-so a blueprint hook does not reach its routes; a rule built from a module attribute or
+A flask-restx `Api` mounted on a parameter was not followed, fixed after v1.13.0, and two false
+credits came out of it. `Api(bp)` and `api.init_app(bp)` were read by looking `bp` up by name in the
+Api's file, and `init_app` only there. So `def mount(target): Api(target)` had no blueprint, nor did
+`api.init_app(bp)` in `create_app`, and a blueprint hook did not reach the Api's routes. And with a
+module-level `bp` beside `def mount(bp): Api(bp)`, called with another blueprint, the module's
+`bp`'s hook was credited on routes Flask serves to anyone (checked, 200). What an Api is mounted on
+is now followed back from where it is written, with `init_app` found in any file and matched by
+what it is called on; each blueprint it can be is a mount, every one must be protected, and a hook
+reaches a mount by the same rule as a route, so a hook on one factory call's result does not reach
+an Api on another's.
+
+Writing the test found the larger defect underneath: a name was the first assignment of it anywhere
+in its file. Two functions in one file that each make a local `made` (or `api`, or `app`) were one
+object, so one function's Api took another's namespaces, and `def helper(): app = Blueprint(...);
+app.before_request(refuse)` credited `refuse` on the module's `app`'s routes, which Flask serves to
+anyone (checked, 200). A name is now resolved as Python resolves it where it is used: the innermost
+function that assigns it, then the enclosing ones, then the module, with a function that declares it
+`global` counted as the module's and a class body as its own scope. A definition records where it
+is, and two are the same only at the same place.
+
+Measured: 64 directories, all full paths and c1 to c9 unchanged except the module-level CTFd probe
+written for #27, whose hook used `app` at module level where only `create_app` assigns it. Python
+fails importing that file, and the reading now agrees: its 144 credits are gone. The realistic probe,
+with the hook inside `init_request_processors(app)`, is unchanged at 144 credited and 19 open. The
+two new tests' apps answer in Flask 3.1.3's test client as the tests expect, 8 Api routes and 4
+others; the code before this change leaves `/api/items/list` and `/g1/more/all` open, credits
+`/other/things/things`, `/k1/pair/pair` and `/y`, which Flask serves to anyone, and credits `/w` to
+the helper's hook rather than the app's. 8
+parts of the Api reading and 13 of the name reading switched off, each fails a test. Timing
+unchanged (CTFd probe 599 to 616 ms).
+
+**Still open:** a rule built from a module attribute or
 anything else not listed above (`settings.PREFIX + "/x"`), whose full path stays unknown;
 `LOGIN_DISABLED` switches Flask-Login's decorator
 off and is not read; a class route's methods, which would each need judging; a decorator or hook

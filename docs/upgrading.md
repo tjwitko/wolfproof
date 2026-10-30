@@ -175,6 +175,13 @@ blueprint registered on a helper's parameter is read as what the helper is calle
 module-level name the parameter shadows, which credited routes the hook lets through. A Flask route open before can now pass, and a review
 of one now matches nothing and is reported as doing nothing: delete it.
 
+**After v1.13.0: names are read as Python reads them, and an Api where it is mounted.** A Flask name
+was the first assignment of it anywhere in its file, so a helper's local `app` could stand for the
+module's app and credit the module's routes with a hook the helper put on its own blueprint; such a
+route can now block. A flask-restx `Api` mounted on a parameter or by `init_app` in another file is now
+read, so a blueprint hook can protect its routes; one mounted on several blueprints is protected only
+where each is.
+
 **After v1.13.0: a Flask rule is read as a literal only when it is one.** `@app.get("/a" if ON else
 "/b")` was read as "/a", and `@app.get("/x" + SUFFIX)` as "/x", so a hook letting "/b" or "/x/c"
 through was credited on a route Flask serves to anyone. A conditional rule is now either path, and one
