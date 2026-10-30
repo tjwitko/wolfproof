@@ -98,7 +98,12 @@ registered on are followed back to where they come from: a parameter of a top-le
 each call passes (its default where the call passes none), a loop variable to the elements of a list
 written out, and a call of the project's own function to what that function returns — so
 `def init_app(app): app.register_blueprint(bp)` and
-`for bp in [create_oauth_blueprint(app), saml]: app.register_blueprint(bp)` are read. A rule
+`for bp in [create_oauth_blueprint(app), saml]: app.register_blueprint(bp)` are read. A name
+assigned what a project function returns (`app = create_app()`, `admin = make_admin()`) or another
+name (`staff = admin`) is the app or blueprint that function makes, so a route or hook on the `app`
+of a `wsgi.py` belongs to the app made in `create_app`, and a factory's blueprint has the prefix it is
+registered with. A factory with a `return` not traced to such a name is not known, and neither is
+one returning `Blueprint(...)` directly. A rule
 written as a call of the project's own function (`@routes.route(org_scoped_rule("/login"))`) is read
 the same way, its arguments bound to the function's parameters and each `return` read, every branch
 alike, so redash's is both "/login" and "/<org_slug>/login"; string literals, f-strings, `+` and

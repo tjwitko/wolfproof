@@ -228,14 +228,14 @@ function hooksIn(texts, rels) {
       // instead, `def never_called(app): @app.before_request` beside `app = Flask(...)` credited the
       // module's app with a hook that is never installed. A hook whose target is not traced to an app or
       // a blueprint protects nothing; one installed on several is a hook on each.
-      for (const src of sourcesOf(h.receiver, files[i], h.index, files) || []) {
-        const target = resolve(src.expr, src.file, files);
+      const targets = (sourcesOf(h.receiver, files[i], h.index, files) || []).flatMap((src) => madeBy(resolve(src.expr, src.file, files), files) || []);
+      for (const target of targets) {
         const call = callOf(target, [...classes.keys()].join("|"));
         const kind = call && classes.get(call.callee);
         if (!kind) continue;
         // An app's hook, and a blueprint's before_app_request, run for the routes under the app's own
         // directory -- the directory of the file the app is made in, not the hook's.
-        if (h.kind === "before_app_request" || kind === "Flask") hooks.push({ ...h, ...credit, ...own, scope: "app", appRel: target.file.rel });
+        if (h.kind === "before_app_request" || kind === "Flask") hooks.push({ ...h, ...credit, ...own, scope: "app", appRel: target.file.rel, on: target });
         else hooks.push({ ...h, ...credit, ...own, scope: "blueprint", blueprint: target });
       }
     }
@@ -616,6 +616,43 @@ function elementsOf(expr, file, index, files) {
   return parts.map((p) => ({ expr: p, ...at }));
 }
 
+// The app or blueprint a name stands for: the `Flask(...)` or `Blueprint(...)` call it is assigned, or
+// what it is assigned followed back as far as such a call -- for `app = create_app()`, each `return`
+// of the project's function; for `alias = admin`, admin. Without it a hook on `app` imported from wsgi.py protected nothing and a blueprint made
+// by a factory had no prefix. A `return None` gives nothing; anything else not traced makes it null.
+const madeCache = new WeakMap();
+function madeBy(def, files, seen = new Set()) {
+  if (!def) return null;
+  const key = `${def.file.rel}\0${def.name}`;
+  if (!madeCache.has(files)) madeCache.set(files, new Map());
+  const cache = madeCache.get(files);
+  if (seen.size === 0 && cache.has(key)) return cache.get(key);
+  let out = null;
+  if (!seen.has(key)) {
+    if (callOf(def, [...flaskClasses(files).keys()].join("|"))) out = [def];
+    else {
+      const line = logicalLines(def.file).find((l) => new RegExp(`^[ \\t]*${def.name}\\s*=(?!=)`).test(l.text));
+      const value = line && line.text.replace(/^[^=]*=\s*/, "").replace(/#[^\n]*$/, "").trim();
+      const sources = value ? sourcesOf(value, def.file, line.start, files) : null;
+      if (sources) {
+        out = [];
+        for (const src of sources) {
+          if (src.expr.trim() === "None") continue;
+          const made = madeBy(resolve(src.expr, src.file, files), files, new Set(seen).add(key));
+          if (!made) {
+            out = null;
+            break;
+          }
+          for (const m of made) if (!out.some((o) => same(o, m))) out.push(m);
+        }
+      }
+    }
+  }
+  if (seen.size === 0) cache.set(key, out);
+  return out;
+}
+const sameMade = (def, target, files) => madeBy(def, files)?.some((m) => same(m, target)) ?? false;
+
 // The url_prefix each registration gives an app's or blueprint's routes: [null] for an app, one per
 // `register_blueprint` call for a blueprint. The blueprint registered, and what it is registered on,
 // are followed back to where they come from (sourcesOf). Null where a prefix cannot be read: one that
@@ -633,7 +670,19 @@ function prefixesOf(def, files, depth = 0) {
   }
   const kinds = flaskClasses(files);
   const call = callOf(def, [...kinds.keys()].join("|"));
-  if (!call?.args) return null;
+  if (!call) {
+    // Made by a factory: the prefixes of whatever it makes, all of them known or none.
+    const made = madeBy(def, files);
+    if (!made?.length) return null;
+    const all = [];
+    for (const m of made) {
+      const p = prefixesOf(m, files, depth + 1);
+      if (!p) return null;
+      all.push(...p);
+    }
+    return [...new Set(all)];
+  }
+  if (!call.args) return null;
   if (kinds.get(call.callee) === "Flask") return [null];
   const { positional, keywords, spread } = call.args;
   if (spread || positional.length > 5) return null;
@@ -644,7 +693,7 @@ function prefixesOf(def, files, depth = 0) {
     for (const m of f.text.matchAll(/^[ \t]*([\w.]+?)\s*\.\s*register_blueprint\s*\(/gm)) {
       const args = argsAt(f.text, m.index + m[0].length - 1);
       const first = args && (args.keywords.blueprint ?? args.positional[0]);
-      const registered = first && sourcesOf(first, f, m.index, files)?.filter((s) => same(resolve(s.expr, s.file, files), def));
+      const registered = first && sourcesOf(first, f, m.index, files)?.filter((s) => sameMade(resolve(s.expr, s.file, files), def, files));
       if (!registered?.length) continue;
       const given = args.spread ? UNREAD : literal(args.keywords.url_prefix);
       if (given === UNREAD) return null;
@@ -881,7 +930,8 @@ function mountOf(api, nsPath, route, files) {
     const args = m && argsAt(api.file.text, m.index + m[0].length - 1);
     target = args ? args.keywords.app ?? args.positional[0] : undefined;
   }
-  const blueprint = target ? resolve(target, api.file, files) : null;
+  const made = target ? madeBy(resolve(target, api.file, files), files) : null;
+  const blueprint = made?.length === 1 ? made[0] : null;
   const prefixes = prefixesOf(blueprint, files);
   const apiPrefix = !call?.args || call.args.spread ? UNREAD : literal(call.args.keywords.prefix) ?? "";
   let paths = null;
@@ -925,10 +975,12 @@ function restxOf(route, texts, rels) {
 function reaches(hook, route, serving, files) {
   if (hook.scope === "app") {
     const dir = path.posix.dirname(hook.appRel);
-    return route.rel.startsWith(dir === "." ? "" : `${dir}/`);
+    if (route.rel.startsWith(dir === "." ? "" : `${dir}/`)) return true;
+    // A route declared on what the hook is on, wherever it is: `app = create_app()` in wsgi.py.
+    return sameMade(resolve(route.receiver, files.find((f) => f.rel === route.rel && f.text === route.text), files), hook.on, files);
   }
   if (serving.restx) return same(serving.blueprint, hook.blueprint);
-  return same(resolve(route.receiver, files.find((f) => f.rel === route.rel && f.text === route.text), files), hook.blueprint);
+  return sameMade(resolve(route.receiver, files.find((f) => f.rel === route.rel && f.text === route.text), files), hook.blueprint, files);
 }
 
 /** What protects a Flask route from outside its body, or null. */

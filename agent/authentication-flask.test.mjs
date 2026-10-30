@@ -650,6 +650,64 @@ test("a hook installed on a parameter runs for what each call passes, and one ne
   });
 });
 
+// `app = create_app()` in wsgi.py, and `admin = make_admin()`: a name assigned what a project function
+// returns. Read by the call it is assigned alone, neither was known to be an app or a blueprint, so a
+// hook on the app protected nothing and the factory's blueprint had no prefix.
+test("an app or blueprint made by a factory is the one the factory returns", () => {
+  const files = {
+    "pkg/__init__.py":
+      "from flask import Flask\n\nfrom pkg.admin import admin\nfrom pkg.apiv import api_bp\nfrom pkg.extra import either, extra, picked, picked2\nfrom pkg.views import bp\n\n\n" +
+      'def create_app():\n    app = Flask(__name__)\n    app.register_blueprint(bp)\n    app.register_blueprint(admin, url_prefix="/admin")\n' +
+      "    app.register_blueprint(extra)\n    app.register_blueprint(either)\n    app.register_blueprint(api_bp)\n" +
+      "    app.register_blueprint(picked)\n    app.register_blueprint(picked2)\n    return app\n",
+    "pkg/admin.py":
+      'from flask import Blueprint, abort, session\n\n\ndef make_admin():\n    bp = Blueprint("admin", __name__)\n\n' +
+      '    @bp.before_request\n    def admin_only():\n        if "admin" not in session:\n            abort(403)\n\n' +
+      '    @bp.get("/stats")\n    def stats():\n        return "stats"\n\n' +
+      '    @bp.get("/open")\n    def open_page():\n        return "open"\n\n    return bp\n\n\nadmin = make_admin()\n\n\n' +
+      '@admin.get("/late")\ndef late():\n    return "late"\n\n\nstaff = admin\n\n\n@staff.get("/staff")\ndef staff_page():\n    return "staff"\n',
+    "pkg/extra.py":
+      'import os\n\nfrom flask import Blueprint\n\nFLAG = os.environ.get("NO_EXTRA") == "1"\n\n\n' +
+      'def maybe():\n    if FLAG:\n        return None\n    made = Blueprint("extra", __name__, url_prefix="/x")\n    return made\n\n\n' +
+      'def either():\n    if FLAG:\n        return getattr(os, "nothing")\n    made = Blueprint("either", __name__, url_prefix="/y")\n    return made\n\n\n' +
+      'def pick():\n    if FLAG:\n        one = Blueprint("p1", __name__, url_prefix="/p1")\n        return one\n    two = Blueprint("p2", __name__, url_prefix="/p2")\n    return two\n\n\n' +
+      'def pick2():\n    if FLAG:\n        three = Blueprint("q1", __name__, url_prefix="/q1")\n        return three\n' +
+      '    four = Blueprint("q2", __name__, url_prefix=os.environ.get("PREFIX", "/q2"))\n    return four\n\n\n' +
+      'extra = maybe()\neither = either()\npicked = pick()\npicked2 = pick2()\n\n\n@extra.get("/thing")\ndef thing():\n    return "thing"\n\n\n' +
+      '@either.get("/other")\ndef other():\n    return "other"\n\n\n@picked.get("/z")\ndef z():\n    return "z"\n\n\n@picked2.get("/z2")\ndef z2():\n    return "z2"\n',
+    "pkg/apiv.py":
+      "from flask import Blueprint, abort, session\nfrom flask_restx import Api, Resource\n\n\n" +
+      'def make_api_bp():\n    b = Blueprint("api", __name__, url_prefix="/api")\n\n    @b.before_request\n    def api_only():\n        if "user_id" not in session:\n            abort(403)\n\n    return b\n\n\n' +
+      "api_bp = make_api_bp()\napi = Api(api_bp, doc=False)\n\n\n" +
+      '@api.route("/items")\nclass Items(Resource):\n    def get(self):\n        return []\n',
+    "pkg/views.py": 'from flask import Blueprint\n\nbp = Blueprint("views", __name__)\n\n\n@bp.get("/home")\ndef home():\n    return "home"\n',
+    "wsgi.py": 'from pkg import create_app\n\napp = create_app()\n\n\n@app.get("/direct")\ndef direct():\n    return "direct"\n\n\nimport hooks  # noqa: E402, F401\n',
+    "hooks.py":
+      "from flask import abort, request, session\n\nfrom wsgi import app\n\n\n@app.before_request\ndef require_login():\n" +
+      '    if request.path in ("/elsewhere", "/admin/open", "/admin/late", "/admin/staff", "/api/items", "/p2/z"):\n        return\n    if "user_id" not in session:\n        abort(401)\n',
+  };
+  const report = run(files, checkAuthentication);
+  const hook = `a before_request hook (hooks.py:${lineOf(files["hooks.py"], "@app.before_request")})`;
+  const admin = `a before_request hook (pkg/admin.py:${lineOf(files["pkg/admin.py"], "@bp.before_request")})`;
+  const api = `a before_request hook (pkg/apiv.py:${lineOf(files["pkg/apiv.py"], "@b.before_request")})`;
+  // Checked in Flask 3.1.3 with its test client and no session: /p2/z answers 200, /admin/open,
+  // /admin/late, /admin/staff and /api/items 403, and every other route 401 -- /y/other and /q2/z2 included, which
+  // are left open here because `either` has a return not traced and pick2() a prefix not written out.
+  assert.deepEqual(verdicts(report), {
+    "GET /direct": hook, // on the app itself, outside the package the app is made in
+    "GET /home": hook,
+    "GET /stats": hook, // "/admin/stats", the prefix given to what make_admin() returns
+    "GET /open": admin, // "/admin/open", let through by the app's hook
+    "GET /late": admin, // on `admin`, the blueprint the hook inside make_admin() is on
+    "GET /staff": admin, // on `staff = admin`
+    "GET /thing": hook, // "/x/thing"; maybe() may return None, which is no blueprint
+    "GET /other": null,
+    "GET /z": null, // "/p1/z" or "/p2/z": either blueprint pick() returns
+    "GET /z2": null,
+    "ROUTE /items": api, // "/api/items", on an Api mounted on what make_api_bp() returns
+  });
+});
+
 test("a path rule reaches a route whose variables can take the path it names, and a rule whose values are not written out reaches every route", () => {
   const head = "from flask import Flask, abort, request, session\n\napp = Flask(__name__)\n";
   const get = (p) => `\n\n@app.get("${p}")\ndef v${p.replace(/\W/g, "")}():\n    return ""\n`;

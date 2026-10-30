@@ -1792,10 +1792,34 @@ switched off, each fails the test. Median of 7 runs: redash 153 to 156 ms, CTFd 
 CTFd copy 255 to 620 ms, the cost of judging 163 routes against a hook, which the module-level
 version of it costs either way (550 to 554 ms).
 
+An app or blueprint made by a factory was not known, fixed after v1.13.0. Whether a name is an app
+or a blueprint was read from the call it is assigned, so `app = create_app()` in wsgi.py was neither:
+a hook on it protected nothing, a route declared on it had no full path, and `admin = make_admin()`
+had no prefix, since its registration named the module's `admin` and the routes the `bp` inside
+`make_admin`. What a name is assigned is now followed back to a `Flask(...)` or `Blueprint(...)` call
+with the registration reader: each `return` of a project function, an alias, a parameter. A
+`return None` adds nothing; any other `return` not traced leaves the name unknown. Every place that
+asks which app or blueprint something is asks this: a hook's target, a registration, a blueprint's
+prefixes, the blueprint an `Api` is mounted on, and whether a route is on a hook's blueprint. An app's
+hook also reaches a route declared on the app outside the app's directory (`@app.get` in wsgi.py).
+
+Measured: all 63 directories unchanged, routes and exemptions alike, and every full path on the
+Flask applications and on c1 to c9 unchanged; none of the calibration apps declares a route or hook
+on its factory's app. On a copy of microblog with a refusing hook added to `microblog.py`'s
+`app = create_app()` that lets `/auth` through: before, the hook protected nothing; after, its one
+otherwise open API route, `POST /api/users`, is credited, and `/auth/reset_password_request` stays
+open, as Flask would serve it. A tenth app (a route on wsgi.py's app, a blueprint from a factory
+registered with a prefix, one from a factory that may return None) serves 5 URLs in Flask 3.1.3, all
+5 computed, none extra; the test's app, run in Flask's test client without a session, answers each
+of its 11 routes as the test expects, except `/y/other` and `/q2/z2`, which Flask refuses and the
+test leaves open on purpose: one has a `return` not traced, the other a prefix not written out. The
+earlier code leaves 6 of them open that Flask refuses (`/direct`, `/home`, `/admin/late`,
+`/admin/staff`, `/x/thing`, `/api/items`). 12 parts switched off, each fails the test.
+Timing unchanged on redash, CTFd and microblog.
+
 **Still open:** a flask-restx `Api` mounted on a parameter is not followed back as a hook's target is,
-so a blueprint hook does not reach its routes; an app made by a project factory (`app =
-create_app()`) is not known to be an app, so a hook on it, imported elsewhere, protects nothing and
-its blueprints' prefixes are not read; a rule built from a module attribute or
+so a blueprint hook does not reach its routes; a factory returning `Blueprint(...)` or `Flask(...)`
+directly rather than through a name; a rule built from a module attribute or
 anything else not listed above (`settings.PREFIX + "/x"`), whose full path stays unknown;
 `LOGIN_DISABLED` switches Flask-Login's decorator
 off and is not read; a class route's methods, which would each need judging; a decorator or hook

@@ -175,6 +175,11 @@ blueprint registered on a helper's parameter is read as what the helper is calle
 module-level name the parameter shadows, which credited routes the hook lets through. A Flask route open before can now pass, and a review
 of one now matches nothing and is reported as doing nothing: delete it.
 
+**After v1.13.0: an app or blueprint made by a factory is known.** A hook on `app = create_app()`
+imported from wsgi.py now protects that app's routes, a route declared there has a full path, and a
+blueprint assigned from a factory (`admin = make_admin()`) has the prefix it is registered with. A
+route open before can now pass; none that passed before is reported open by this.
+
 **After v1.13.0: a Flask hook installed by a function counts, and one never installed does not.** A
 `before_request` hook inside `def init_app(app)`, or added with `target.before_request(check)`, now
 protects the routes of whatever each call passes it, and a hook on an app imported from another module
