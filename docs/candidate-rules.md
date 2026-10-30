@@ -1741,10 +1741,35 @@ of the reader switched off fail at least one; the two that do not, ignoring a `*
 a class body as a scope boundary, change nothing in any case constructed, since a method's
 parameter and a spread call are already given up.
 
+A route whose rule is a call was not found at all, fixed after v1.13.0. Redash writes 19 of its
+decorators as `@routes.route(org_scoped_rule("/login"))` (the earlier count of 18 missed one split
+over four lines), so none of those routes was checked by anything. A route decorator starting a line
+whose first argument starts with a name is now a route; one quoted mid-line, as in Flask's own error
+message `'@app.route(..., methods=["POST"])'`, is not. It is shown by the path written in it, so the
+probe and sign-in exemptions read it as before. Its rule is read as #27 reads a factory: the call's
+arguments bound to the function's parameters (positional, keyword, defaults), each `return` read,
+both of `org_scoped_rule`'s branches since which runs is configuration, and string literals,
+f-strings, `+`, `str.format` and further project calls followed. Anything else, a spread at the call
+among them, leaves the rule unknown, and a hook's path rule is then taken to reach it.
+
+Measured: redash 12 routes (with exemptions) to 31, the 19 decorators each found, every verdict read
+against its source — 9 credited to `@login_required`, `/login` and `/logout` exempt, and 8 open: the
+LDAP, SAML and remote-user sign-in pages, the invitation, password-reset, verification and
+forgot-password pages, and `POST /verification_email/`, which sends to `current_user` with no
+decorator. All 28 of its Flask routes now have known full paths, against 11. Every other directory
+of the calibration and JavaScript sets unchanged, routes and exemptions alike. Against Flask 3.1.3,
+run with MULTI_ORG unset and set, a ninth app (each form above, a helper calling a helper, a default,
+a keyword, a raw string, a multi-line decorator, a blueprint prefix) serves 18 URLs: all 16 computed
+are among them, and the other 2 belong to the two routes built from a module attribute, left unknown.
+The new test's own app, run the same way, serves 38: 31 computed, none extra, the other 7 belonging to
+the 6 routes it expects unknown. c1 to c8 unchanged route for route. 1 test, 28 routes; of 31 parts
+switched off, 29 fail it, and the other two, an unclosed `{` and a lone `}` in a template, are
+templates Python refuses. Median of 7 runs: redash 148 to 153 ms, CTFd 247 to 251 ms.
+
 **Still open:** a `before_request` hook on a parameter (`def init_app(app): @app.before_request`) is
 not read, since what it runs for is not followed back as a registration is, so its routes are left
-open; a flask-restx `Api` mounted on a parameter likewise; a route whose rule is a call
-(`@routes.route(org_scoped_rule("/login"))`, 18 of redash's decorators) is not found as a route at all;
+open; a flask-restx `Api` mounted on a parameter likewise; a rule built from a module attribute or
+anything else not listed above (`settings.PREFIX + "/x"`), whose full path stays unknown;
 `LOGIN_DISABLED` switches Flask-Login's decorator
 off and is not read; a class route's methods, which would each need judging; a decorator or hook
 whose condition is a helper call (CTFd's `authed()`).

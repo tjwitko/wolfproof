@@ -351,11 +351,11 @@ function partsAt(text, open) {
   return null;
 }
 
-// The arguments of the call whose "(" is at `open`.
-function argsAt(text, open) {
+// The arguments of the call whose "(" is at `open`, with `.end` at its ")".
+export function argsAt(text, open) {
   const parts = partsAt(text, open);
   if (!parts) return null;
-  const args = { positional: [], keywords: {}, spread: false };
+  const args = { positional: [], keywords: {}, spread: false, end: parts.end };
   for (const raw of parts) {
     const kw = /^(\w+)\s*=(?!=)\s*([\s\S]*)$/.exec(raw);
     if (raw.startsWith("*")) args.spread = true;
@@ -684,13 +684,133 @@ function flaskClasses(files) {
   return projectClasses.get(files);
 }
 
+// --- a rule made by a call -----------------------------------------------------------------------
+// Redash writes 19 of its rules as `@routes.route(org_scoped_rule("/login"))`, and
+// `def org_scoped_rule(rule)` returns `"/<org_slug>{}".format(rule)` when MULTI_ORG is set, else
+// `rule`. The values a rule can have are read by binding the call's arguments to the function's
+// parameters and reading each `return`, every branch alike, since which one runs is configuration.
+// Followed: string literals, f-strings, `+`, `str.format`, a parameter, and a call of a project
+// function. Anything else makes the rule unknown, so a hook's path rule is taken to reach the route.
+const MAX_RULES = 16;
+
+// `s` split at `sep` outside brackets and strings.
+function splitTop(s, sep) {
+  const out = [];
+  let depth = 0;
+  let quote = null;
+  let start = 0;
+  for (let k = 0; k < s.length; k++) {
+    const c = s[k];
+    if (quote) {
+      if (c === "\\") k++;
+      else if (c === quote) quote = null;
+    } else if (c === '"' || c === "'") quote = c;
+    else if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) depth--;
+    else if (c === sep && depth === 0) {
+      out.push(s.slice(start, k));
+      start = k + 1;
+    }
+  }
+  out.push(s.slice(start));
+  return out;
+}
+
+// Every string made by concatenating one value from each list, or null past MAX_RULES.
+function product(lists) {
+  let out = [""];
+  for (const l of lists) {
+    if (!l) return null;
+    out = out.flatMap((a) => l.map((b) => a + b));
+    if (out.length > MAX_RULES) return null;
+  }
+  return out;
+}
+
+// A template's text and `{...}` fields, in order. A field with a format spec or conversion, or `{{`,
+// names no argument, so the rule is not known.
+function fieldsOf(body) {
+  const parts = [];
+  let text = "";
+  for (let k = 0; k < body.length; k++) {
+    const c = body[k];
+    if (c === "{") {
+      const close = body.indexOf("}", k);
+      if (close < 0) return null;
+      parts.push(text, { field: body.slice(k + 1, close).trim() });
+      text = "";
+      k = close;
+    } else if (c === "}") return null;
+    else text += c;
+  }
+  parts.push(text);
+  return parts;
+}
+
+/** The strings a rule expression can be, in `file` with `env` binding names to their values; or null. */
+function ruleValues(expr, env, file, files, depth = 0) {
+  const e = expr.trim();
+  if (depth > 4 || !e) return null;
+  const sum = splitTop(e, "+");
+  if (sum.length > 1) return product(sum.map((s) => ruleValues(s, env, file, files, depth + 1)));
+  let m;
+  if ((m = /^([rRuUfF]{0,2})(['"])((?:(?!\2)[^\\\n])*)\2$/.exec(e))) {
+    if (!/f/i.test(m[1])) return [m[3]];
+    const parts = fieldsOf(m[3]);
+    return parts && product(parts.map((p) => (typeof p === "string" ? [p] : (env.get(p.field) ?? null))));
+  }
+  if (/^\w+$/.test(e)) return env.get(e) ?? null;
+  if (e.startsWith("(") && e.endsWith(")") && partsAt(e, 0)?.end === e.length - 1) return ruleValues(e.slice(1, -1), env, file, files, depth + 1);
+  if ((m = /^[rRuU]?(['"])((?:(?!\1)[^\\\n])*)\1\s*\.\s*format\s*\(/.exec(e))) {
+    const args = argsAt(e, m[0].length - 1);
+    const parts = fieldsOf(m[2]);
+    if (!parts || !args || args.spread || args.end !== e.length - 1) return null;
+    let next = 0;
+    const value = (f) => (f === "" ? args.positional[next++] : /^\d+$/.test(f) ? args.positional[+f] : args.keywords[f]);
+    return product(parts.map((p) => (typeof p === "string" ? [p] : ((a) => (a === undefined ? null : ruleValues(a, env, file, files, depth + 1)))(value(p.field)))));
+  }
+  if ((m = /^(\w+(?:\s*\.\s*\w+)?)\s*\(/.exec(e))) {
+    const args = argsAt(e, m[0].length - 1);
+    if (!args || args.spread || args.end !== e.length - 1) return null;
+    const fn = functionOf(m[1], file, files);
+    const params = fn && paramsOf(fn);
+    if (!params) return null;
+    const bound = new Map();
+    for (const [i, p] of params.entries()) {
+      const arg = (p.positional ? args.positional[i] : undefined) ?? args.keywords[p.name];
+      // A default is evaluated where the function is defined, with nothing bound.
+      const v = arg !== undefined ? ruleValues(arg, env, file, files, depth + 1) : p.given !== undefined ? ruleValues(p.given, new Map(), fn.file, files, depth + 1) : null;
+      if (!v) return null;
+      bound.set(p.name, v);
+    }
+    const returns = returnsOf(fn);
+    if (!returns?.length) return null;
+    const out = [];
+    for (const r of returns) {
+      const v = ruleValues(r.expr, bound, fn.file, files, depth + 1);
+      if (!v) return null;
+      out.push(...v);
+    }
+    const unique = [...new Set(out)];
+    return unique.length > MAX_RULES ? null : unique;
+  }
+  return null;
+}
+
+/** Each rule a route can have: the literal in its decorator, or what the call there can return. */
+function rulesOf(route, file, files) {
+  return route.ruleExpr === undefined ? [route.route] : file ? ruleValues(route.ruleExpr, new Map(), file, files) : null;
+}
+
 const joinRule = (prefix, rule) => (prefix == null ? rule : rule ? `${prefix.replace(/\/+$/, "")}/${rule.replace(/^\/+/, "")}` : prefix);
 
 /** The full paths of a route declared on an app or a blueprint, or null. */
 function routePaths(route, file, files) {
-  const prefixes = file && prefixesOf(resolve(route.receiver, file, files), files);
-  return prefixes ? prefixes.map((p) => joinRule(p, route.route)) : null;
+  const rules = rulesOf(route, file, files);
+  const prefixes = rules && file && prefixesOf(resolve(route.receiver, file, files), files);
+  return prefixes ? [...new Set(prefixes.flatMap((p) => rules.map((r) => joinRule(p, r))))] : null;
 }
+
 
 // --- flask-restx ---------------------------------------------------------------------------------
 // A flask-restx route is declared on a Namespace (`@ns.route`) or on the Api (`@api.route`), not on
@@ -771,10 +891,10 @@ function mountOf(api, nsPath, route, files) {
   const prefixes = prefixesOf(blueprint, files);
   const apiPrefix = !call?.args || call.args.spread ? UNREAD : literal(call.args.keywords.prefix) ?? "";
   let paths = null;
-  if (prefixes && apiPrefix !== UNREAD && nsPath !== UNREAD) {
-    const url = nsPath + route.route;
+  const rules = rulesOf(route, files.find((f) => f.rel === route.rel && f.text === route.text), files);
+  if (prefixes && rules && apiPrefix !== UNREAD && nsPath !== UNREAD) {
     // A resource added after the blueprint is registered skips the Api's prefix.
-    paths = prefixes.flatMap((p) => [(p || "") + apiPrefix + url, ...(p && apiPrefix ? [p + url] : [])]);
+    paths = [...new Set(rules.flatMap((rule) => prefixes.flatMap((p) => [(p || "") + apiPrefix + nsPath + rule, ...(p && apiPrefix ? [p + nsPath + rule] : [])])))];
   }
   return { restx: true, blueprint, paths };
 }

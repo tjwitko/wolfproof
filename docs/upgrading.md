@@ -175,6 +175,14 @@ blueprint registered on a helper's parameter is read as what the helper is calle
 module-level name the parameter shadows, which credited routes the hook lets through. A Flask route open before can now pass, and a review
 of one now matches nothing and is reported as doing nothing: delete it.
 
+**After v1.13.0: a Flask route whose rule is a call is checked.** A route written as
+`@routes.route(org_scoped_rule("/login"))` was not found, so nothing checked it: 19 of redash's. It is
+now found, shown by the path written in it, and judged like any other route, so one with nothing
+protecting it is reported open and a project can start to block on it; redash has 8, its sign-in,
+invitation and password-reset pages and `POST /verification_email/`. A hook's path rule is matched
+against each path the call can return, every branch of it, and reaches the route when the call
+cannot be read. A raw-string rule (`r"/x"`) is now found as well.
+
 **After v1.13.0: a Python route on a class is not judged by its first method.** A flask-restx route,
 `@ns.route(...)` on a `Resource` class, was judged by the body of the class's first method, so a
 sign-in check in its `get` credited an open `post`. A route on a class is now judged by none of its

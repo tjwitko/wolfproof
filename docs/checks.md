@@ -92,9 +92,14 @@ registered on are followed back to where they come from: a parameter of a top-le
 each call passes (its default where the call passes none), a loop variable to the elements of a list
 written out, and a call of the project's own function to what that function returns — so
 `def init_app(app): app.register_blueprint(bp)` and
-`for bp in [create_oauth_blueprint(app), saml]: app.register_blueprint(bp)` are read. A route's
+`for bp in [create_oauth_blueprint(app), saml]: app.register_blueprint(bp)` are read. A rule
+written as a call of the project's own function (`@routes.route(org_scoped_rule("/login"))`) is read
+the same way, its arguments bound to the function's parameters and each `return` read, every branch
+alike, so redash's is both "/login" and "/<org_slug>/login"; string literals, f-strings, `+` and
+`str.format` are followed. Such a route is shown by the path written in it. A route's
 variables match any value, so a rule for "/docs/intro" opens "/docs/<page>". A path rule reaches every
-route whose full path cannot be read — a prefix that is not a literal, a blueprint registered on a
+route whose full path cannot be read — a prefix that is not a literal, a rule built from anything
+else (`settings.PREFIX + "/x"`), a blueprint registered on a
 parameter of a function never called or also passed as a value, of a nested function or a method, or
 in a loop over anything but a list written out — and so does a rule whose values are not written out
 (`request.path in PUBLIC`). An endpoint rule reaches a route

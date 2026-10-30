@@ -523,6 +523,77 @@ test("a parameter is what its function is called with, not a module-level name i
   assert.deepEqual(byFile(report), { "w.py": hook, "x.py": null, "y.py": hook });
 });
 
+// Redash writes 19 rules as `org_scoped_rule("/login")`, none of which was found as a route. Each pair
+// here differs only in whether the hook lets its path through, so a path read wrong flips a verdict.
+test("a route whose rule is a call is found, and its full paths are what the call can return", () => {
+  const settings = 'import os\n\nMULTI_ORG = os.environ.get("MULTI_ORG") == "1"\nPREFIX = os.environ.get("PREFIX", "/env")\n';
+  const base =
+    "import settings\n\n\ndef scoped(rule):\n    if settings.MULTI_ORG:\n        return \"/<org_slug>{}\".format(rule)\n    return rule\n\n\n" +
+    'def versioned(rule, version="v1"):\n    return f"/api/{version}{rule}"\n\n\n' +
+    'def joined(rule):\n    return "/x" + rule + "/"\n\n\n' +
+    'def nested_rule(rule):\n    return scoped("/n" + rule)\n\n\n' +
+    'def numbered(rule):\n    return "/{0}/{name}{1}".format("num", rule, name="k")\n\n\n' +
+    "def unknowable(rule):\n    return settings.PREFIX + rule\n\n\n" +
+    'def paren(rule):\n    return ("/p" + rule)\n\n\n' +
+    'def dflt(rule="/d0"):\n    return rule\n\n\n' +
+    'def pair(rule):\n    return "{}{}".format("/t", rule)\n\n\n' +
+    "def half(rule):\n    if settings.MULTI_ORG:\n        return settings.PREFIX + rule\n    return rule\n";
+  const get = (rule, name) => `\n\n@app.get(${rule})\ndef ${name}(**kw):\n    return ""\n`;
+  const app =
+    "from flask import Flask, abort, request, session\nfrom flask_restx import Api, Resource\n\nimport base\nimport settings\n" +
+    "from base import dflt, half, joined, numbered, pair, paren, scoped, unknowable, versioned\n\n" +
+    'app = Flask(__name__)\napi = Api(app, doc=False)\nARGS = ("/sp",)\n' +
+    "HINT = 'decorate it, @app.route(rule, methods=[\"POST\"])'\n\n\n" +
+    "@app.before_request\ndef require_login():\n" +
+    '    if request.path in ("/open", "/acme/w9", "/api/v2/v", "/x/j/", "/num/k/m", "/n/st", "/raw", "/p/1", "/r1", "/t/a1", "/p/3", "/kw"):\n        return\n' + LOGIN +
+    get('scoped("/w")', "w") + get('scoped("/open")', "open_") + get('scoped("/w9")', "w9") +
+    get('versioned("/v", version="v2")', "v") + get('versioned(rule="/w1")', "w1") +
+    get('joined("/j")', "j") + get('joined("/j2")', "j2") + get('numbered("/m")', "m") + get('numbered("/m2")', "m2") +
+    get('base.nested_rule("/st")', "st") + get('base.nested_rule("/q")', "q") + get('r"/raw"', "raw") +
+    get('unknowable("/k")', "k") + get('settings.PREFIX + "/k2"', "k2") + get("scoped(*ARGS)", "sp") +
+    get('paren("/1")', "p1") + get('paren("/2")', "p2") + get("dflt()", "d0") + get("dflt(*ARGS)", "d1") + get('half("/h")', "h") +
+    get('pair("/a1")', "t1") + get('pair("/a2")', "t2") + get('rule=scoped("/kw")', "kw") +
+    '\n\n@api.route(scoped("/r1"))\nclass R1(Resource):\n    def get(self, **kw):\n        return {}\n' +
+    '\n\n@api.route(scoped("/r2"))\nclass R2(Resource):\n    def get(self, **kw):\n        return {}\n' +
+    '\n\n@api.route(paren("/3"))\nclass R3(Resource):\n    def get(self):\n        return {}\n' +
+    '\n\n@api.route(unknowable("/r4"))\nclass R4(Resource):\n    def get(self):\n        return {}\n' +
+    '\n\n@app.get(\n    scoped("/ml"),\n)\ndef ml():\n    return ""\n';
+  const report = run({ "app.py": app, "base.py": base, "settings.py": settings }, checkAuthentication);
+  const hook = `a before_request hook (app.py:${lineOf(app, "@app.before_request")})`;
+  // Checked against Flask 3.1.3, with MULTI_ORG unset and set: every path computed here is one Flask
+  // serves, and the routes whose paths are not computed are those built from PREFIX or a spread.
+  assert.deepEqual(verdicts(report), {
+    "GET /w": hook,
+    "GET /open": null,
+    "GET /w9": null, // "/<org_slug>/w9" when MULTI_ORG is set
+    "GET /v": null, // "/api/v2/v"
+    "GET /w1": hook, // "/api/v1/w1", with the default read
+    "GET /j": null, // "/x/j/"
+    "GET /j2": hook,
+    "GET /m": null, // "/num/k/m"
+    "GET /m2": hook,
+    "GET /st": null, // "/n/st", through a second helper
+    "GET /q": hook,
+    "GET /raw": null,
+    "GET /k": null, // not known, so the rule is taken to reach it
+    'GET settings.PREFIX + "/k2"': null,
+    "GET scoped(*ARGS)": null,
+    "GET /ml": hook,
+    "GET /1": null, // "/p/1", in brackets
+    "GET /2": hook,
+    "GET dflt()": hook, // "/d0", the default
+    "GET dflt(*ARGS)": null, // a spread may fill the parameter
+    "GET /h": null, // one return is not known
+    "ROUTE /r1": null, // a flask-restx route, "/r1"
+    "ROUTE /r2": hook,
+    "ROUTE /3": null, // "/p/3"
+    "ROUTE /r4": null,
+    "GET /a1": null, // "/t/a1"
+    "GET /a2": hook,
+    "GET /kw": null, // the rule given by keyword
+  });
+});
+
 test("a path rule reaches a route whose variables can take the path it names, and a rule whose values are not written out reaches every route", () => {
   const head = "from flask import Flask, abort, request, session\n\napp = Flask(__name__)\n";
   const get = (p) => `\n\n@app.get("${p}")\ndef v${p.replace(/\W/g, "")}():\n    return ""\n`;

@@ -43,7 +43,7 @@ import path from "path";
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { handlerGuard, methodBlock } from "./auth-handler.mjs";
-import { flaskRouteAuth, viewDecorators } from "./authentication-flask.mjs";
+import { argsAt, flaskRouteAuth, viewDecorators } from "./authentication-flask.mjs";
 import { csharpAdapter } from "./authentication-csharp.mjs";
 import { phpAdapter } from "./authentication-php.mjs";
 import { kotlinAdapter } from "./authentication-kotlin.mjs";
@@ -193,6 +193,13 @@ export function codeOnly(text, style) {
 // ---------------------------------------------------------------------------------------------
 
 const PY_ROUTE_RE = /@(\w+)\.(get|post|put|patch|delete|route)\(\s*["']([^"']*)["']([^)]*)\)/g;
+// A route whose rule is not a plain literal: `@routes.route(org_scoped_rule("/login"))`, as 19 of
+// redash's are, or `r"/x"`. None was found as a route, so each was checked by nothing. It must start a
+// line and begin with a name or a string prefix, so a decorator quoted mid-line in an error message
+// (Flask's own `'@app.route(..., methods=["POST"])'`) is not one. Shown by the path written in it
+// (`/login`), and its full paths are what the call can return (see authentication-flask.mjs).
+const PY_ROUTE_EXPR_RE = /^[ \t]*@(\w+)\.(get|post|put|patch|delete|route)\(\s*(?=[A-Za-z_])/gm;
+const PY_RULE_SHOWN = /^(?:[rRuU]|[\w.]+\s*\(\s*(?:\w+\s*=\s*)?[rRuU]?)(['"])(\/[^'"\n]*)\1/;
 
 // A dependency that authenticates, as opposed to one that supplies a database session. This
 // distinction is the whole check: a real run had `Depends(get_db)` on every route and
@@ -549,16 +556,30 @@ const pythonAdapter = {
     const lines = text.split("\n");
     const out = [];
     const flask = frameworkIn(text, texts, PY_FRAMEWORKS) === "Flask";
+    const found = [];
     PY_ROUTE_RE.lastIndex = 0;
     let m;
-    while ((m = PY_ROUTE_RE.exec(text))) {
-      const line = text.slice(0, m.index).split("\n").length;
+    while ((m = PY_ROUTE_RE.exec(text))) found.push({ at: m.index, receiver: m[1], verb: m[2], route: m[3], declaration: m[0] });
+    PY_ROUTE_EXPR_RE.lastIndex = 0;
+    while ((m = PY_ROUTE_EXPR_RE.exec(text))) {
+      const open = m.index + m[0].indexOf("(");
+      const args = argsAt(text, open);
+      const rule = args && !args.spread ? args.positional[0] ?? args.keywords.rule ?? args.keywords.path : undefined;
+      if (rule === undefined) continue;
+      const shown = PY_RULE_SHOWN.exec(rule);
+      const at = m.index + m[0].indexOf("@");
+      found.push({ at, receiver: m[1], verb: m[2], route: shown ? shown[2] : rule.replace(/\s+/g, " "), ruleExpr: rule, declaration: text.slice(at, args.end + 1) });
+    }
+    found.sort((a, b) => a.at - b.at);
+    for (const f of found) {
+      const line = text.slice(0, f.at).split("\n").length;
       // Signature can wrap across lines; take enough to cover it without running into the body.
       const signature = lines.slice(line, line + 8).join("\n").split(/:\s*(?:\n|$)/)[0];
       out.push({
-        method: m[2].toUpperCase(),
-        route: m[3],
-        declaration: m[0],
+        method: f.verb.toUpperCase(),
+        route: f.route,
+        ...(f.ruleExpr !== undefined ? { ruleExpr: f.ruleExpr } : {}),
+        declaration: f.declaration,
         context: signature,
         body: pyRouteBody(lines, line),
         line,
@@ -566,7 +587,7 @@ const pythonAdapter = {
         // What a Flask decorator or hook needs to know whether it runs for this route.
         ...(flask
           ? {
-              receiver: m[1],
+              receiver: f.receiver,
               view: (/^\s*(?:async\s+)?def\s+(\w+)/m.exec(lines.slice(line, line + 20).join("\n")) || [])[1],
               decorators: viewDecorators(lines, line),
               text,
