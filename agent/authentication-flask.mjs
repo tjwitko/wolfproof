@@ -327,8 +327,8 @@ function literal(expr) {
   return m ? m[2] : UNREAD;
 }
 
-// The arguments of the call whose "(" is at `open`, split at the top level.
-function argsAt(text, open) {
+// The parts of the bracketed list whose opening bracket is at `open`, split at its top-level commas.
+function partsAt(text, open) {
   const parts = [];
   let depth = 0;
   let quote = null;
@@ -340,22 +340,29 @@ function argsAt(text, open) {
       else if (c === quote) quote = null;
     } else if (c === '"' || c === "'") quote = c;
     else if ("([{".includes(c)) depth++;
-    else if ((c === "," || c === ")") && depth === 1) {
+    else if (")]}".includes(c) && depth === 1) {
+      parts.push(text.slice(start, k));
+      return Object.assign(parts.map((p) => (/['"]/.test(p) ? p : p.replace(/#[^\n]*/g, "")).trim()).filter(Boolean), { end: k });
+    } else if (c === "," && depth === 1) {
       parts.push(text.slice(start, k));
       start = k + 1;
-      if (c === ")") {
-        const args = { positional: [], keywords: {}, spread: false };
-        for (const raw of parts.map((p) => p.trim()).filter(Boolean)) {
-          const kw = /^(\w+)\s*=(?!=)\s*([\s\S]*)$/.exec(raw);
-          if (raw.startsWith("*")) args.spread = true;
-          else if (kw) args.keywords[kw[1]] = kw[2].trim();
-          else args.positional.push(raw);
-        }
-        return args;
-      }
     } else if (")]}".includes(c)) depth--;
   }
   return null;
+}
+
+// The arguments of the call whose "(" is at `open`.
+function argsAt(text, open) {
+  const parts = partsAt(text, open);
+  if (!parts) return null;
+  const args = { positional: [], keywords: {}, spread: false };
+  for (const raw of parts) {
+    const kw = /^(\w+)\s*=(?!=)\s*([\s\S]*)$/.exec(raw);
+    if (raw.startsWith("*")) args.spread = true;
+    else if (kw) args.keywords[kw[1]] = kw[2].trim();
+    else args.positional.push(raw);
+  }
+  return args;
 }
 
 // The call a name is assigned from, when it is one of `callees`: `bp = Blueprint(...)`.
@@ -390,12 +397,246 @@ function resolve(expr, file, files) {
   return mod ? definition(m[2], mod, files) : null;
 }
 
+// --- where a name's value comes from ----------------------------------------------------------
+// Redash registers its blueprints inside `def init_app(app)`, so the app is whatever each caller
+// passes, and its login blueprints in `for blueprint in [create_oidc_blueprint(app), ...]`, so the
+// blueprint is what a factory returns. Read by name alone, neither was ever found registered.
+
+// A file's logical lines: a line continued inside brackets or a string belongs to the one it began on.
+const logicalCache = new WeakMap();
+function logicalLines(file) {
+  if (logicalCache.has(file)) return logicalCache.get(file);
+  const t = file.text;
+  const lines = [];
+  let depth = 0;
+  let quote = null;
+  let start = 0;
+  const end = (k) => {
+    const s = t.slice(start, k);
+    const body = s.replace(/^[ \t]*/, "");
+    if (body && !body.startsWith("#")) lines.push({ start, indent: s.length - body.length, text: s });
+    start = k + 1;
+  };
+  for (let k = 0; k < t.length; k++) {
+    const c = t[k];
+    if (quote) {
+      if (c === "\\") k++;
+      else if (t.startsWith(quote, k)) {
+        k += quote.length - 1;
+        quote = null;
+      } else if (c === "\n" && quote.length === 1) quote = null;
+    } else if (c === "#") {
+      while (k + 1 < t.length && t[k + 1] !== "\n") k++;
+    } else if (c === '"' || c === "'") {
+      quote = t.startsWith(c.repeat(3), k) ? c.repeat(3) : c;
+      k += quote.length - 1;
+    } else if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) depth = Math.max(0, depth - 1);
+    else if (c === "\\" && t[k + 1] === "\n") k++;
+    else if (c === "\n" && depth === 0) end(k);
+  }
+  end(t.length);
+  logicalCache.set(file, lines);
+  return lines;
+}
+const lineAt = (file, index) => logicalLines(file).findLast((l) => l.start <= index);
+
+// The blocks around a point in a file, innermost first: each `def`, each `for` with its target, a class.
+function scopesAt(file, index) {
+  const lines = logicalLines(file);
+  let i = lines.findLastIndex((l) => l.start <= index);
+  if (i < 0) return [];
+  let need = lines[i].indent;
+  const out = [];
+  for (i--; i >= 0 && need > 0; i--) {
+    const l = lines[i];
+    if (l.indent >= need) continue;
+    need = l.indent;
+    let m;
+    if ((m = /^[ \t]*(?:async\s+)?def\s+(\w+)\s*\(/.exec(l.text))) out.push({ def: { name: m[1], file, at: l.start, open: l.start + m[0].length - 1, indent: l.indent } });
+    else if ((m = /^[ \t]*(?:async\s+)?for\s+(\w+)\s+in\s+([\s\S]*?):\s*(?:#[^\n]*)?$/.exec(l.text))) out.push({ loop: m[1], iter: m[2], at: l.start });
+    else if (/^[ \t]*class\b/.test(l.text)) out.push({ cls: true });
+  }
+  return out;
+}
+
+// A function's parameters in order; null where they cannot be read.
+function paramsOf(fn) {
+  const parts = partsAt(fn.file.text, fn.open);
+  if (!parts) return null;
+  const params = [];
+  let keywordOnly = false;
+  for (const p of parts) {
+    if (p === "/" || p.startsWith("**")) continue;
+    if (p.startsWith("*")) {
+      keywordOnly = true;
+      continue;
+    }
+    const m = /^(\w+)\s*(?::[^=]*)?(?:=\s*([\s\S]*))?$/.exec(p);
+    if (!m) return null;
+    params.push({ name: m[1], positional: !keywordOnly, given: m[2]?.trim() });
+  }
+  return params;
+}
+
+// The project's own top-level function a call names: `create_bp` here or imported, `auth.create_bp`.
+function functionOf(expr, file, files, depth = 0) {
+  const m = /^(\w+)(?:\s*\.\s*(\w+))?$/.exec(expr.trim());
+  if (!m || depth > 3) return null;
+  const target = m[2] ? moduleOf(m[1], file, files) : file;
+  const name = m[2] || m[1];
+  if (!target) return null;
+  const d = new RegExp(`^(?:async[ \\t]+)?def[ \\t]+${name}\\s*\\(`, "m").exec(target.text);
+  if (d) return { name, file: target, at: d.index, open: d.index + d[0].length - 1, indent: 0 };
+  if (m[2]) return null;
+  for (const i of target.text.matchAll(/^[ \t]*from\s+([\w.]*)\s+import\s+(\([^)]*\)|[^\n]+)/gm)) {
+    for (const part of i[2].replace(/#[^\n]*/g, "").replace(/[()\n]/g, " ").split(",")) {
+      const [orig, alias] = part.trim().split(/\s+as\s+/);
+      if ((alias || orig) !== name) continue;
+      const from = moduleFile(i[1], target, files);
+      if (from) return functionOf(orig, from, files, depth + 1);
+    }
+  }
+  return null;
+}
+
+// What a function returns: each `return` in its own body, not in a function nested in it.
+function returnsOf(fn) {
+  const lines = logicalLines(fn.file);
+  let i = lines.findIndex((l) => l.start === fn.at);
+  if (i < 0) return null;
+  const out = [];
+  let nested = Infinity;
+  for (i++; i < lines.length && lines[i].indent > fn.indent; i++) {
+    const l = lines[i];
+    if (l.indent > nested) continue;
+    nested = Infinity;
+    if (/^[ \t]*(?:async\s+)?(?:def|class)\b/.test(l.text)) nested = l.indent;
+    const m = /^[ \t]*return\b([\s\S]*)$/.exec(l.text);
+    if (m) out.push({ expr: m[1].replace(/#[^\n]*$/, "").trim() || "None", file: fn.file, index: l.start });
+  }
+  return out;
+}
+
+// Every call of a top-level function: its arguments, and where it is made. Null where the function is
+// named some other way too -- passed as a value, or in a string -- and so may be called with anything.
+function callsOf(fn, files) {
+  const calls = [];
+  for (const f of files) {
+    const refs = f === fn.file ? [fn.name] : [];
+    for (const m of f.text.matchAll(/^[ \t]*from\s+([\w.]*)\s+import\s+(\([^)]*\)|[^\n]+)/gm)) {
+      for (const part of m[2].replace(/#[^\n]*/g, "").replace(/[()\n]/g, " ").split(",")) {
+        const [orig, alias] = part.trim().split(/\s+as\s+/);
+        if (!orig) continue;
+        if (orig === "*" || orig === fn.name) {
+          if (moduleFile(m[1], f, files) === fn.file) refs.push(orig === "*" ? fn.name : alias || orig);
+        } else if (moduleFile(/^\.+$/.test(m[1]) ? m[1] + orig : `${m[1]}.${orig}`, f, files) === fn.file) refs.push(`${alias || orig}.${fn.name}`);
+      }
+    }
+    for (const m of f.text.matchAll(/^[ \t]*import\s+([\w.]+)(?:\s+as\s+(\w+))?[ \t]*(?:#[^\n]*)?$/gm)) {
+      if (moduleFile(m[1], f, files) === fn.file) refs.push(`${m[2] || m[1]}.${fn.name}`);
+    }
+    for (const ref of new Set(refs)) {
+      const re = new RegExp(`(?<![\\w.])${ref.split(".").map(escapeRe).join("\\s*\\.\\s*")}\\b`, "g");
+      for (const m of f.text.matchAll(re)) {
+        const before = f.text.slice(f.text.lastIndexOf("\n", m.index) + 1, m.index);
+        if (before.includes("#") || /\bdef\s+$/.test(before)) continue;
+        if (/^[ \t]*(?:from|import)\b/.test(lineAt(f, m.index)?.text || "")) continue;
+        const open = /^\s*\(/.exec(f.text.slice(m.index + m[0].length));
+        if (!open) return null;
+        const args = argsAt(f.text, m.index + m[0].length + open[0].length - 1);
+        if (!args) return null;
+        calls.push({ args, file: f, index: m.index });
+      }
+    }
+  }
+  return calls;
+}
+
+// The expressions a name can hold at a point in a file, each with the file and point to read it at.
+// A parameter of a top-level function holds what each call of it passes; a loop variable each element
+// of a list written out (or assigned to a name); a call of the project's own function what it returns.
+// Anything else is its own source. Null where one of these cannot be followed. Each source carries the
+// calls it came through (`pin`), so that a second name read under the same pin -- the app a helper's
+// blueprint is registered on -- is taken from the same call, not from every call of the helper.
+function sourcesOf(expr, file, index, files, depth = 0, pin = new Map()) {
+  if (depth > 6) return null;
+  const e = expr.trim();
+  const call = /^(\w+(?:\s*\.\s*\w+)?)\s*\(/.exec(e);
+  if (call && partsAt(e, call[0].length - 1)?.end === e.length - 1) {
+    const fn = functionOf(call[1], file, files);
+    if (!fn) return [{ expr: e, file, index, pin }];
+    return followAll(returnsOf(fn), files, depth, pin);
+  }
+  if (!/^\w+$/.test(e)) return [{ expr: e, file, index, pin }];
+  for (const s of scopesAt(file, index)) {
+    if (s.cls) break;
+    if (s.loop === e) return followAll(elementsOf(s.iter, file, s.at, files), files, depth, pin);
+    if (!s.def) continue;
+    const params = paramsOf(s.def);
+    if (!params) return null;
+    const i = params.findIndex((p) => p.name === e);
+    if (i < 0) continue;
+    if (s.def.indent > 0) return null;
+    const key = `${s.def.file.rel}\0${s.def.at}`;
+    const calls = pin.has(key) ? [pin.get(key)] : callsOf(s.def, files);
+    if (!calls?.length) return null;
+    const passed = [];
+    for (const c of calls) {
+      if (c.args.spread) return null;
+      const p = params[i];
+      const arg = (p.positional ? c.args.positional[i] : undefined) ?? c.args.keywords[p.name];
+      if (arg === undefined && p.given === undefined) return null;
+      // A default is read where the function is defined, which is where Python evaluates it.
+      const at = arg === undefined ? { expr: p.given, file: s.def.file, index: s.def.at } : { expr: arg, file: c.file, index: c.index };
+      passed.push({ ...at, pin: new Map(pin).set(key, c) });
+    }
+    return followAll(passed, files, depth, pin);
+  }
+  return [{ expr: e, file, index, pin }];
+}
+function followAll(found, files, depth, pin) {
+  if (!found) return null;
+  const out = [];
+  for (const f of found) {
+    const s = sourcesOf(f.expr, f.file, f.index, files, depth + 1, f.pin || pin);
+    if (!s) return null;
+    out.push(...s);
+  }
+  return out;
+}
+
+// The elements of a list or tuple written out, or of the one a name is assigned.
+function elementsOf(expr, file, index, files) {
+  let e = expr.trim();
+  let at = { file, index };
+  if (/^\w+$/.test(e)) {
+    const def = definition(e, file, files);
+    const line = def && logicalLines(def.file).find((l) => new RegExp(`^[ \\t]*${e}\\s*=(?!=)`).test(l.text));
+    if (!line) return null;
+    e = line.text.replace(/^[^=]*=\s*/, "").replace(/#[^\n]*$/, "").trim();
+    at = { file: def.file, index: line.start };
+  }
+  const parts = /^[[(]/.test(e) ? partsAt(e, 0) : null;
+  if (parts?.end !== e.length - 1) return null;
+  return parts.map((p) => ({ expr: p, ...at }));
+}
+
 // The url_prefix each registration gives an app's or blueprint's routes: [null] for an app, one per
-// `register_blueprint` call for a blueprint. Null where one cannot be read: a prefix that is not a
-// literal, a blueprint whose registration is not found (registered in a loop, or by a helper), or one
-// registered on something not traced to an app or a blueprint.
+// `register_blueprint` call for a blueprint. The blueprint registered, and what it is registered on,
+// are followed back to where they come from (sourcesOf). Null where a prefix cannot be read: one that
+// is not a literal, a blueprint whose registration is not found, or one registered on something not
+// traced to an app or a blueprint -- including a parameter of a function not seen called.
+const prefixCache = new WeakMap();
 function prefixesOf(def, files, depth = 0) {
   if (!def || depth > 4) return null;
+  if (depth === 0) {
+    if (!prefixCache.has(files)) prefixCache.set(files, new Map());
+    const cache = prefixCache.get(files);
+    const key = `${def.file.rel}\0${def.name}`;
+    if (!cache.has(key)) cache.set(key, prefixesOf(def, files, 1));
+    return cache.get(key);
+  }
   const kinds = flaskClasses(files);
   const call = callOf(def, [...kinds.keys()].join("|"));
   if (!call?.args) return null;
@@ -409,16 +650,23 @@ function prefixesOf(def, files, depth = 0) {
     for (const m of f.text.matchAll(/^[ \t]*([\w.]+?)\s*\.\s*register_blueprint\s*\(/gm)) {
       const args = argsAt(f.text, m.index + m[0].length - 1);
       const first = args && (args.keywords.blueprint ?? args.positional[0]);
-      if (!first || !same(resolve(first, f, files), def)) continue;
+      const registered = first && sourcesOf(first, f, m.index, files)?.filter((s) => same(resolve(s.expr, s.file, files), def));
+      if (!registered?.length) continue;
       const given = args.spread ? UNREAD : literal(args.keywords.url_prefix);
       if (given === UNREAD) return null;
       const prefix = given ?? own;
-      const parents = prefixesOf(resolve(m[1], f, files), files, depth + 1);
-      if (!parents) return null;
-      for (const s of parents) out.push(s != null && prefix != null ? `${s.replace(/\/+$/, "")}/${prefix.replace(/^\/+/, "")}` : prefix ?? s);
+      for (const r of registered) {
+        const owners = sourcesOf(m[1], f, m.index, files, 0, r.pin);
+        if (!owners) return null;
+        for (const o of owners) {
+          const parents = prefixesOf(resolve(o.expr, o.file, files), files, depth + 1);
+          if (!parents) return null;
+          for (const s of parents) out.push(s != null && prefix != null ? `${s.replace(/\/+$/, "")}/${prefix.replace(/^\/+/, "")}` : prefix ?? s);
+        }
+      }
     }
   }
-  return out.length ? out : null;
+  return out.length ? [...new Set(out)] : null;
 }
 
 // Flask and Blueprint, and the project's own subclasses of them (CTFd's app is a `CTFdFlask`).

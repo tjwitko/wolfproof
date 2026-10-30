@@ -1717,8 +1717,35 @@ the earlier reader saw the hook too, 79 API routes it reported open are credited
 is open: the catch-all `/<path:route>`, which serves `/setup/...`. 7 tests, and each of 29 parts of the
 change switched off fails at least one.
 
-**Still open:** a blueprint registered in a loop or by a helper taking the app as a parameter has no
-known full path, so a hook's path rule leaves its routes open (redash); `LOGIN_DISABLED` switches Flask-Login's decorator
+Redash's blueprints had no known full path, fixed after v1.13.0. They are registered inside
+`def init_app(app)`, where `app` is whatever each caller passes, and its sign-in blueprints in
+`for blueprint in [create_google_oauth_blueprint(app), ..., saml_auth.blueprint]`, two of them made
+inside a factory function. Matching by name found neither. The reader now follows the blueprint and
+what it is registered on back to their sources: a parameter of a top-level function to the argument
+each call passes (found through the module's imports, `handlers.init_app(app)`, and given up when the
+function is named anywhere other than in a call), a default to where the function is defined, a loop
+variable to the elements of a list written out or assigned, and a call of the project's own function
+to its `return`s, not those of functions nested in it. The blueprint and its target are taken from the
+same call: a helper called twice, once with the app and once with a blueprint, does not give each
+blueprint both prefixes. One false credit found writing it: a parameter named `app` was resolved to
+the module's `app = Flask(...)` it shadows, so `def attach(app): app.register_blueprint(x)` called with
+a blueprint registered at `/sub` credited a hook that lets `/sub` through on `x`'s routes. Measured:
+redash's full paths read 11 of 11, against 0; CTFd, microblog and the flask repository unchanged
+route for route; 2,005 calibration routes, no verdict changed. Against Flask 3.1.3, an eighth app
+(helpers called positionally and by keyword, the same blueprint through a helper and a loop, a list
+assigned to a name, a factory returning `None` or a blueprint, a blueprint nested by a helper) serves
+12 URLs and all 12 are computed, with no extras; the first seven are unchanged at 38 of 38, and the
+two new tests' apps run in Flask serve exactly the paths the tests assume. 2 new tests and one
+extended, and 48 of 50 parts
+of the reader switched off fail at least one; the two that do not, ignoring a `*args` at the call and
+a class body as a scope boundary, change nothing in any case constructed, since a method's
+parameter and a spread call are already given up.
+
+**Still open:** a `before_request` hook on a parameter (`def init_app(app): @app.before_request`) is
+not read, since what it runs for is not followed back as a registration is, so its routes are left
+open; a flask-restx `Api` mounted on a parameter likewise; a route whose rule is a call
+(`@routes.route(org_scoped_rule("/login"))`, 18 of redash's decorators) is not found as a route at all;
+`LOGIN_DISABLED` switches Flask-Login's decorator
 off and is not read; a class route's methods, which would each need judging; a decorator or hook
 whose condition is a helper call (CTFd's `authed()`).
 

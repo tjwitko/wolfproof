@@ -169,7 +169,10 @@ Flask-Login, Flask-Security's and Flask-JWT-Extended's decorators, Flask-HTTPAut
 that refuses now protect the routes they run for. A hook that lets some paths through
 (`request.path.startswith("/public")`) leaves open the routes whose full path it matches, read with
 their blueprint's `url_prefix` and, for flask-restx, the `Api`'s prefix and the namespace's path, and
-every route whose full path cannot be read. A Flask route open before can now pass, and a review
+every route whose full path cannot be read. A blueprint registered by a helper function, in a loop over
+a list, or made by a factory now has a known full path, so such a hook can protect its routes; and a
+blueprint registered on a helper's parameter is read as what the helper is called with, not as a
+module-level name the parameter shadows, which credited routes the hook lets through. A Flask route open before can now pass, and a review
 of one now matches nothing and is reported as doing nothing: delete it.
 
 **After v1.13.0: a Python route on a class is not judged by its first method.** A flask-restx route,

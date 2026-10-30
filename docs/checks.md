@@ -81,10 +81,17 @@ any other condition protects nothing. A path rule (`request.path == ...`, `reque
 `request.path.startswith(...)`) is matched against the route's full path: the `url_prefix` its
 blueprint is registered with, or else the one in `Blueprint(...)`, a parent blueprint's before it,
 and for a flask-restx route the `Api`'s `prefix` and the namespace's path (the one `add_namespace`
-gives, else `Namespace(path=...)`, else its name). A route's variables match any value, so a rule
-for "/docs/intro" opens "/docs/<page>". A path rule reaches every route whose full path cannot be
-read — a prefix that is not a literal, a blueprint registered in a loop or by a helper — and so does
-a rule whose values are not written out (`request.path in PUBLIC`). An endpoint rule reaches a route
+gives, else `Namespace(path=...)`, else its name). The blueprint registered and what it is
+registered on are followed back to where they come from: a parameter of a top-level function to what
+each call passes (its default where the call passes none), a loop variable to the elements of a list
+written out, and a call of the project's own function to what that function returns — so
+`def init_app(app): app.register_blueprint(bp)` and
+`for bp in [create_oauth_blueprint(app), saml]: app.register_blueprint(bp)` are read. A route's
+variables match any value, so a rule for "/docs/intro" opens "/docs/<page>". A path rule reaches every
+route whose full path cannot be read — a prefix that is not a literal, a blueprint registered on a
+parameter of a function never called or also passed as a value, of a nested function or a method, or
+in a loop over anything but a list written out — and so does a rule whose values are not written out
+(`request.path in PUBLIC`). An endpoint rule reaches a route
 on a class, whose endpoint is not its first method's name (flask-restx names it `<namespace>_<class>`).
 A flask-restx namespace added to more than one `Api` is protected only where each is. Not read: a route registered by a call rather than a decorator —
 `add_url_rule(...)`, which is how a `MethodView` is registered, and flask-restx's `add_resource(...)` —

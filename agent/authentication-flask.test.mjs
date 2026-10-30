@@ -439,9 +439,13 @@ test("nested blueprints join their prefixes with one slash, and a project's subc
 
 test("where a prefix cannot be read, a hook's path rule is taken to reach the route", () => {
   const app =
-    "from flask import Flask, abort, request, session\n\nfrom a import bp as a_bp\nfrom b import bp as b_bp\nfrom c import bp as c_bp\nfrom f import bp as f_bp\n\n" +
-    'PREFIX = "/a"\napp = Flask(__name__)\napp.register_blueprint(a_bp, url_prefix=PREFIX)\napp.register_blueprint(a_bp, url_prefix="/z", name="z")\nfor blueprint in (b_bp,):\n    app.register_blueprint(blueprint)\n\n\n' +
-    "def init_app(target):\n    target.register_blueprint(c_bp)\n\n\napp.register_blueprint(f_bp)\n\n\n" +
+    "from flask import Flask, abort, request, session\n\nfrom a import bp as a_bp\nfrom b import bp as b_bp\nfrom c import bp as c_bp\nfrom f import bp as f_bp\nfrom g import bp as g_bp\nfrom h import bp as h_bp\nfrom i import bp as i_bp\nfrom k import bp as k_bp\nfrom n import bp as n_bp\n\n" +
+    'PREFIX = "/a"\napp = Flask(__name__)\napp.register_blueprint(a_bp, url_prefix=PREFIX)\napp.register_blueprint(a_bp, url_prefix="/z", name="z")\nfor blueprint in discover(b_bp):\n    app.register_blueprint(blueprint)\n\n\n' +
+    "def init_app(target):\n    target.register_blueprint(c_bp)\n\n\napp.register_blueprint(c_bp, url_prefix=\"/c2\")\napp.register_blueprint(f_bp)\n\n\n" +
+    "for blueprint in [i_bp][1:]:\n    app.register_blueprint(blueprint)\nthing = build()\nthing.register_blueprint(k_bp)\n\n\n" +
+    "def make():\n    def later():\n        return n_bp\n\n    return None\n\n\nfor blueprint in [make()]:\n    app.register_blueprint(blueprint)\n\n\n" +
+    "def attach(target):\n    target.register_blueprint(g_bp)\n\n\nattach(app)\nSETUP = [attach]\n\n\n" +
+    "def outer():\n    def inner(target):\n        target.register_blueprint(h_bp)\n\n    inner(app)\n\n\n" +
     '@app.before_request\ndef require_login():\n    if request.path == "/nothing-here":\n        return\n' + LOGIN +
     '\n\n@app.get("/d")\ndef d():\n    return ""\n';
   const report = run(
@@ -449,8 +453,13 @@ test("where a prefix cannot be read, a hook's path rule is taken to reach the ro
       "app.py": app,
       "a.py": view("a", "/a"), // one of its two prefixes is not a literal
       "f.py": view("f", "/f", ", url_prefix=settings.PREFIX"), // nor is its own
-      "b.py": view("b", "/b"), // registered in a loop
-      "c.py": view("c", "/c"), // registered on something not traced to an app
+      "b.py": view("b", "/b"), // registered in a loop over something not written out
+      "c.py": view("c", "/c"), // also registered on a parameter of a function never called, which may be called from outside
+      "g.py": view("g", "/g"), // ... of a function also passed as a value, so called with anything
+      "h.py": view("h", "/h"), // ... of a nested function, whose calls are not looked for
+      "i.py": view("i", "/i"), // in a loop over a slice, not the list written out
+      "k.py": view("k", "/k"), // on something not traced to an app or a blueprint
+      "n.py": view("n", "/n"), // returned by a function nested in the one called, not by it
       "e.py": view("e", "/e"), // registered nowhere
     },
     checkAuthentication
@@ -462,7 +471,56 @@ test("where a prefix cannot be read, a hook's path rule is taken to reach the ro
     "c.py": null,
     "e.py": null,
     "f.py": null,
+    "g.py": null,
+    "h.py": null,
+    "i.py": null,
+    "k.py": null,
+    "n.py": null,
   });
+});
+
+test("a blueprint registered by a helper, in a loop, or made by a factory has a known prefix, as redash registers its own", () => {
+  const app =
+    "from flask import Flask, abort, request, session\n\nfrom portal import handlers\nfrom portal.login import init_app as init_login\n\n\n" +
+    "def create_app():\n    app = Flask(__name__)\n    handlers.init_app(app)\n    init_login(app)\n\n" +
+    '    @app.before_request\n    def require_login():\n        if request.path.startswith("/public"):\n            return\n' +
+    LOGIN.replace(/^/gm, "    ").replace(/ +$/, "") + "\n    return app\n";
+  const handlers =
+    'from flask import Blueprint\n\nroutes = Blueprint("routes", __name__)\napi = Blueprint("api", __name__)\ndocs = Blueprint("docs", __name__)\nEXTRA = [docs]\n\n\n' +
+    '@routes.get("/status")\ndef status():\n    return ""\n\n\n@api.get("/public")\ndef listing():\n    return ""\n\n\n@docs.get("/public")\ndef manual():\n    return ""\n\n\n' +
+    'def mount(app, bp):\n    app.register_blueprint(bp, url_prefix="/v2")\n\n\n' +
+    "def init_app(app):\n    app.register_blueprint(routes)\n    mount(app, bp=api)\n    for bp in EXTRA:\n        app.register_blueprint(bp, url_prefix=\"/v3\")\n";
+  const login =
+    'from flask import Blueprint\n\nfrom portal import oauth\n\nsaml = Blueprint("saml", __name__)\n\n\n@saml.get("/saml")\ndef sso():\n    return ""\n\n\n' +
+    "def init_app(app):\n    for blueprint in [\n        oauth.create_blueprint(app),  # off unless configured\n        saml,\n    ]:\n        if blueprint:\n            app.register_blueprint(blueprint)\n";
+  const oauth =
+    "from flask import Blueprint\n\n\ndef create_blueprint(app):\n    if not app.config.get(\"OAUTH\"):\n        return None\n" +
+    '    blueprint = Blueprint("oauth", __name__, url_prefix="/sso")\n\n    @blueprint.get("/public")\n    def callback():\n        return ""\n\n    return blueprint\n';
+  const hook = `a before_request hook (portal/app.py:${lineOf(app, "@app.before_request")})`;
+  const report = run(
+    { "portal/__init__.py": "", "portal/app.py": app, "portal/handlers.py": handlers, "portal/login.py": login, "portal/oauth.py": oauth },
+    checkAuthentication
+  );
+  // Read by name alone, none of these was found registered, so the rule was taken to reach them all.
+  // "/v2/public", "/v3/public" and "/sso/public" do not start with "/public": their prefixes close them.
+  assert.deepEqual(verdicts(report), { "GET /status": hook, "GET /public": hook, "GET /saml": hook });
+  assert.equal(report.routes.filter((r) => r.protectedBy === hook).length, 5);
+});
+
+test("a parameter is what its function is called with, not a module-level name it shadows, and each call pairs its own arguments", () => {
+  const app =
+    "from flask import Blueprint, Flask, abort, request, session\n\nfrom w import bp as w_bp\nfrom x import bp as x_bp\nfrom y import bp as y_bp\n\n" +
+    'app = Flask(__name__)\nsub = Blueprint("sub", __name__, url_prefix="/sub")\n\n\n' +
+    "def attach(app, bp):\n    app.register_blueprint(bp)\n\n\n" +
+    "def put(bp, target=app):\n    target.register_blueprint(bp)\n\n\ndef setup(app):\n    put(w_bp)\n\n\n" +
+    "attach(sub, x_bp)\nattach(app, y_bp)\nsetup(sub)\napp.register_blueprint(sub)\n\n\n" +
+    '@app.before_request\ndef require_login():\n    if request.path.startswith("/sub"):\n        return\n' + LOGIN;
+  const hook = `a before_request hook (app.py:${lineOf(app, "@app.before_request")})`;
+  const report = run({ "app.py": app, "w.py": view("w", "/w"), "x.py": view("x", "/x"), "y.py": view("y", "/y") }, checkAuthentication);
+  // x is served at "/sub/x", which the rule lets through; read as the module's app, it was "/x" and
+  // credited. y is served at "/y" alone: the call passing it passes the app, not `sub`. w is put on
+  // the app by a default, read where `put` is defined: inside `setup`, `app` is `sub`.
+  assert.deepEqual(byFile(report), { "w.py": hook, "x.py": null, "y.py": hook });
 });
 
 test("a path rule reaches a route whose variables can take the path it names, and a rule whose values are not written out reaches every route", () => {
