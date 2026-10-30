@@ -1685,8 +1685,34 @@ blueprint. On a copy of CTFd with a refusing `@api.before_request` added, the ho
 90 API routes and on none of the other 73, against none before. 7 tests, and each part of the change
 switched off fails at least one.
 
-**Still open:** a blueprint's `url_prefix` is not part of the path read, which also makes a hook's
-path rule credit nothing for a prefixed blueprint; `LOGIN_DISABLED` switches Flask-Login's decorator
+A hook's path rule was matched against the path in the route decorator, fixed after v1.13.0.
+`request.path` is the whole path, so a hook letting `/public` through was credited on a blueprint
+registered with `app.register_blueprint(bp, url_prefix="/public")`, whose routes it lets through: the
+prefix counted only when written in the route's own file. Three more in the same comparison: a
+route's variables were compared as text, so a rule for `/docs/intro` was credited on `/docs/<page>`;
+a rule whose values are not literals (`request.path in PUBLIC`) was read as naming nothing; and,
+in the safe direction, a hook on an app made by a project's subclass of `Flask` (CTFd's `CTFdFlask`)
+was not read at all. Each route's full path is now built as Flask and flask-restx build it, read from
+their source: the prefix given to `register_blueprint`, else the blueprint's own, joined to a parent
+blueprint's and to the rule with one `/`; for flask-restx, the blueprint's prefix, the `Api`'s
+`prefix` and the namespace's path, end to end. A variable matches any value, a `path` variable any
+number of segments. Where a prefix is not a literal or a registration is not found, the full path is
+not known and a path rule reaches the route, as before. A namespace added to two `Api`s is protected
+only where both are. Writing the tests found that an import followed by a comment (`# noqa: E402`)
+did not resolve, in all four places imports are read.
+
+Measured on the 2,005 calibration routes: no route changed, since none has a hook with a path rule.
+Full paths read: CTFd 163 of 163, microblog 24 of 24, the flask repository 35 of 42 (the other 7 are
+examples in docstrings), redash 0 of 11 (its blueprints are registered in a loop, or on an
+`init_app(app)` parameter); CTFd's checked against its source. On a copy of CTFd with an app hook that
+lets `/api/v1/users` and `/setup` through, 144 routes are credited and 19 stay open, each one the rule
+matches by its full path, against none credited before. With the app made by `Flask(...)`, so that
+the earlier reader saw the hook too, 79 API routes it reported open are credited, and one it credited
+is open: the catch-all `/<path:route>`, which serves `/setup/...`. 7 tests, and each of 29 parts of the
+change switched off fails at least one.
+
+**Still open:** a blueprint registered in a loop or by a helper taking the app as a parameter has no
+known full path, so a hook's path rule leaves its routes open (redash); `LOGIN_DISABLED` switches Flask-Login's decorator
 off and is not read; a class route's methods, which would each need judging; a decorator or hook
 whose condition is a helper call (CTFd's `authed()`).
 

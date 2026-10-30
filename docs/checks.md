@@ -77,9 +77,16 @@ the app's hook every route under the app's directory, a blueprint's its own rout
 flask-restx `Api` mounted on it (`Api(bp)`, `Api(app=bp)`, `api.init_app(bp)`), followed through
 `api.add_namespace(ns)` or `api.namespace(...)` and the imports between modules. A route the hook
 lets through by `request.endpoint` or `request.path` stays open; a hook that lets requests through on
-any other condition protects nothing, and so does a path rule for a blueprint with a `url_prefix` or
-for a flask-restx route, whose full paths are not read, and an endpoint rule for a route on a class,
-whose endpoint is not its first method's name (flask-restx names it `<namespace>_<class>`). Not read: a route registered by a call rather than a decorator —
+any other condition protects nothing. A path rule (`request.path == ...`, `request.path in (...)`,
+`request.path.startswith(...)`) is matched against the route's full path: the `url_prefix` its
+blueprint is registered with, or else the one in `Blueprint(...)`, a parent blueprint's before it,
+and for a flask-restx route the `Api`'s `prefix` and the namespace's path (the one `add_namespace`
+gives, else `Namespace(path=...)`, else its name). A route's variables match any value, so a rule
+for "/docs/intro" opens "/docs/<page>". A path rule reaches every route whose full path cannot be
+read — a prefix that is not a literal, a blueprint registered in a loop or by a helper — and so does
+a rule whose values are not written out (`request.path in PUBLIC`). An endpoint rule reaches a route
+on a class, whose endpoint is not its first method's name (flask-restx names it `<namespace>_<class>`).
+A flask-restx namespace added to more than one `Api` is protected only where each is. Not read: a route registered by a call rather than a decorator —
 `add_url_rule(...)`, which is how a `MethodView` is registered, and flask-restx's `add_resource(...)` —
 which is not found as a route at all; the methods of a class a route decorator is on (flask-restx's
 `@ns.route` on a `Resource`), which are judged neither by their decorators nor by their bodies, so

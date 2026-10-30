@@ -205,7 +205,7 @@ test("a hook's path exemptions open the routes they match, and a prefixed bluepr
       "app.py":
         "from flask import Flask, abort, request, session\n\napp = Flask(__name__)\n\n\n" + hook +
         '\n\n@app.get("/public/docs")\ndef docs():\n    return "d"\n\n\n@app.get("/reports")\ndef reports():\n    return []\n',
-      // The prefix is not part of the path read here, so "/stats" may well be "/public/stats".
+      // Registered nowhere that is found, so its full path is not known: "/stats" may well be "/public/stats".
       "admin.py": 'from flask import Blueprint\n\nbp = Blueprint("admin", __name__, url_prefix="/public")\n\n\n@bp.get("/stats")\ndef stats():\n    return "s"\n',
     },
     checkAuthentication
@@ -304,10 +304,10 @@ test("a flask-restx route stays open under another blueprint's hook, an Api it w
       // Never added to the Api.
       "unmounted.py":
         head + 'bp = Blueprint("b", __name__)\napi = Api(bp)\nns = Namespace("b")\n\n\n@bp.before_request\ndef require_login():\n' + REFUSE + route("ns", "/unmounted"),
-      // A namespace's path is not read, so the full path of the route is not known.
+      // The rule names the route's full path: the namespace's "/c", then its own "/bypath".
       "bypath.py":
-        head + 'bp = Blueprint("c", __name__)\napi = Api(bp)\nns = Namespace("c")\napi.add_namespace(ns)\n\n\n@bp.before_request\ndef require_login():\n' +
-        '    if request.path.startswith("/c/public"):\n        return\n' + REFUSE + route("ns", "/bypath"),
+        head + 'bp = Blueprint("c", __name__)\napi = Api(bp)\nns = Namespace("c")\napi.add_namespace(ns)\nmain = Flask(__name__)\nmain.register_blueprint(bp)\n\n\n' +
+        '@bp.before_request\ndef require_login():\n    if request.path.startswith("/c/by"):\n        return\n' + REFUSE + route("ns", "/bypath"),
       // flask-restx names this Resource's endpoint `public_cbyendpoint` (`<namespace>_<class>`), and the
       // hook lets it through; the reader took the class's endpoint to be its first method's name.
       "app/byendpoint.py":
@@ -382,4 +382,166 @@ test("a hook's endpoint rule reaches a class route on a blueprint, which stays o
     checkAuthentication
   );
   assert.deepEqual(verdicts(report), { "ROUTE /things": null });
+});
+
+// --- the full path a hook's rule reads -------------------------------------------------------------
+// `request.path` is the whole path, while the route decorator gives only its last part. A hook letting
+// "/public" through was credited on a blueprint registered at `url_prefix="/public"`. The joins are
+// Flask's: the prefix given to `register_blueprint`, else the one in `Blueprint(...)`; a nested
+// blueprint's joined to its parent's; flask-restx's Api prefix and namespace path after them.
+const byFile = (report) => Object.fromEntries(report.routes.map((r) => [r.file, r.protectedBy]));
+const LOGIN = '    if "user_id" not in session:\n        abort(401)\n';
+const view = (bp, p, extra = "") => `from flask import Blueprint\n\nbp = Blueprint("${bp}", __name__${extra})\n\n\n@bp.get("${p}")\ndef v():\n    return ""\n`;
+
+test("a blueprint's url_prefix, from Blueprint() or register_blueprint(), is part of the path a hook's rule reads", () => {
+  const app =
+    "from flask import Flask, abort, request, session\n\nfrom public import bp as public_bp\nfrom . import admin  # noqa: E402\nfrom override import bp as override_bp  # noqa: E402\nimport staff  # noqa: E402\n\n" +
+    'app = Flask(__name__)\napp.register_blueprint(public_bp, url_prefix="/public")\napp.register_blueprint(admin.bp)\n' +
+    'app.register_blueprint(override_bp, url_prefix="/internal")\napp.register_blueprint(staff.bp, url_prefix="/staff")\n\n\n' +
+    '@app.before_request\ndef require_login():\n    if request.path.startswith("/public"):\n        return\n' + LOGIN +
+    '\n\n@app.get("/public-key")\ndef key():\n    return ""\n';
+  const hook = `a before_request hook (app.py:${lineOf(app, "@app.before_request")})`;
+  const report = run(
+    {
+      "app.py": app,
+      // Registered at "/public": "/public/stats", which the hook lets through.
+      "public.py": view("public", "/stats"),
+      // Its own prefix: "/admin/stats".
+      "admin.py": view("admin", "/stats", ', url_prefix="/admin"'),
+      // The registration's prefix replaces the blueprint's: "/internal/stats", not "/public/stats".
+      "override.py": view("override", "/stats", ', url_prefix="/public"'),
+      "staff.py": view("staff", "/stats"),
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(byFile(report), {
+    // `startswith` compares strings, not segments: "/public-key" starts with "/public".
+    "app.py": null,
+    "public.py": null,
+    "admin.py": hook,
+    "override.py": hook,
+    "staff.py": hook,
+  });
+});
+
+test("nested blueprints join their prefixes with one slash, and a project's subclass of Flask is an app", () => {
+  const app =
+    "from flask import Blueprint, Flask, abort, request, session\n\n\nclass Portal(Flask):\n    pass\n\n\n" +
+    'app = Portal(__name__)\napi = Blueprint("api", __name__, url_prefix="/api/")\npublic = Blueprint("public", __name__, url_prefix="/public")\n' +
+    'v1 = Blueprint("v1", __name__)\napi.register_blueprint(public)\napi.register_blueprint(v1, url_prefix="/v1/")\napp.register_blueprint(api)\n\n\n' +
+    '@app.before_request\ndef require_login():\n    if request.path.startswith("/api/public/") or request.path == "/api/v1/things":\n        return\n' + LOGIN +
+    '\n\n@public.get("/docs")\ndef docs():\n    return ""\n\n\n@v1.get("/things")\ndef things():\n    return ""\n\n\n@api.get("/public")\ndef listing():\n    return ""\n';
+  const hook = `a before_request hook (app.py:${lineOf(app, "@app.before_request")})`;
+  const report = run({ "app.py": app }, checkAuthentication);
+  // Each join drops the doubled "/": "/api/" and "/v1/" make "/api/v1/things".
+  assert.deepEqual(verdicts(report), { "GET /docs": null, "GET /things": null, "GET /public": hook });
+});
+
+test("where a prefix cannot be read, a hook's path rule is taken to reach the route", () => {
+  const app =
+    "from flask import Flask, abort, request, session\n\nfrom a import bp as a_bp\nfrom b import bp as b_bp\nfrom c import bp as c_bp\nfrom f import bp as f_bp\n\n" +
+    'PREFIX = "/a"\napp = Flask(__name__)\napp.register_blueprint(a_bp, url_prefix=PREFIX)\napp.register_blueprint(a_bp, url_prefix="/z", name="z")\nfor blueprint in (b_bp,):\n    app.register_blueprint(blueprint)\n\n\n' +
+    "def init_app(target):\n    target.register_blueprint(c_bp)\n\n\napp.register_blueprint(f_bp)\n\n\n" +
+    '@app.before_request\ndef require_login():\n    if request.path == "/nothing-here":\n        return\n' + LOGIN +
+    '\n\n@app.get("/d")\ndef d():\n    return ""\n';
+  const report = run(
+    {
+      "app.py": app,
+      "a.py": view("a", "/a"), // one of its two prefixes is not a literal
+      "f.py": view("f", "/f", ", url_prefix=settings.PREFIX"), // nor is its own
+      "b.py": view("b", "/b"), // registered in a loop
+      "c.py": view("c", "/c"), // registered on something not traced to an app
+      "e.py": view("e", "/e"), // registered nowhere
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(byFile(report), {
+    "app.py": `a before_request hook (app.py:${lineOf(app, "@app.before_request")})`,
+    "a.py": null,
+    "b.py": null,
+    "c.py": null,
+    "e.py": null,
+    "f.py": null,
+  });
+});
+
+test("a path rule reaches a route whose variables can take the path it names, and a rule whose values are not written out reaches every route", () => {
+  const head = "from flask import Flask, abort, request, session\n\napp = Flask(__name__)\n";
+  const get = (p) => `\n\n@app.get("${p}")\ndef v${p.replace(/\W/g, "")}():\n    return ""\n`;
+  const one =
+    head + "\n\n@app.before_request\ndef require_login():\n" +
+    '    if request.path == "/docs/intro" or request.path == "/users/5" or request.path == "/files/a/b" or request.path.startswith("/public"):\n        return\n' +
+    LOGIN + get("/docs/<page>") + get("/users/<int:id>/posts") + get("/<lang>/home") + get("/files/<path:name>") + get("/reports/<int:id>");
+  const two = head + 'PUBLIC = {"/about"}\n\n\n@app.before_request\ndef require_login():\n    if request.path in PUBLIC:\n        return\n' + LOGIN + get("/accounts");
+  const three = head + 'OPEN = ("site.about",)\n\n\n@app.before_request\ndef require_login():\n    if request.endpoint in OPEN:\n        return\n' + LOGIN + get("/billing");
+  const report = run({ "one/app.py": one, "two/app.py": two, "three/app.py": three }, checkAuthentication);
+  const hook = `a before_request hook (one/app.py:${lineOf(one, "@app.before_request")})`;
+  assert.deepEqual(verdicts(report), {
+    "GET /docs/<page>": null, // "/docs/intro"
+    "GET /users/<int:id>/posts": hook, // "/users/5" is not a whole path of this rule
+    "GET /<lang>/home": null, // `lang` may be "public"
+    "GET /files/<path:name>": null, // a `path` variable takes "a/b"
+    "GET /reports/<int:id>": hook,
+    "GET /accounts": null,
+    "GET /billing": null,
+  });
+});
+
+test("a flask-restx route's full path: the blueprint's prefix, the Api's, then the namespace's path", () => {
+  const init =
+    "from flask import Blueprint, Flask, abort, request\nfrom flask_login import current_user\nfrom flask_restx import Api, Resource\n\n" +
+    "from .users import ns as users\nfrom .teams import ns as teams\nfrom .things import ns as things\n\n" +
+    'app = Flask(__name__)\nbp = Blueprint("api", __name__, url_prefix="/api")\napi = Api(bp, prefix="/v2", doc=False)\n' +
+    'api.add_namespace(users, "/people")\napi.add_namespace(teams)\napi.add_namespace(things)\nopen_ns = api.namespace("public")\napp.register_blueprint(bp)\n\n\n' +
+    "@app.before_request\ndef require_login():\n" +
+    '    if request.path.startswith("/api/v2/users") or request.path.startswith("/api/v2/squads") or request.path.startswith("/api/v2/public/"):\n        return\n' +
+    REFUSE + '\n\n@open_ns.route("/docs")\nclass Docs(Resource):\n    def get(self):\n        return {}\n';
+  const resource = (ns) => `from flask_restx import Namespace, Resource\n\nns = ${ns}\n\n\n@ns.route("/<int:id>")\nclass R(Resource):\n    def delete(self, id):\n        return {}\n`;
+  const report = run(
+    {
+      "api/__init__.py": init,
+      "api/users.py": resource('Namespace("users")'), // at "/people", the path add_namespace gives
+      "api/teams.py": resource('Namespace("teams", path="/squads")'),
+      "api/things.py": resource('Namespace("things")'),
+    },
+    checkAuthentication
+  );
+  const hook = `a before_request hook (api/__init__.py:${lineOf(init, "@app.before_request")})`;
+  assert.deepEqual(byFile(report), {
+    "api/__init__.py": null, // "/api/v2/public/docs"
+    "api/users.py": hook, // "/api/v2/people/<int:id>": not under its name, "/api/v2/users"
+    "api/teams.py": null, // "/api/v2/squads/<int:id>"
+    "api/things.py": hook, // "/api/v2/things/<int:id>"
+  });
+});
+
+test("a namespace added to two Apis is protected only when both are", () => {
+  const app = (hooks) =>
+    "from flask import Blueprint, Flask, abort\nfrom flask_login import current_user\nfrom flask_restx import Api, Namespace, Resource\n\n" +
+    'app = Flask(__name__)\none = Blueprint("one", __name__, url_prefix="/one")\ntwo = Blueprint("two", __name__, url_prefix="/two")\n' +
+    'ns = Namespace("things")\nfor_one = Api(one)\nfor_two = Api(two)\nfor_one.add_namespace(ns)\nfor_two.add_namespace(ns)\n' +
+    "app.register_blueprint(one)\napp.register_blueprint(two)\n" +
+    hooks.map((bp) => `\n\n@${bp}.before_request\ndef require_login_${bp}():\n` + REFUSE).join("") +
+    '\n\n@ns.route("/x")\nclass X(Resource):\n    def post(self):\n        return {}\n';
+  const both = app(["one", "two"]);
+  const report = run({ "a/app.py": app(["one"]), "b/app.py": both }, checkAuthentication);
+  assert.deepEqual(byFile(report), {
+    "a/app.py": null, // served at "/two/things/x" without a hook
+    "b/app.py": `a before_request hook (b/app.py:${lineOf(both, "@one.before_request")})`,
+  });
+});
+
+test("an import followed by a comment is read: a library decorator, and a blueprint from another module", () => {
+  const views =
+    "from flask import Blueprint\nfrom flask_login import login_required  # noqa: F401\n\n" +
+    'bp = Blueprint("views", __name__)\n\n\n@bp.get("/inbox")\n@login_required\ndef inbox():\n    return ""\n';
+  const hooks =
+    "from flask import Blueprint, abort\nfrom flask_login import current_user\n\n" +
+    'admin = Blueprint("admin", __name__)\n\n\n@admin.before_request\ndef require_login():\n' + REFUSE;
+  const routes = 'from .hooks import admin  # noqa: E402\n\n\n@admin.get("/stats")\ndef stats():\n    return ""\n';
+  const report = run({ "app/views.py": views, "app/hooks.py": hooks, "app/routes.py": routes }, checkAuthentication);
+  assert.deepEqual(verdicts(report), {
+    "GET /inbox": "@login_required from flask_login",
+    "GET /stats": `a before_request hook (app/hooks.py:${lineOf(hooks, "@admin.before_request")})`,
+  });
 });

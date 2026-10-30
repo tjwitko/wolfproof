@@ -166,7 +166,10 @@ that counts for it, not a check at the top of the view.
 **After v1.13.0: Flask's decorators and `before_request` hooks count.** `@login_required` from
 Flask-Login, Flask-Security's and Flask-JWT-Extended's decorators, Flask-HTTPAuth's
 `@auth.login_required`, a project's own decorator that refuses the caller, and a `before_request` hook
-that refuses now protect the routes they run for. A Flask route open before can now pass, and a review
+that refuses now protect the routes they run for. A hook that lets some paths through
+(`request.path.startswith("/public")`) leaves open the routes whose full path it matches, read with
+their blueprint's `url_prefix` and, for flask-restx, the `Api`'s prefix and the namespace's path, and
+every route whose full path cannot be read. A Flask route open before can now pass, and a review
 of one now matches nothing and is reported as doing nothing: delete it.
 
 **After v1.13.0: a Python route on a class is not judged by its first method.** A flask-restx route,
@@ -175,7 +178,8 @@ sign-in check in its `get` credited an open `post`. A route on a class is now ju
 methods: not by their bodies, not by `@login_required` on a method, and not by `method_decorators`.
 It is reported open unless a `before_request` hook protects it: the app's, or that of the blueprint
 its `Api` is mounted on (`Api(bp)`, `api.init_app(bp)`). A hook that lets requests through by endpoint
-or path leaves it open, since its endpoint and full path are not read. A class route that passed on
+leaves it open, since its endpoint is not read, and one that lets them through by path leaves it open
+when the path matches its full path. A class route that passed on
 its first method's check can now block: move the check into such a hook, or mark the finding
 reviewed once a person has read each method. A `MethodView` registered with `add_url_rule` is not
 read as a route by either version, so nothing changes for it. It moved no route on the calibration
