@@ -1695,7 +1695,13 @@ in the safe direction, a hook on an app made by a project's subclass of `Flask` 
 was not read at all. Each route's full path is now built as Flask and flask-restx build it, read from
 their source: the prefix given to `register_blueprint`, else the blueprint's own, joined to a parent
 blueprint's and to the rule with one `/`; for flask-restx, the blueprint's prefix, the `Api`'s
-`prefix` and the namespace's path, end to end. A variable matches any value, a `path` variable any
+`prefix` and the namespace's path, end to end. Checked against Flask 3.1.3 and flask-restx 1.3.2 on
+seven small apps covering each join (trailing slashes, `""` rules, three levels of nesting, a blueprint
+registered twice, `add_namespace(ns, path="/trail/")`, which Flask serves as `/trail//<int:id>`): all
+38 URLs in Flask's own `url_map` are among the computed paths. The only extras are a flask-restx route
+without its Api's prefix, which Flask serves when the route is added after the blueprint is
+registered; which comes first is not read, so both are kept, and the extra path can only leave a
+route open. A variable matches any value, a `path` variable any
 number of segments. Where a prefix is not a literal or a registration is not found, the full path is
 not known and a path rule reaches the route, as before. A namespace added to two `Api`s is protected
 only where both are. Writing the tests found that an import followed by a comment (`# noqa: E402`)
