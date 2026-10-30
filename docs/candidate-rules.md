@@ -1844,9 +1844,28 @@ open. In the test, cli.py's app answers 200 on `/home`. A project's other calls 
 usually a worker, a CLI or tests, and treating each as a server would leave every factory app's hook
 uncredited.
 
+A conditional expression was not followed, fixed after v1.13.0, and looking at the same construct
+in a route's rule found a false credit. `return Blueprint(..., url_prefix="/t") if ON else
+Blueprint(..., url_prefix="/t2")`, and `chosen = pa if ON else pb`, now stand for both values, as two
+`return`s do; the two constructors on one line are told apart by their text as well as their place.
+In a rule, the route pattern took the first literal in the decorator whatever followed it, so
+`@app.get("/a" if ON else "/b")` was "/a" and `@app.get("/x" + SUFFIX)` was "/x": with a hook letting
+"/b" or "/x/c" through, each was credited, and Flask serves both to anyone (checked, 200 and 200). A
+literal now counts only as the whole first argument; anything else is read by the rule reader, which
+takes both branches of a conditional, and the route is shown by its first literal as before.
+
+Measured: all 64 directories unchanged, and every full path on the Flask applications and c1 to c9;
+no calibration app writes a conditional factory or a rule with a literal and more after it. The
+factory test's app answers 20 URLs in Flask 3.1.3's test client as the test expects; the rules
+test's, run with MULTI_ORG unset and set, serves 46, all 36 computed among them and the other 10
+belonging to the 8 routes it leaves unknown. The earlier code credits `/b1` (Flask serves `/b2`, let
+through) and reads `"/x9" + PREFIX` and `"/d1" if ... else PREFIX` as "/x9" and "/d1", and leaves
+`/u2/s2` and `/pf/c3` open where Flask refuses them. 13 parts switched off, each fails a test, and the
+rules test now also counts its routes, which caught a decorator read by both route patterns. Not
+done: an `or` (`existing or Blueprint(...)`), which is not a choice between two equals.
+
 **Still open:** a flask-restx `Api` mounted on a parameter is not followed back as a hook's target is,
-so a blueprint hook does not reach its routes; a factory returning a conditional expression
-(`Blueprint(...) if ON else Blueprint(...)`); a rule built from a module attribute or
+so a blueprint hook does not reach its routes; a rule built from a module attribute or
 anything else not listed above (`settings.PREFIX + "/x"`), whose full path stays unknown;
 `LOGIN_DISABLED` switches Flask-Login's decorator
 off and is not read; a class route's methods, which would each need judging; a decorator or hook

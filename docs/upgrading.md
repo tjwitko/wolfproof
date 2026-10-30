@@ -175,6 +175,13 @@ blueprint registered on a helper's parameter is read as what the helper is calle
 module-level name the parameter shadows, which credited routes the hook lets through. A Flask route open before can now pass, and a review
 of one now matches nothing and is reported as doing nothing: delete it.
 
+**After v1.13.0: a Flask rule is read as a literal only when it is one.** `@app.get("/a" if ON else
+"/b")` was read as "/a", and `@app.get("/x" + SUFFIX)` as "/x", so a hook letting "/b" or "/x/c"
+through was credited on a route Flask serves to anyone. A conditional rule is now either path, and one
+with a part not written out has no known path, so a hook's path rule is taken to reach it: such a route
+can now be reported open. A factory or name choosing between two blueprints with a conditional
+expression now stands for both.
+
 **After v1.13.0: an app or blueprint made by a factory is known.** A hook on `app = create_app()`
 imported from wsgi.py now protects that app's routes, a route declared there has a full path, and a
 blueprint assigned from a factory (`admin = make_admin()`) has the prefix it is registered with, as

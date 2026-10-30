@@ -551,6 +551,30 @@ function callsOf(fn, files) {
   return calls;
 }
 
+// The two values of a conditional expression, `A if C else B`, or null for anything else. Its
+// condition cannot hold another unbracketed conditional, so the first `else` after the `if` ends it;
+// B may be one, and is read in turn.
+function branchesOf(e) {
+  let depth = 0;
+  let quote = null;
+  let at = -1;
+  for (let k = 0; k < e.length; k++) {
+    const c = e[k];
+    if (quote) {
+      if (c === "\\") k++;
+      else if (c === quote) quote = null;
+    } else if (c === '"' || c === "'") quote = c;
+    else if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) depth--;
+    else if (depth === 0 && /\s/.test(c)) {
+      const word = /^\s(if|else)\s/.exec(e.slice(k));
+      if (word?.[1] === "if" && at < 0) at = k;
+      else if (word?.[1] === "else" && at >= 0) return [e.slice(0, at).trim(), e.slice(k + 5).trim()];
+    }
+  }
+  return null;
+}
+
 // The expressions a name can hold at a point in a file, each with the file and point to read it at.
 // A parameter of a top-level function holds what each call of it passes; a loop variable each element
 // of a list written out (or assigned to a name); a call of the project's own function what it returns.
@@ -560,6 +584,9 @@ function callsOf(fn, files) {
 function sourcesOf(expr, file, index, files, depth = 0, pin = new Map()) {
   if (depth > 6) return null;
   const e = expr.trim();
+  // `Blueprint(...) if ON else Blueprint(...)`: either branch, since which one runs is configuration.
+  const branches = branchesOf(e);
+  if (branches) return followAll(branches.map((b) => ({ expr: b, file, index, pin })), files, depth, pin);
   const call = /^(\w+(?:\s*\.\s*\w+)?)\s*\(/.exec(e);
   if (call && partsAt(e, call[0].length - 1)?.end === e.length - 1) {
     const fn = functionOf(call[1], file, files);
@@ -633,7 +660,8 @@ function constructedAt(src, files) {
   const m = new RegExp(`^(?:\\w+\\s*\\.\\s*)?(${[...flaskClasses(files).keys()].join("|")})\\s*\\(`).exec(e);
   const args = m && argsAt(e, m[0].length - 1);
   if (!args || args.end !== e.length - 1) return null;
-  return { name: `${m[1]}@${src.index}`, file: src.file, at: src.index, call: { callee: m[1], args } };
+  // The text as well as the place: both branches of `A if ON else B` are on one line.
+  return { name: `${m[1]}@${src.index}:${e}`, file: src.file, at: src.index, call: { callee: m[1], args } };
 }
 function madeOf(src, files, seen) {
   if (src.expr.trim() === "None") return [];
@@ -733,7 +761,7 @@ function prefixesOf(def, files, depth = 0) {
   const { positional, keywords, spread } = call.args;
   if (spread || positional.length > 5) return null;
   const own = keywords.url_prefix === undefined ? null : literal(keywords.url_prefix);
-  if (own === UNREAD || new RegExp(`^[ \\t]*${def.name}\\s*\\.\\s*url_prefix\\s*=`, "m").test(def.file.text)) return null;
+  if (own === UNREAD || new RegExp(`^[ \\t]*${escapeRe(def.name)}\\s*\\.\\s*url_prefix\\s*=`, "m").test(def.file.text)) return null;
   const out = [];
   for (const f of files) {
     for (const m of f.text.matchAll(/^[ \t]*([\w.]+?)\s*\.\s*register_blueprint\s*\(/gm)) {
@@ -840,6 +868,11 @@ function fieldsOf(body) {
 function ruleValues(expr, env, file, files, depth = 0) {
   const e = expr.trim();
   if (depth > 4 || !e) return null;
+  const branches = branchesOf(e);
+  if (branches) {
+    const both = branches.map((b) => ruleValues(b, env, file, files, depth + 1));
+    return both.every(Boolean) ? [...new Set(both.flat())] : null;
+  }
   const sum = splitTop(e, "+");
   if (sum.length > 1) return product(sum.map((s) => ruleValues(s, env, file, files, depth + 1)));
   let m;

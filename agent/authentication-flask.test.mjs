@@ -545,7 +545,7 @@ test("a route whose rule is a call is found, and its full paths are what the cal
     'app = Flask(__name__)\napi = Api(app, doc=False)\nARGS = ("/sp",)\n' +
     "HINT = 'decorate it, @app.route(rule, methods=[\"POST\"])'\n\n\n" +
     "@app.before_request\ndef require_login():\n" +
-    '    if request.path in ("/open", "/acme/w9", "/api/v2/v", "/x/j/", "/num/k/m", "/n/st", "/raw", "/p/1", "/r1", "/t/a1", "/p/3", "/kw"):\n        return\n' + LOGIN +
+    '    if request.path in ("/open", "/acme/w9", "/api/v2/v", "/x/j/", "/num/k/m", "/n/st", "/raw", "/p/1", "/r1", "/t/a1", "/p/3", "/kw", "/b2"):\n        return\n' + LOGIN +
     get('scoped("/w")', "w") + get('scoped("/open")', "open_") + get('scoped("/w9")', "w9") +
     get('versioned("/v", version="v2")', "v") + get('versioned(rule="/w1")', "w1") +
     get('joined("/j")', "j") + get('joined("/j2")', "j2") + get('numbered("/m")', "m") + get('numbered("/m2")', "m2") +
@@ -553,6 +553,8 @@ test("a route whose rule is a call is found, and its full paths are what the cal
     get('unknowable("/k")', "k") + get('settings.PREFIX + "/k2"', "k2") + get("scoped(*ARGS)", "sp") +
     get('paren("/1")', "p1") + get('paren("/2")', "p2") + get("dflt()", "d0") + get("dflt(*ARGS)", "d1") + get('half("/h")', "h") +
     get('pair("/a1")', "t1") + get('pair("/a2")', "t2") + get('rule=scoped("/kw")', "kw") +
+    get('"/b1" if settings.MULTI_ORG else "/b2"', "bb") + get('"/c1" if settings.MULTI_ORG else "/c2"', "cc") + get('"/x9" + settings.PREFIX', "x9") +
+    get('"/d1" if settings.MULTI_ORG else settings.PREFIX', "dd") + get('rule="/kw2"', "kw2") +
     '\n\n@api.route(scoped("/r1"))\nclass R1(Resource):\n    def get(self, **kw):\n        return {}\n' +
     '\n\n@api.route(scoped("/r2"))\nclass R2(Resource):\n    def get(self, **kw):\n        return {}\n' +
     '\n\n@api.route(paren("/3"))\nclass R3(Resource):\n    def get(self):\n        return {}\n' +
@@ -562,6 +564,8 @@ test("a route whose rule is a call is found, and its full paths are what the cal
   const hook = `a before_request hook (app.py:${lineOf(app, "@app.before_request")})`;
   // Checked against Flask 3.1.3, with MULTI_ORG unset and set: every path computed here is one Flask
   // serves, and the routes whose paths are not computed are those built from PREFIX or a spread.
+  // Each decorator is one route: none is read by both route patterns.
+  assert.equal(report.routes.length, Object.keys(verdicts(report)).length);
   assert.deepEqual(verdicts(report), {
     "GET /w": hook,
     "GET /open": null,
@@ -591,6 +595,11 @@ test("a route whose rule is a call is found, and its full paths are what the cal
     "GET /a1": null, // "/t/a1"
     "GET /a2": hook,
     "GET /kw": null, // the rule given by keyword
+    "GET /b1": null, // "/b1" or "/b2", either branch: the hook lets the second through
+    "GET /c1": hook, // "/c1" or "/c2", neither let through
+    "GET /x9": null, // "/x9" and PREFIX, not "/x9", which the hook would refuse
+    "GET /d1": null, // one branch not known
+    "GET /kw2": hook,
   });
 });
 
@@ -722,10 +731,13 @@ test("a factory returning the app or blueprint it makes is followed, and each ca
     'def make_k():\n    k = Blueprint("k", __name__)\n\n    @k.get("/u")\n    def u():\n        return "u"\n\n    return k\n\n\n' +
     'def setup():\n    made = make_k()\n    return made\n\n\n' +
     'def make_t():\n    return Blueprint("t", __name__, url_prefix="/t") if ON else Blueprint("t", __name__, url_prefix="/t2")\n\n\n' +
+    'def make_t3():\n    return Blueprint("t3", __name__, url_prefix="/u1") if ON else Blueprint("t3", __name__, url_prefix="/u2")\n\n\n' +
+    'def make_q():\n    return Blueprint("q", __name__, url_prefix="/q", template_folder="one if two else three")\n\n\n' +
+    "def choose(bp):\n    return bp\n\n\n" +
     'def refuse():\n    if "user_id" not in session:\n        abort(401)\n\n\n' +
     'def make_h(name):\n    h = Blueprint(name, __name__)\n    h.before_request(refuse)\n\n    @h.get("/hh")\n    def hh():\n        return "hh"\n\n    return h\n\n\n' +
     'ON = False\napp = create_app()\nb1 = make_b("one")\nb2 = make_b("two")\nb1.before_request(refuse)\nc = make_c()\n\n\n' +
-    '@app.before_request\ndef gate():\n    if request.path in ("/one/x", "/two/y", "/z", "/g1/v", "/g2/v", "/k1/u", "/k2/u", "/h1/hh", "/h2/hh", "/h1/mine", "/t2/s", "/pl"):\n        return\n    if "user_id" not in session:\n        abort(401)\n\n\n' +
+    '@app.before_request\ndef gate():\n    if request.path in ("/one/x", "/two/y", "/z", "/g1/v", "/g2/v", "/k1/u", "/k2/u", "/h1/hh", "/h2/hh", "/h1/mine", "/t2/s", "/pl", "/pb/ch", "/pc/c2"):\n        return\n    if "user_id" not in session:\n        abort(401)\n\n\n' +
     '@app.get("/direct")\ndef direct():\n    return "direct"\n\n\n@b1.get("/x")\ndef x():\n    return "x"\n\n\n' +
     '@b2.get("/y")\ndef y():\n    return "y"\n\n\n@c.get("/z")\ndef z():\n    return "z"\n\n\n' +
     'app.register_blueprint(b1, url_prefix="/one")\napp.register_blueprint(b2, url_prefix="/two")\n' +
@@ -733,14 +745,18 @@ test("a factory returning the app or blueprint it makes is followed, and each ca
     'made = []\nfor n in ("g1", "g2"):\n    last = make_g(n)\n    made.append(last)\nlast.before_request(refuse)\n' +
     'for each in made:\n    app.register_blueprint(each, url_prefix="/" + each.name)\n' +
     'first = setup()\nsecond = setup()\nfirst.before_request(refuse)\n' +
-    'h1 = make_h("h1")\nh2 = make_h("h2")\nt = make_t()\nplain = Blueprint("plain", __name__)\nalias = plain\nalias.before_request(refuse)\n\n\n' +
-    '@t.get("/s")\ndef s():\n    return "s"\n\n\n@plain.get("/pl")\ndef pl():\n    return "pl"\n\n\n@h1.get("/mine")\ndef mine():\n    return "mine"\n\n\n' +
+    'h1 = make_h("h1")\nh2 = make_h("h2")\nt = make_t()\nt3 = make_t3()\n' +
+    'pa = Blueprint("pa", __name__, url_prefix="/pa")\npb = Blueprint("pb", __name__, url_prefix="/pb")\nchosen = pa if ON else pb\n' +
+    'pc = Blueprint("pc", __name__, url_prefix="/pc")\npd = Blueprint("pd", __name__, url_prefix="/pd")\nchosen2 = pc if ON else pd\n' +
+    'pe = Blueprint("pe", __name__, url_prefix="/pe")\npf = Blueprint("pf", __name__, url_prefix="/pf")\nchosen3 = choose(pe if ON else pf)\nq = make_q()\nplain = Blueprint("plain", __name__)\nalias = plain\nalias.before_request(refuse)\n\n\n' +
+    '@t.get("/s")\ndef s():\n    return "s"\n\n\n@t3.get("/s2")\ndef s2():\n    return "s2"\n\n\n@chosen.get("/ch")\ndef ch():\n    return "ch"\n\n\n@chosen2.get("/c2")\ndef c2():\n    return "c2"\n\n\n@chosen3.get("/c3")\ndef c3():\n    return "c3"\n\n\n@q.get("/qq")\ndef qq():\n    return "qq"\n\n\n@plain.get("/pl")\ndef pl():\n    return "pl"\n\n\n@h1.get("/mine")\ndef mine():\n    return "mine"\n\n\n' +
     'app.register_blueprint(h1, url_prefix="/h1")\napp.register_blueprint(h2, url_prefix="/h2")\napp.register_blueprint(t)\napp.register_blueprint(plain)\n' +
+    "app.register_blueprint(t3)\napp.register_blueprint(chosen)\napp.register_blueprint(chosen2)\napp.register_blueprint(chosen3)\napp.register_blueprint(q)\n" +
     'app.register_blueprint(first, url_prefix="/k1", name="k1")\napp.register_blueprint(second, url_prefix="/k2", name="k2")\n';
   const report = run({ "app.py": app }, checkAuthentication);
   const gate = `a before_request hook (app.py:${lineOf(app, "@app.before_request")})`;
   const refuse = `a before_request hook (app.py:${lineOf(app, "def refuse")})`;
-  // Checked in Flask 3.1.3 with its test client and no session: /two/y, /g1/v, /k2/u and /t2/s answer 200,
+  // Checked in Flask 3.1.3 with its test client and no session: /two/y, /g1/v, /k2/u, /t2/s and /pb/ch answer 200,
   // the app's hook letting them through and `refuse` not on their blueprints; every other route refuses.
   assert.deepEqual(verdicts(report), {
     "GET /direct": gate, // on the app create_app() returns
@@ -752,7 +768,12 @@ test("a factory returning the app or blueprint it makes is followed, and each ca
     "GET /u": null, // make_k() runs once per call of setup(), which runs twice
     "GET /hh": refuse, // put on the blueprint inside make_h(), so on both it makes
     "GET /mine": refuse, // on h1, which make_h() put the hook on
-    "GET /s": null, // "/t/s" or "/t2/s": a conditional expression is not followed
+    "GET /s": null, // "/t/s" or "/t2/s", either branch: the hook lets the second through
+    "GET /s2": gate, // "/u1/s2" or "/u2/s2", neither let through
+    "GET /ch": null, // on pa or pb: "/pb/ch" is let through
+    "GET /c2": null, // on pc or pd: "/pc/c2" is let through; Flask, with ON false, serves "/pd/c2" and refuses it
+    "GET /c3": gate, // "/pe/c3" or "/pf/c3", through choose()
+    "GET /qq": gate, // "/q/qq": the `if` and `else` in a string are not a conditional
     "GET /pl": refuse, // put on `alias`, which is `plain`
   });
 });

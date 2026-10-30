@@ -192,14 +192,16 @@ export function codeOnly(text, style) {
 // Python -- FastAPI and Flask
 // ---------------------------------------------------------------------------------------------
 
-const PY_ROUTE_RE = /@(\w+)\.(get|post|put|patch|delete|route)\(\s*["']([^"']*)["']([^)]*)\)/g;
+// The rule must be the whole first argument: `"/a" if ON else "/b"` and `"/x" + SUFFIX` were read as
+// "/a" and "/x", so a hook letting "/b" or "/x/c" through credited a route Flask serves to anyone.
+const PY_ROUTE_RE = /@(\w+)\.(get|post|put|patch|delete|route)\(\s*["']([^"']*)["'](\s*(?:,[^)]*)?)\)/g;
 // A route whose rule is not a plain literal: `@routes.route(org_scoped_rule("/login"))`, as 19 of
 // redash's are, or `r"/x"`. None was found as a route, so each was checked by nothing. It must start a
 // line and begin with a name or a string prefix, so a decorator quoted mid-line in an error message
 // (Flask's own `'@app.route(..., methods=["POST"])'`) is not one. Shown by the path written in it
 // (`/login`), and its full paths are what the call can return (see authentication-flask.mjs).
-const PY_ROUTE_EXPR_RE = /^[ \t]*@(\w+)\.(get|post|put|patch|delete|route)\(\s*(?=[A-Za-z_])/gm;
-const PY_RULE_SHOWN = /^(?:[rRuU]|[\w.]+\s*\(\s*(?:\w+\s*=\s*)?[rRuU]?)(['"])(\/[^'"\n]*)\1/;
+const PY_ROUTE_EXPR_RE = /^[ \t]*@(\w+)\.(get|post|put|patch|delete|route)\(\s*(?=[A-Za-z_"'])/gm;
+const PY_RULE_SHOWN = /^(?:[rRuU]?|[\w.]+\s*\(\s*(?:\w+\s*=\s*)?[rRuU]?)(['"])(\/[^'"\n]*)\1/;
 
 // A dependency that authenticates, as opposed to one that supplies a database session. This
 // distinction is the whole check: a real run had `Depends(get_db)` on every route and
@@ -565,7 +567,8 @@ const pythonAdapter = {
       const open = m.index + m[0].indexOf("(");
       const args = argsAt(text, open);
       const rule = args && !args.spread ? args.positional[0] ?? args.keywords.rule ?? args.keywords.path : undefined;
-      if (rule === undefined) continue;
+      // A plain literal first is PY_ROUTE_RE's.
+      if (rule === undefined || /^(['"])[^'"\n]*\1$/.test(args.positional[0] ?? "")) continue;
       const shown = PY_RULE_SHOWN.exec(rule);
       const at = m.index + m[0].indexOf("@");
       found.push({ at, receiver: m[1], verb: m[2], route: shown ? shown[2] : rule.replace(/\s+/g, " "), ruleExpr: rule, declaration: text.slice(at, args.end + 1) });

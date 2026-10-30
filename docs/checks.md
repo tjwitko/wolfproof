@@ -103,16 +103,18 @@ assigned what a project function returns (`app = create_app()`, `admin = make_ad
 name (`staff = admin`) is the app or blueprint that function makes, so a route or hook on the `app`
 of a `wsgi.py` belongs to the app made in `create_app`, and a factory's blueprint has the prefix it is
 registered with; a factory that returns `Blueprint(...)` or `Flask(...)` directly is read the same
-way. A factory with a `return` not traced to one of these, a conditional expression among them, is not
-known. Each call of a factory makes its own app or blueprint: a hook put on what one call returned
+way, and a conditional expression (`Blueprint(...) if ON else Blueprint(...)`, `pa if ON else pb`)
+as either of its values. A factory with a `return` not traced to one of these is not known. Each call of a factory makes its own app or blueprint: a hook put on what one call returned
 (`b1.before_request(...)`) reaches the routes declared on that name, and those declared inside the
 factory or on another of its results only where the factory runs once — one call, not in a loop,
 from code that itself runs once. A hook put on the blueprint inside the factory is on every one it
 makes. A rule
 written as a call of the project's own function (`@routes.route(org_scoped_rule("/login"))`) is read
 the same way, its arguments bound to the function's parameters and each `return` read, every branch
-alike, so redash's is both "/login" and "/<org_slug>/login"; string literals, f-strings, `+` and
-`str.format` are followed. Such a route is shown by the path written in it. A route's
+alike, so redash's is both "/login" and "/<org_slug>/login"; string literals, f-strings, `+`,
+`str.format` and conditional expressions are followed. A rule is read as a literal only when the
+literal is its whole first argument: `"/a" if ON else "/b"` is "/a" or "/b", and `"/x" + SUFFIX` is
+not "/x". Such a route is shown by the path written in it, the first one written. A route's
 variables match any value, so a rule for "/docs/intro" opens "/docs/<page>". A path rule reaches every
 route whose full path cannot be read — a prefix that is not a literal, a rule built from anything
 else (`settings.PREFIX + "/x"`), a blueprint registered on a
