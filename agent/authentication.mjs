@@ -736,6 +736,68 @@ function inlineHandlerBodies(text, startOfCall) {
   return bodies;
 }
 
+// A request being made has the same shape as a route being declared: `api.post("/api/groups", {...})`
+// is `app.post(PATH, handler)` to JS_ROUTE_RE. Redash's Playwright helpers made 37 such calls and
+// every one was reported as an open route. Two things tell them apart without knowing the receiver:
+//
+//   - the call's value is waited for (`await`, `yield`, `.then(`). A declaration returns the app,
+//     and nothing awaits it; a request returns the response, which is the reason for making it.
+//   - nothing after the path can be a handler: every argument is a string, number or object or
+//     array literal with no function in it. Express refuses such a route at startup ("argument
+//     handler must be a function", 5.2.1), and Hono accepts it and answers every request with a 500
+//     (4.12.33), so in neither does it serve anything. An object holding a function or a `handler`
+//     key is Fastify's options form and is kept.
+//
+// Not caught: `api.post("/x", payload)` neither awaited nor chained -- `payload` could be a handler.
+
+// The comma-separated parts of `s` from `from`, up to the bracket that closes the list (its index is
+// `.end`, or -1 if none does). Quote-aware, so a comma or a paren inside a string splits nothing.
+function topLevelParts(s, from = 0) {
+  const parts = [];
+  let depth = 0;
+  let quote = null;
+  let start = from;
+  parts.end = -1;
+  for (let i = from; i < s.length && i < from + 20000; i++) {
+    const c = s[i];
+    if (quote) {
+      if (c === "\\") i++;
+      else if (c === quote) quote = null;
+    } else if (c === "'" || c === '"' || c === "`") quote = c;
+    else if (c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ")" || c === "]" || c === "}") {
+      if (depth === 0) {
+        parts.end = i;
+        break;
+      }
+      depth--;
+    } else if (c === "," && depth === 0) {
+      parts.push(s.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  parts.push(s.slice(start, parts.end < 0 ? undefined : parts.end).trim());
+  const out = parts.filter(Boolean);
+  out.end = parts.end;
+  return out;
+}
+
+function isDataLiteral(p) {
+  if (/^(['"`])[\s\S]*\1$/.test(p) || /^-?\d[\d_.]*$/.test(p) || /^(?:true|false|null|undefined)$/.test(p)) return true;
+  if (p.startsWith("{") && p.endsWith("}")) return !/=>|\bfunction\b|\bhandler\b/.test(p);
+  if (p.startsWith("[") && p.endsWith("]")) return topLevelParts(p.slice(1, -1)).every(isDataLiteral);
+  return false;
+}
+
+function isRequestNotRoute(text, m) {
+  // The receiver may be reached through others: `await this.api.post(...)`, `await page.request.get(...)`.
+  if (/\b(?:await|yield)\s+(?:[\w$]+\s*\??\.\s*)*$/.test(text.slice(Math.max(0, m.index - 80), m.index))) return true;
+  const after = topLevelParts(text, m.index + m[0].length);
+  if (after.end < 0) return false;
+  if (/^\s*\.\s*(?:then|catch|finally)\s*\(/.test(text.slice(after.end + 1, after.end + 40))) return true;
+  return after.every(isDataLiteral);
+}
+
 // Where each name is defined, found once per project rather than once per route: two regex searches
 // of the whole project per handler name took Gitea's 824 Go routes to a minute.
 let definitions = { all: null };
@@ -965,6 +1027,7 @@ const jsAdapter = {
     JS_ROUTE_RE.lastIndex = 0;
     let m;
     while ((m = JS_ROUTE_RE.exec(text))) {
+      if (isRequestNotRoute(text, m)) continue;
       // Everything from the path to the end of the call is where route middleware lives. Bounded
       // so a long handler body cannot drag an unrelated `auth` mention into the decision.
       const tail = text.slice(m.index + m[0].length, m.index + m[0].length + 300).split("\n").slice(0, 4).join("\n");

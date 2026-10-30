@@ -211,6 +211,14 @@ A check of sign-in flow state held in the session no longer does: CTFd's OAuth c
 is not a literal (`session[KEY]`) no longer counts either. Ktor's typed `call.sessions.get<T>()` is
 unchanged. A route that passed on such a check can now block.
 
+**After v1.13.0: an HTTP client call is not a route.** In JavaScript and TypeScript,
+`await api.post("/api/groups", {...})` was read as an Express route and reported open: 37 in
+redash's Playwright helpers, 6 in the React RealWorld client, 1 in Gitea's end-to-end helpers. A call
+whose value is waited for, or that passes only data after the path, is no longer a route. A project
+blocked only by such calls can now pass, and a review of one now matches nothing and is reported as
+doing nothing: delete it. No other route moved: not among 611 in Express, Fastify, Hono, juice-shop
+and the MCP SDK's examples, nor among the 1,967 other calibration routes.
+
 So run the new version locally first, read what it finds, and move the CI pin once you have — not
 the other way round, where the first you hear of it is a red build on someone else's pull request.
 

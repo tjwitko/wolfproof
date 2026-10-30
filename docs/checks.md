@@ -47,6 +47,12 @@ blueprint its `Api` is mounted on, since a check in its methods or a decorator o
 (`net/http`, chi, gin, echo, gorilla), Java (Spring), Ruby (Sinatra), C# (ASP.NET Core
 controllers and minimal APIs), PHP (Laravel, Symfony), Kotlin (Spring, Ktor).
 
+In JavaScript and TypeScript, a call shaped like an Express route that is an HTTP request is not
+read as one: a call whose value is waited for (`await api.post(...)`, `yield`, `.then(...)`), or one
+that passes nothing after the path that could be a handler, only strings, numbers, and object or array
+literals with no function in them. A request passing a name after the path (`api.post(path, payload)`)
+is still read as a route, since the name could be a handler.
+
 In C#, a route counts as protected by `[Authorize]` in any form on the action or anywhere in its
 controller's class chain, by an attribute class of the project's that derives from
 `AuthorizeAttribute` or turns the caller away with 401 or 403, by `RequireAuthorization()` on the

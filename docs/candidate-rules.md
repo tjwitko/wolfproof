@@ -1749,6 +1749,36 @@ open; a flask-restx `Api` mounted on a parameter likewise; a route whose rule is
 off and is not read; a class route's methods, which would each need judging; a decorator or hook
 whose condition is a helper call (CTFd's `authed()`).
 
+### 28. HTTP client calls read as Express routes — fixed after v1.13.0
+
+`await api.post("/api/groups", { name })` is `app.post(PATH, handler)` to the route pattern, which
+asks only for a receiver, a verb, a quoted path starting `/` and a comma. Redash's Playwright helpers
+(`client/visual-tests/`, files named `*.setup.ts` and `api.ts`, so not skipped as tests) made 37
+such calls, each reported as an open route beside its 11 Flask routes; the React RealWorld client's
+`requests.post('/articles', { article })` made 6, and Gitea's `tests/e2e/utils.ts` 1.
+
+Two shapes tell a request from a declaration without knowing what the receiver is. A request's value
+is waited for (`await`, `yield`, `.then(`/`.catch(`/`.finally(`); a declaration returns the app, and
+nothing awaits it. And a route needs a handler: when every argument after the path is a string,
+number, or object or array literal with no function in it, nothing can handle the request. Express
+5.2.1 refuses such a route at startup ("argument handler must be a function"); Hono 4.12.33 accepts it
+and answers every request with a 500. An object holding a function or a `handler` key is Fastify's
+options form and stays a route. The call's end is found by a quote-aware scan, since the shared
+`callExtent` counts a paren inside a string, which writing the test found.
+
+Measured on shallow clones of juice-shop 717f5ef, expressjs/express 1c6f1b0,
+node-express-realworld-example-app 30b68e1, fastify/demo 895908e, honojs/examples 3b0b628, the
+MCP SDK's server examples, and the React (ee72eba), Vue (f7e48c8) and Angular (dd99ed2) RealWorld
+clients: 611 server routes, none moved, and the React client's 6 gone; the Vue and Angular clients
+write paths without a leading `/` and had none. On the calibration apps, redash 48 to 11 (the 37
+above) and Gitea 824 to 823 (the one above), every other route unchanged, open or protected. 1 test;
+of 22 parts of the change switched off, 21 fail it, and the 22nd, a call not closed within 20,000
+characters, is kept a route either way. Median of 7 runs: juice-shop 120 to 121 ms, the express
+repository 422 to 423 ms, redash 327 to 149 ms, for the 37 routes it no longer judges.
+
+**Still open:** a request passing a name after the path and neither awaited nor chained
+(`api.post("/x", payload)`), since the name could be a handler.
+
 ### 12. Considered and deferred
 
 - **Split-string secrets** (`"abc" + "def"`). Missed, as the review says. The rest of its claim did not

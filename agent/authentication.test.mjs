@@ -233,6 +233,48 @@ test("express: map.delete and cache.get are not routes", () => {
   assert.equal(report.routes[0].route, "/logs");
 });
 
+// Redash's Playwright helpers made 37 of these and each was reported as an open route; so were the
+// React RealWorld client's 6. A request is waited for, or passes only data; a route passes a handler.
+test("express: an HTTP client call is a request being made, not a route being declared", () => {
+  const report = run(
+    {
+      "client/seed.setup.ts": [
+        "const user = await api.post('/api/users', { name: 'x' });",
+        "const page = await context.get('/setup', { maxRedirects: 0 });",
+        "function* saga(body) { yield api.patch('/api/saga', body); }",
+        "const r = await this.client?.api.delete('/api/users/1', user);",
+        "api.post('/api/groups', group).then(done);",
+        "http.put(`/api/items/${id}`, item)\n  .catch(fail);",
+        "const create = (article) => requests.post('/articles', { article, tags: ['a', \"b,c\"] });",
+        "requests.put('/user', 'it\\'s, (fine', [1, 'two', { three: true }], 0, null);",
+        "",
+      ].join("\n"),
+      "src/server.js": [
+        "app.get('/a', handler);",
+        "const route = app.get('/b', getB);",
+        "fastify.get('/c', { preHandler: [auth] }, listC);",
+        "fastify.get('/d', { schema: {}, handler: listD });",
+        "fastify.get('/e', { onRequest: (req, reply, done) => done() });",
+        "app.post('/f', [requireAuth, createF]);",
+        "app.put('/g', (req, res) => res.end());",
+        "app.delete('/h', 'x', removeH);",
+        "",
+      ].join("\n"),
+    },
+    checkAuthentication
+  );
+  assert.deepEqual(report.routes.map((r) => `${r.file} ${r.method} ${r.route}`).sort(), [
+    "src/server.js DELETE /h",
+    "src/server.js GET /a",
+    "src/server.js GET /b",
+    "src/server.js GET /c",
+    "src/server.js GET /d",
+    "src/server.js GET /e",
+    "src/server.js POST /f",
+    "src/server.js PUT /g",
+  ]);
+});
+
 test("express: non-auth middleware does not count as authentication", () => {
   const { failures } = run(
     {
