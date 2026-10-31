@@ -45,6 +45,7 @@ import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { handlerGuard, methodBlock } from "./auth-handler.mjs";
 import { argsAt, flaskRouteAuth, viewDecorators } from "./authentication-flask.mjs";
 import { goResolve, jsResolve } from "./handler-names.mjs";
+import { AUTOHOOKS_FILE, autohookCredit } from "./authentication-fastify.mjs";
 import { csharpAdapter } from "./authentication-csharp.mjs";
 import { phpAdapter } from "./authentication-php.mjs";
 import { kotlinAdapter } from "./authentication-kotlin.mjs";
@@ -1137,13 +1138,16 @@ const jsAdapter = {
     return out;
   },
 
-  globalAuth(all) {
+  globalAuth(all, texts = [all], ctx = {}) {
     // `app.use(...)` mounting a router takes a path first; requiring the auth word inside the call
     // keeps `app.use("/api", router)` and `app.use(cors())` out of this.
     if (/\.\s*use\s*\(\s*[^)]{0,160}?(authenticat|authoriz|requireAuth|ensureAuth|isAuthenticated|checkAuth|jwt|passport|verifyToken|authMiddleware|\bauth\b)/i.test(all)) {
       return "app-wide authentication middleware";
     }
-    if (/addHook\s*\(\s*(['"`])(onRequest|preHandler|preValidation)\1\s*,[^)]{0,120}?(auth|jwt|verify|token)/i.test(all)) {
+    // Not in an autoload `autohooks` file, whose hooks reach only its own directory: they are judged
+    // route by route (authentication-fastify.mjs), and read here they credited every route in the project.
+    const appWide = texts.filter((_, i) => !AUTOHOOKS_FILE.test(path.posix.basename(ctx.rels?.[i] || ""))).join("\n");
+    if (/addHook\s*\(\s*(['"`])(onRequest|preHandler|preValidation)\1\s*,[^)]{0,120}?(auth|jwt|verify|token)/i.test(appWide)) {
       return "a Fastify authentication hook";
     }
     if (/@UseGuards\s*\([^)]*\)\s*(?:@\w+\s*(?:\([^)]*\))?\s*)*export\s+class/.test(all)) {
@@ -1175,6 +1179,11 @@ const jsAdapter = {
     if (handlerChecksCredential(r, all)) return "a credential checked in the handler";
     if (/\b(preHandler|onRequest|preValidation)\s*:/.test(r.declaration) && AUTH_WORD.test(r.declaration)) {
       return "a Fastify hook";
+    }
+    // A hook in the route's directory's `autohooks` file, or a parent's, as @fastify/autoload applies it.
+    if (r.home) {
+      const hooked = autohookCredit(r, r.home.file, r.home.project, AUTH_WORD);
+      if (hooked) return hooked;
     }
     // Route middleware: an identifier between the path and the handler that names authentication.
     if (AUTH_WORD.test(r.context)) return "route middleware";

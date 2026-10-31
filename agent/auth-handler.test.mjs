@@ -248,6 +248,13 @@ end`, "the caller checked in the handler"],
   }
   await save(user);
 }`, "the caller checked in the handler"],
+  // v1.13.0 credited it; the keyed session reading did not accept `?.` until Fastify hooks were run.
+  ["a session user read with optional chaining", "brace", `async (req, res) => {
+  if (!req.session?.user) {
+    return res.status(401).end();
+  }
+  await save(req.session.user);
+}`, "the caller checked in the handler"],
   ["a session user destructured under another name", "brace", `async (request, reply) => {
   const { user: me } = request.session;
   if (!me) {
@@ -477,6 +484,19 @@ end`],
     return res.status(401).end();
   }
   res.json({ ok: true });
+}`],
+  // In a handler the code after `reply.send()` runs; only a Fastify hook ends the request by sending.
+  ["a refusal sent without return, in a handler", "brace", `async (request, reply) => {
+  if (!request.session.user) {
+    reply.code(401).send({ message: "no" })
+  }
+  await tasks.remove(request.params.id)
+}`],
+  ["a session key that names flow state, with optional chaining", "brace", `(req, res) => {
+  if (!req.session?.nonce) {
+    return res.status(401).end();
+  }
+  res.json(1);
 }`],
   ["a route parameter destructured is not the caller", "brace", `async (req, res) => {
   const { id } = req.params;

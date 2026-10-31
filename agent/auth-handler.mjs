@@ -574,12 +574,13 @@ const IDENTITY =
 
 // A keyed session read is the caller's identity only when the key names the caller: Flask's
 // `session.get("user_id")`, Rails' `session[:user_id]`, `"uid" in session`, `$_SESSION['user']`,
-// Express's `req.session.userId`. A session also holds sign-in flow state -- CTFd's OAuth
-// `session["nonce"] != state`, its git setup's `session.get("setup_git_device")` -- and a check of
-// that says nothing about who is calling. A key that is not a literal says nothing either. Ktor's
+// Express's `req.session.userId`, and `req.session?.user`, written so where no session may exist:
+// v1.13.0 credited it, the keyed reading did not until Fastify hooks were run with it. A session also
+// holds sign-in flow state -- CTFd's OAuth `session["nonce"] != state`, its git setup's
+// `session.get("setup_git_device")` -- and a check of that says nothing about who is calling. A key that is not a literal says nothing either. Ktor's
 // typed `call.sessions.get<T>()` has no key and stays in IDENTITY above.
 const SESSION_READ =
-  /\bsession\s*(?:\.\s*get\s*\(\s*|\[\s*)(:\w+|"[^"]*"|'[^']*')|("[^"]*"|'[^']*')\s+(?:not\s+)?in\s+session\b|\$_SESSION\s*\[\s*("[^"]*"|'[^']*')|\b(?:req|request)\s*\.\s*session\s*(?:\.\s*get\s*\(\s*("[^"]*"|'[^']*')|\.\s*(\w+)|\[\s*("[^"]*"|'[^']*'))/g;
+  /\bsession\s*(?:\.\s*get\s*\(\s*|\[\s*)(:\w+|"[^"]*"|'[^']*')|("[^"]*"|'[^']*')\s+(?:not\s+)?in\s+session\b|\$_SESSION\s*\[\s*("[^"]*"|'[^']*')|\b(?:req|request)\s*\??\.\s*session\s*(?:\??\.\s*get\s*\(\s*("[^"]*"|'[^']*')|\??\.\s*(\w+)|(?:\?\.)?\[\s*("[^"]*"|'[^']*'))/g;
 const CALLER_WORD =
   /^(?:user|users|userid|uid|id|account|member|login|logged|signed|auth|authenticated|principal|identity|role|roles|admin|email|username|owner|customer|staff|superuser|passport)$/;
 
@@ -832,7 +833,22 @@ const REASONS = {
  * comments removed (one route may run several, as Express's middleware chain does); `family` is
  * "python", "ruby" or "brace".
  */
-export function handlerGuard(bodies, family) {
+// A Fastify hook stops the route when it sends a reply, `return` or not: measured on Fastify 5.12.7,
+// an async `onRequest` hook calling `reply.code(401).send()` or @fastify/sensible's
+// `reply.unauthorized()` without returning answered 401 and the handler never ran. In a handler the
+// same call without `return` lets the code after it run, which is why only a hook reads it so.
+// `reply` is the hook's own second parameter.
+const hookRefusal = (reply) =>
+  new RegExp(
+    String.raw`\b${reply.replace(/\$/g, "\\$")}\s*\.\s*(?:(?:code|status)\s*\(\s*40[0134]\b[^\n]*\.\s*send\s*\(|(?:unauthorized|forbidden|badRequest|notFound)\s*\(|send\s*\(\s*(?:new\s+)?\w*(?:Unauthorized|Forbidden)\w*\b)`
+  );
+
+/**
+ * The reason a handler counts as checking its caller, or null. `hook` names a Fastify hook's reply
+ * parameter: a branch that sends a refusal on it then ends the request.
+ */
+export function handlerGuard(bodies, family, { hook } = {}) {
+  const sends = hook ? hookRefusal(hook) : null;
   for (const body of bodies) {
     if (!body) continue;
     const { guards, assigns } = family === "python" ? pythonStatements(body) : family === "ruby" ? rubyStatements(body) : braceStatements(body);
@@ -842,10 +858,11 @@ export function handlerGuard(bodies, family) {
       // A branch that refuses must end the request, or be one side of an if/else that ends the
       // handler -- the other side doing the work. Its condition must then refuse every failure.
       for (const [i, b] of g.branches.entries()) {
-        if (!REFUSAL.test(b) || !(endsRequest(b) || (g.hasElse && g.last) || g.self)) continue;
+        const sent = Boolean(sends?.test(b));
+        if (!sent && (!REFUSAL.test(b) || !(endsRequest(b) || (g.hasElse && g.last) || g.self))) continue;
         const onTrue = (i === 0) !== Boolean(g.positive);
         const kind = covers(g.cond, onTrue ? "true" : "false", assigns);
-        if (kind === "authcall" && !DENIED.test(b)) continue;
+        if (kind === "authcall" && !DENIED.test(b) && !(sent && /\b40[13]\b|unauthorized|forbidden/i.test(b))) continue;
         if (kind) return REASONS[kind];
       }
     }
@@ -853,4 +870,4 @@ export function handlerGuard(bodies, family) {
   return null;
 }
 
-export const _internals = { braceStatements, pythonStatements, rubyStatements, comparesCredential, evidenceOf };
+export const _internals = { braceStatements, pythonStatements, rubyStatements, comparesCredential, evidenceOf, closeOf, maskStrings };

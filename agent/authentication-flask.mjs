@@ -279,7 +279,7 @@ function exempted(hook, route, serving) {
 //   else "/" and its name, without trailing "/"; `@api.route` is on a namespace whose path is "".
 
 // A rule's variables: `<id>` and `<int:id>` match one segment, `<path:p>` any number of them.
-function ruleParts(rule) {
+export function ruleParts(rule) {
   return rule
     .split(/(<[^>]*>)/)
     .filter(Boolean)
@@ -290,7 +290,7 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // `request.path == p`: some request the rule serves has the path p (or p is the rule as written,
 // which is what `request.url_rule.rule` holds). A hook letting "/docs/intro" through opens
 // "/docs/<page>" for that page, so the route is open.
-function servesPath(rule, p) {
+export function servesPath(rule, p) {
   const re = ruleParts(rule)
     .map((t) => (t.lit !== undefined ? escapeRe(t.lit) : t.any ? ".+" : "[^/]+"))
     .join("");
@@ -298,7 +298,7 @@ function servesPath(rule, p) {
 }
 
 // `request.path.startswith(p)`: some request the rule serves has a path starting with p.
-function servesPrefix(parts, p, pi = 0, ti = 0) {
+export function servesPrefix(parts, p, pi = 0, ti = 0) {
   if (pi === p.length) return true;
   if (ti === parts.length) return false;
   const t = parts[ti];

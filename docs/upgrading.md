@@ -276,6 +276,16 @@ fastify/demo's `PUT /update-password` is credited again, for that reason. v1.13.
 `newPassword === currentPassword`, which compares two of the caller's inputs, and no longer does. Of
 3,748 routes on 72 projects, no other verdict moved.
 
+**After v1.13.0: a Fastify `autohooks` file protects the routes it reaches, and only those.**
+`@fastify/autoload` applies the hooks in a directory's `autohooks` file to that directory's routes, and
+to its subdirectories' with `cascadeHooks`. Such a hook was read only by the project-wide rule, which
+credited every route in the project when the hook's first 120 characters named authentication, and
+nothing otherwise: fastify/demo protects its 12 API routes from `src/routes/api/autohooks.ts`, and all
+were reported open. They now pass, its root page stays open, and a hook in an `autohooks` file no longer
+credits routes outside its directory, so such a route can now block. Each rule was checked against
+Fastify 5.12.7 and @fastify/autoload 6.5.1 on 29 routes in 16 apps; none counted as protected was reached. A
+session read with optional chaining, `req.session?.user`, counts as the caller again, as in v1.13.0.
+
 **After v1.13.0: a session value counts as the caller only when its key names the caller.**
 `session.get("user_id")`, `session[:user_id]`, `"uid" in session` and `req.session.userId` still count.
 A check of sign-in flow state held in the session no longer does: CTFd's OAuth callback compares

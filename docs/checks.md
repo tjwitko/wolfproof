@@ -59,6 +59,20 @@ that passes nothing after the path that could be a handler, only strings, number
 literals with no function in them. A request passing a name after the path (`api.post(path, payload)`)
 is still read as a route, since the name could be a handler.
 
+A Fastify route loaded by `@fastify/autoload` with `autoHooks: true` counts as protected by an
+`onRequest`, `preParsing`, `preValidation` or `preHandler` hook in the `autohooks` file of its
+directory, and of the directories above it when `cascadeHooks: true`, as autoload applies them;
+`overwriteHooks: true` drops the parent's hooks where a directory has its own file. The hook must refuse
+the caller before any work, and sending the refusal (`reply.code(401).send()`, `reply.unauthorized()`)
+ends the request in a hook whether or not it returns. An early `return` on the URL
+(`request.url.startsWith('/api/auth/login')`, `=== '/x'`, a list's `.includes(...)`, negated or not)
+leaves open the routes whose URL it can match: the autoload `prefix`, then each directory's name unless
+`dirNameRoutePrefix: false`, then the route's path. Every route is left open when that URL is not
+written out — a prefix from an expression, or the app's own options spread into autoload's while the
+app is started by fastify-cli or registered with options — or when the return's condition is not one of
+these. A hook added with `addHook` anywhere else counts for every route when its first 120 characters
+name authentication; one in an `autohooks` file no longer does.
+
 In C#, a route counts as protected by `[Authorize]` in any form on the action or anywhere in its
 controller's class chain, by an attribute class of the project's that derives from
 `AuthorizeAttribute` or turns the caller away with 401 or 403, by `RequireAuthorization()` on the
