@@ -44,6 +44,7 @@ import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { handlerGuard, methodBlock } from "./auth-handler.mjs";
 import { argsAt, flaskRouteAuth, viewDecorators } from "./authentication-flask.mjs";
+import { goResolve, jsResolve } from "./handler-names.mjs";
 import { csharpAdapter } from "./authentication-csharp.mjs";
 import { phpAdapter } from "./authentication-php.mjs";
 import { kotlinAdapter } from "./authentication-kotlin.mjs";
@@ -686,9 +687,10 @@ function routeHandlerNames(context) {
   // routes of the first Go deliverable read as unauthenticated because of it -- including one that
   // reads Authorization and returns 401 -- so a supported language had been blind to the standard
   // net/http idiom the whole time.
-  return [...call.matchAll(/(^|[,\s(])(?:[A-Za-z_$][\w$]*\s*\.\s*)?([A-Za-z_$][\w$]*)\s*(?=[,)])/g)].map(
-    (m) => m[2]
-  );
+  return [...call.matchAll(/(^|[,\s(])(?:([A-Za-z_$][\w$]*)\s*\.\s*)?([A-Za-z_$][\w$]*)\s*(?=[,)])/g)].map((m) => ({
+    receiver: m[2] || null,
+    name: m[3],
+  }));
 }
 
 // The handler's own body, bounded by its braces. A fixed-size window instead of this read past the
@@ -822,19 +824,6 @@ function isRequestNotRoute(text, m) {
   return after.every(isDataLiteral);
 }
 
-// Where each name is defined, found once per project rather than once per route: two regex searches
-// of the whole project per handler name took Gitea's 824 Go routes to a minute.
-let definitions = { all: null };
-function definitionsIn(all) {
-  if (definitions.all === all) return definitions;
-  const js = new Map();
-  const go = new Map();
-  for (const m of all.matchAll(/(?:export\s+)?(?:const|let|var|function|async\s+function)\s+([A-Za-z_$][\w$]*)\b/g)) if (!js.has(m[1])) js.set(m[1], m.index);
-  for (const m of all.matchAll(/\bfunc\s*(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*\(/g)) if (!go.has(m[1])) go.set(m[1], m.index);
-  definitions = { all, js, go };
-  return definitions;
-}
-
 /**
  * Every handler body this route actually runs: the inline functions passed to the route call, plus
  * the body of each handler it names.
@@ -852,19 +841,19 @@ function routeHandlerBodies(route, all) {
   // A framework route names its handler in the declaration; a hand-rolled dispatch branch just
   // calls it, and the guard may be another call or two down. Expanded against `all` rather than the
   // declaring file, because the chain crosses files as a matter of course.
-  if (route.followChain) {
-    for (const seed of route.inlineBodies || []) bodies.push(...reachableBodies(all, seed));
+  const home = route.home;
+  if (route.followChain && home) {
+    for (const seed of route.inlineBodies || []) bodies.push(...reachableBodies(seed, home));
   }
   // Each named handler's own body, not the whole corpus: a project that verifies a signature
   // somewhere must not thereby mark every route protected. A first attempt did exactly that and
-  // reported an unauthenticated support endpoint as safe, which is worse than missing one.
-  const defs = definitionsIn(all);
-  for (const name of routeHandlerNames(route.context)) {
+  // reported an unauthenticated support endpoint as safe, which is worse than missing one. The name
+  // is resolved from the route's own file, as the language resolves it (handler-names.mjs).
+  for (const { name, receiver } of home ? routeHandlerNames(route.context) : []) {
     // `func handleX(` and `func (s *Server) handleX(` alike. Without the receiver form the body of
     // every Go method handler went unread, so no credential check inside one could be seen.
-    const at = defs.js.has(name) ? defs.js.get(name) : defs.go.get(name);
-    if (at === undefined) continue;
-    bodies.push(functionBodyAt(all, at));
+    const found = home.go ? goResolve(name, receiver, home.file, home.project) : jsResolve(name, receiver, home.file, home.project);
+    if (found) bodies.push(functionBodyAt(found.file.text, found.at));
   }
   route.bodiesRead = bodies;
   return bodies;
@@ -931,34 +920,27 @@ function pathFromRegexSource(src) {
 const MAX_CALL_DEPTH = 3;
 const MAX_BODIES = 40;
 
-// Definitions of `name`, in the forms a handler chain actually uses: a declared function or const,
-// and a method in a class or object literal (`async receive(a, b) {`). The `)` followed by `{` is
-// what separates a definition from a call site.
-function definitionOf(text, name) {
-  const declared = new RegExp(`(?:export\\s+)?(?:async\\s+)?(?:const|let|var|function)\\s+${name}\\b`).exec(text);
-  if (declared) return declared.index;
-  const method = new RegExp(`(?:^|[{;,]|\\n)\\s*(?:async\\s+)?${name}\\s*\\([^)]*\\)\\s*\\{`, "m").exec(text);
-  return method ? method.index : -1;
-}
-
-/** The starting body plus every body reachable from it by name, to a bounded depth. */
-function reachableBodies(text, startBody) {
+/** The starting body plus every body reachable from it by name, to a bounded depth, each call
+ * resolved from the file the calling body is in, as the route's own handler is. */
+function reachableBodies(startBody, home) {
   const bodies = [startBody];
   const seen = new Set();
-  let frontier = [startBody];
+  let frontier = [{ body: startBody, file: home.file }];
   for (let depth = 0; depth < MAX_CALL_DEPTH && bodies.length < MAX_BODIES; depth++) {
     const next = [];
-    for (const b of frontier) {
+    for (const { body: b, file } of frontier) {
       // Bare calls and method calls alike: the guard may sit behind `service.receive(...)`.
-      for (const m of b.matchAll(/(?:\.\s*)?\b([A-Za-z_$][\w$]*)\s*\(/g)) {
-        const name = m[1];
-        if (seen.has(name) || RESERVED_CALL.test(name)) continue;
-        seen.add(name);
-        const at = definitionOf(text, name);
-        if (at === -1) continue;
-        const body = functionBodyAt(text, at);
+      for (const m of b.matchAll(/(?:([A-Za-z_$][\w$]*)\s*\.\s*)?\b([A-Za-z_$][\w$]*)\s*\(/g)) {
+        const [, receiver, name] = m;
+        if (RESERVED_CALL.test(name)) continue;
+        const found = jsResolve(name, receiver || null, file, home.project);
+        if (!found) continue;
+        const key = `${found.file.rel}\0${found.at}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const body = functionBodyAt(found.file.text, found.at);
         bodies.push(body);
-        next.push(body);
+        next.push({ body, file: found.file });
         if (bodies.length >= MAX_BODIES) return bodies;
       }
     }
@@ -1536,9 +1518,12 @@ export function checkAuthentication(projectDir) {
       vacuous.set(d.name, { language: adapter.name, at: locateComparisons(adapterFiles, d.comparedAs) });
     }
     let found = 0;
-    for (const file of adapterFiles) {
+    // The project's files of this language, for resolving a handler name from the file a route is in.
+    const project = adapterFiles.map((f) => ({ rel: f.rel.split(path.sep).join("/"), text: f.text }));
+    for (const [fileIndex, file] of adapterFiles.entries()) {
       let fileFramework;
       for (const r of adapter.routes(file.text, texts, { ...ctx, rel: file.rel.split(path.sep).join("/") })) {
+        r.home = { file: project[fileIndex], project, go: adapter === goAdapter };
         // Exempt by path, and recorded rather than dropped. These were skipped silently, so a
         // `/ping` that took a request parameter and passed it to a shell went unmentioned, and the
         // finding counted "1 of 1 endpoint(s)" in a file declaring two. The path is chosen by

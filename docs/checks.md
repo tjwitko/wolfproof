@@ -192,6 +192,15 @@ to have this shape, all of it:
   members out; it is not credited. The direction is read from negation (`!`, `not`), comparison
   (`== null`, `is None`, `!= expected`, `.nil?`) and words for an anonymous caller (`is_anonymous`).
 
+In JavaScript and Go the handler is often named rather than written in place, and the name is read
+as the language reads it, from the route's own file: a JavaScript name defined in that file, or
+imported under that name from a project module (`import`, `require`, a default export, re-exports,
+`mod.handler` for an imported module); a Go function in the route's own package, or `pkg.Handler` in
+the package imported as `pkg`. A method value (`svc.handle`, `s.handleX`) is the method of the type
+the receiver is made or declared as (`new Svc()`; `&T{}`, `NewT()`, `var s T`, a parameter `s *T`),
+else the one method of that name in the file, then in what it imports, then in the project; where two
+match, neither is read. A name imported from a package, or not resolved, has no body to read.
+
 Each route credited this way is listed in an advisory for a person to confirm, since crediting a
 check that is not one is the way this can be wrong in the dangerous direction. Not read: a check in a
 helper the handler calls (`require_admin()`), and a check in a base class or filter the readers above

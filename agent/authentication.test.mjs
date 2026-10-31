@@ -2134,6 +2134,134 @@ const GUARDED_LOOKUP = `
   }`;
 const OPEN = `w.WriteHeader(http.StatusOK)`;
 
+// A handler name was the first function of that name anywhere in the project, so a route was
+// credited with another file's check: `GET /open`, whose own `handler` checks nothing, read as checked
+// because checked.js has a `handler` too. Now resolved as Node resolves it.
+const JS_KEY_CHECK = 'const key = req.headers["x-api-key"]; if (key !== "k") return res.status(401).end();';
+const JS_HANDLER_FILES = {
+  "src/app.js": 'const express = require("express");\nmodule.exports = express();\n',
+  "src/checked.js": `function handler(req, res) { ${JS_KEY_CHECK} res.json({}); }\nfunction listAll(req, res) { ${JS_KEY_CHECK} res.json([]); }\nmodule.exports = { handler, list: listAll };\n`,
+  "src/open.js": 'const app = require("./app");\nfunction handler(req, res) { res.json({}); }\napp.get("/open", handler);\n',
+  "src/required.js": 'const app = require("./app");\nconst { handler } = require("./checked");\napp.get("/required", handler);\n',
+  "src/renamed.mjs": 'import app from "./app.js";\nimport { handler as guarded } from "./checked.js";\napp.get("/renamed", guarded);\n',
+  "src/ns.mjs": 'import app from "./app.js";\nimport * as lib from "./checked.js";\napp.get("/ns", lib.handler);\n',
+  "src/mapped.js": 'const app = require("./app");\nconst m = require("./checked");\napp.get("/mapped", m.list);\n',
+  "src/def.mjs": `export default function (req, res) { ${JS_KEY_CHECK} res.json({}); }\n`,
+  "src/usedef.mjs": 'import app from "./app.js";\nimport guard from "./def.mjs";\napp.get("/default", guard);\n',
+  "src/barrel.mjs": 'export { handler } from "./checked.js";\n',
+  "src/viabarrel.mjs": 'import app from "./app.js";\nimport { handler } from "./barrel.mjs";\napp.get("/reexported", handler);\n',
+  "src/pkg.mjs": 'import app from "./app.js";\nimport { handler } from "stub";\napp.get("/package", handler);\n',
+  "src/stub.mjs": `export function handler(req, res) { ${JS_KEY_CHECK} res.json({}); }\n`,
+  "src/node_modules/stub/package.json": '{"name": "stub", "exports": "./index.mjs"}\n',
+  "src/node_modules/stub/index.mjs": "export function handler(req, res) { res.json({}); }\n",
+  "src/lib/index.js": `function handler(req, res) { ${JS_KEY_CHECK} res.json({}); }\nmodule.exports = { handler };\n`,
+  "src/viaindex.js": 'const app = require("./app");\nconst { handler } = require("./lib");\napp.get("/index", handler);\n',
+  "src/service.mjs": `export const service = { run(req, res) { res.json({}); } };\nexport function run(req, res) { ${JS_KEY_CHECK} res.json({}); }\n`,
+  "src/useservice.mjs": 'import app from "./app.js";\nimport { service } from "./service.mjs";\napp.get("/service", service.run);\n',
+  "src/samefile.js":
+    `const app = require("./app");\nclass X { go(req, res) { ${JS_KEY_CHECK} res.json({}); } }\nclass Y { go(req, res) { res.json({}); } }\n` +
+    'const y = new Y();\nconst x = new X();\napp.get("/samefile", y.go);\napp.get("/samefileX", x.go);\n' +
+    'function mountAny(obj) {\n  app.get("/samefileParam", obj.go);\n}\nmountAny(new Y());\n',
+  "src/farA.js": `class FarA { far(req, res) { ${JS_KEY_CHECK} res.json({}); } }\nmodule.exports = FarA;\n`,
+  "src/farB.js": "class FarB { far(req, res) { res.json({}); } }\nmodule.exports = FarB;\n",
+  "src/far.js": 'const app = require("./app");\nfunction mountFar(obj) {\n  app.get("/far", obj.far);\n}\nmodule.exports = mountFar;\n',
+  "src/wire.js": 'const mountFar = require("./far");\nconst FarB = require("./farB");\nmountFar(new FarB());\n',
+  "src/svc1.js": `class A { receive(req, res) { ${JS_KEY_CHECK} res.json({}); } }\nmodule.exports = A;\n`,
+  "src/svc2.js": "class B { receive(req, res) { res.json({}); } }\nmodule.exports = B;\n",
+  "src/svc3.js": `class C { only(req, res) { ${JS_KEY_CHECK} res.json({}); } }\nmodule.exports = C;\n`,
+  "src/inject.js":
+    'const app = require("./app");\nfunction mount(svc, other) {\n  app.post("/injected", svc.receive);\n  app.post("/unique", other.only);\n}\n' +
+    'const A = require("./svc1");\nconst B = require("./svc2");\nconst C = require("./svc3");\nmount(new B(), new C());\nmodule.exports = { A };\n',
+};
+test("a TypeScript import of ./h.js is h.ts, as the TypeScript compiler resolves it", () => {
+  const files = (withJs) => ({
+    "src/h.ts": `export function handler(req: any, res: any) { ${JS_KEY_CHECK} res.json({}); }\n`,
+    ...(withJs ? { "src/h.js": "export function handler(req, res) { res.json({}); }\n" } : {}),
+    "src/routes.ts": 'import app from "./app";\nimport { handler } from "./h.js";\napp.get("/ts", handler);\n',
+    "src/plain.js": 'import app from "./app";\nimport { handler } from "./h.js";\napp.get("/js", handler);\n',
+  });
+  const by = (f) => Object.fromEntries(run(f, checkAuthentication).routes.map((r) => [r.route, r.protectedBy]));
+  // h.ts alone: both importers reach it, the .js one by its extension list as before.
+  assert.deepEqual(by(files(false)), { "/ts": "a credential checked in the handler", "/js": "a credential checked in the handler" });
+  // h.ts beside h.js: the TypeScript file takes h.ts, the JavaScript file h.js, which checks nothing.
+  assert.deepEqual(by(files(true)), { "/ts": "a credential checked in the handler", "/js": null });
+});
+
+test("a JavaScript handler is the function the route's file names, as Node resolves it", () => {
+  const { routes } = run(JS_HANDLER_FILES, checkAuthentication);
+  const by = Object.fromEntries(routes.map((r) => [r.route, r.protectedBy]));
+  const checked = "a credential checked in the handler";
+  // Checked by running it: Node 26 and Express 5.2.1, each path requested without the key -- 401 for
+  // every route below but /open, /package, /injected, /service, /samefile, /samefileParam and /far,
+  // which answer 200.
+  assert.deepEqual(by, {
+    "/open": null, // its own handler, not checked.js's
+    "/required": checked,
+    "/renamed": checked,
+    "/ns": checked, // lib.handler, `import * as lib`
+    "/mapped": checked, // m.list, which checked.js exports as listAll
+    "/default": checked,
+    "/reexported": checked, // through barrel.mjs
+    "/package": null, // "stub" is the package in node_modules, not the project's stub.mjs
+    "/index": checked, // ./lib is lib/index.js
+    "/service": null, // service.run, the object's method, not the module's function run
+    "/samefile": null, // y.go: Y's go, made by `new Y()` -- not X's, which checks
+    "/samefileX": checked, // x.go: X's
+    "/samefileParam": null, // obj.go, a parameter: X and Y both have a go here
+    "/far": null, // obj.far: FarA and FarB both have a far, neither imported here
+    "/injected": null, // svc.receive: two classes have a receive, and only one checks
+    "/unique": checked, // other.only: the project's one `only`
+  });
+});
+
+// The same in Go: `other.List` was the first `List` in the project, and `http.NotFound` a project
+// function named NotFound. Now a function is read in its package, the one the route's file imports.
+const GO_KEY_CHECK = 'if r.Header.Get("Authorization") == "" {\n\t\thttp.Error(w, "missing key", http.StatusUnauthorized)\n\t\treturn\n\t}';
+const GO_HANDLER = (name, check) => `func ${name}(w http.ResponseWriter, r *http.Request) {\n\t${check ? GO_KEY_CHECK + "\n\t" : ""}w.WriteHeader(http.StatusOK)\n}\n`;
+const GO_HANDLER_FILES = {
+  "go.mod": "module example.com/app\n\ngo 1.22\n",
+  "handlers/handlers.go": 'package handlers\n\nimport "net/http"\n\n' + GO_HANDLER("List", true),
+  "other/other.go": 'package other\n\nimport "net/http"\n\n' + GO_HANDLER("List", false) + GO_HANDLER("NotFound", true),
+  "aaa/aaa.go": 'package aaa\n\nimport "net/http"\n\n' + GO_HANDLER("local", false),
+  "internal/a/list/list.go": 'package list\n\nimport "net/http"\n\n' + GO_HANDLER("Items", false),
+  "internal/b/list/list.go": 'package list\n\nimport "net/http"\n\n' + GO_HANDLER("Items", true),
+  "main.go":
+    'package main\n\nimport (\n\t"encoding/json"\n\t"fmt"\n\t"net/http"\n\t"net/http/httptest"\n\n\t"example.com/app/handlers"\n\t"example.com/app/internal/a/list"\n\t"example.com/app/other"\n)\n\n' +
+    "type server struct{}\ntype a struct{}\ntype b struct{}\ntype webhook struct{}\ntype store struct{}\n\n" +
+    "func newWebhook() *webhook {\n\treturn &webhook{}\n}\n\nvar byName = map[string]b{\"b\": {}}\n\n" +
+    GO_HANDLER("(s *store) Get", false) + GO_HANDLER("(h *webhook) Get", true) +
+    'func register(mux *http.ServeMux, h *webhook) {\n\tmux.HandleFunc("/param", h.Get)\n}\n\n' +
+    GO_HANDLER("(s *server) handle", true) + GO_HANDLER("(a) serve", true) + GO_HANDLER("(b) serve", false) + GO_HANDLER("local", true) +
+    "\nfunc routes() *http.ServeMux {\n\tmux := http.NewServeMux()\n\ts := &server{}\n\tbb := b{}\n" +
+    '\tmux.HandleFunc("/other", other.List)\n\tmux.HandleFunc("/handlers", handlers.List)\n\tmux.HandleFunc("/local", local)\n' +
+    '\tmux.HandleFunc("/method", s.handle)\n\tmux.HandleFunc("/notfound", http.NotFound)\n\tmux.HandleFunc("/ambiguous", bb.serve)\n\tmux.HandleFunc("/items", list.Items)\n' +
+    '\twh := newWebhook()\n\tst := &store{}\n\tvar vv webhook\n\tmux.HandleFunc("/typed", wh.Get)\n\tmux.HandleFunc("/store", st.Get)\n\tmux.HandleFunc("/var", vv.Get)\n\tregister(mux, wh)\n\tcc := byName["b"]\n\tmux.HandleFunc("/fallback", cc.serve)\n\treturn mux\n}\n\n' +
+    'func main() {\n\tmux := routes()\n\tout := map[string]int{}\n\tfor _, p := range []string{"/other", "/handlers", "/local", "/method", "/notfound", "/ambiguous", "/items", "/typed", "/store", "/var", "/param", "/fallback"} {\n' +
+    '\t\trec := httptest.NewRecorder()\n\t\tmux.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))\n\t\tout[p] = rec.Code\n\t}\n\tj, _ := json.Marshal(out)\n\tfmt.Println(string(j))\n}\n',
+};
+test("a Go handler is the function its package, or the package it imports, defines", () => {
+  const { routes } = run(GO_HANDLER_FILES, checkAuthentication);
+  const by = Object.fromEntries(routes.map((r) => [r.route, r.protectedBy]));
+  const checked = "a credential checked in the handler";
+  // Checked by running it with `go run .` (Go 1.27): /handlers, /local, /method, /typed, /var and /param
+  // answer 401; /other, /ambiguous, /items, /store and /fallback 200, and /notfound 404, the standard
+  // library's.
+  assert.deepEqual(by, {
+    "/other": null, // other.List, which checks nothing
+    "/handlers": checked,
+    "/local": checked, // main's own local, not package aaa's
+    "/method": checked, // s.handle, the only method `handle`
+    "/notfound": null, // net/http's NotFound, not the project's
+    "/ambiguous": null, // bb.serve: a and b both have a serve, and only one checks
+    "/items": null, // internal/a/list, which it imports, not internal/b/list
+    "/typed": checked, // wh := newWebhook(), which returns *webhook: webhook's Get, not store's
+    "/store": null, // st := &store{}
+    "/var": checked, // var vv webhook
+    "/param": checked, // h *webhook, a parameter
+    "/fallback": null, // cc from a map: its type is not read, and a and b both have a serve
+  });
+});
+
 test("a Go method handler that verifies a signature is protected", () => {
   const { routes } = run(GO_SERVER(GUARDED_WEBHOOK, GUARDED_LOOKUP), (d) => checkAuthentication(d));
   const byPath = Object.fromEntries(routes.map((r) => [r.route, r.protectedBy]));

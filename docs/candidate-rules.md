@@ -1970,6 +1970,51 @@ repository 422 to 423 ms, redash 327 to 149 ms, for the 37 routes it no longer j
 **Still open:** a request passing a name after the path and neither awaited nor chained
 (`api.post("/x", payload)`), since the name could be a handler.
 
+### 29. A handler name read as the first function of that name in the project — fixed after v1.13.0
+
+The JavaScript and Go readers looked a route's named handler up as the first definition of that name
+in all the project's files of the language joined together. With two files each defining
+`handler`, `GET /open`, whose own handler checks nothing, was reported "a credential checked in the
+handler" because the other file's `handler` checks an API key. Present since the in-handler reading;
+found while checking what to do before release.
+
+A name is now resolved as the language resolves it (agent/handler-names.mjs). JavaScript: the
+route's own file, then what that file imports under the name from a module of the project
+(`import`, `require`, default exports, `module.exports = { list: listAll }`, re-exports, `./lib` as
+`lib/index.js`, `./h.js` as `h.ts` from a TypeScript file); `mod.handler` from an imported module; a
+package import has no body. Go: the route's own package (its directory); `pkg.Handler` in the package
+the file imports as `pkg`, matched by the longest directory the import path ends with. A method value
+(`svc.handle`, `s.handleX`) is the method of the type the receiver is made or declared as (`new
+Svc()`; `&T{}`, `NewT()` by its declared return type, `var s T`, a parameter `s *T`); else the one
+method of that name in the file, then in what it imports, then in the project, for an object passed
+in. Where two match, neither is read. The node:http dispatch walk resolves the calls it follows the
+same way, from the file each body is in.
+
+Measured. Across the JavaScript and Go calibration (1,489 routes) the old and new lookups agree on
+700 handler names and differ on 272, where the new one reads the file the route imports and the old
+one another: Gitea's `cargo.DownloadPackageFile` from `alpine/alpine.go`, express's
+`user.list` from `examples/online/index.js` instead of the `user.js` the example requires. 507 the
+old one resolved and the new one does not: 470 are parameter names (`req`, `res`) matched to
+variables in Express's own source, and the other 37, 18 distinct, are each wrong too, read one by one:
+`err` and `user` in the express examples matched to variables in another example, `req.body` to a
+controller, and Gitea's `pprof.Index` and `http.NotFound`, from the standard library, to project
+functions of those names. Verdicts: 81 directories unchanged; three Gitea routes now credited,
+`repo.DeleteComment` and `repo.DeleteAttachment` (twice), whose handlers in `routers/web/repo` refuse
+an anonymous caller with 403 and which were read as the database functions of those names in
+`models/`. In-handler credits 59 to 62. The first version required one method of a name in a
+package, and so dropped webhook-haiku-11's `handler.GetCallback`, beside the store's `GetCallback`;
+reading the receiver's type from `NewWebhookHandler`'s return restored it. The tests' JavaScript app,
+run on Node 26 with Express 5.2.1, answers its 16 routes as the test expects, and the Go app, run with
+`go run`, its 12. On them the earlier code credits 7 routes that are served to anyone (`/open`,
+`/package` and `/service` in JavaScript; `/other`, `/notfound`, `/ambiguous` and `/fallback` in Go),
+leaves 7 open that refuse (`/mapped`, `/unique`, `/samefileX`; `/local`, `/typed`, `/var`, `/param`),
+and credits two more only because their handlers are named `guard` and `guarded`. 31 parts switched off, each fails a test. Timing: Gitea 1,056 to 539 ms, no longer
+searching all its text per name; express and juice-shop unchanged.
+
+**Still open:** a method on an object whose type is not read and whose name two classes share; a
+handler held in a structure (`handlers["list"]`); TypeScript path aliases (`@/handlers`), which are
+not relative imports.
+
 ### 12. Considered and deferred
 
 - **Split-string secrets** (`"abc" + "def"`). Missed, as the review says. The rest of its claim did not

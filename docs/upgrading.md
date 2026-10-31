@@ -175,6 +175,12 @@ blueprint registered on a helper's parameter is read as what the helper is calle
 module-level name the parameter shadows, which credited routes the hook lets through. A Flask route open before can now pass, and a review
 of one now matches nothing and is reported as doing nothing: delete it.
 
+**After v1.13.0: a JavaScript or Go handler is the function its route's file names.** A named
+handler was the first function of that name anywhere in the project, so a route could be credited with
+another file's check; such a route can now block. The name is resolved from the route's file, through
+its imports or its package, and a method through the receiver's type. A handler imported from a
+package, or from a TypeScript path alias, is not read, so a check inside it is not credited.
+
 **After v1.13.0: a Flask rule built from a module's names has a known path.** `@app.get(BASE +
 "/one")` with `BASE = "/api"` now has the full path `/api/one`, so a hook's path rule is matched against
 it rather than taken to reach it: a route open before can now pass. A name written by `+=`, from
