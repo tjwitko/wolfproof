@@ -1972,6 +1972,36 @@ test("a genuine credential comparison is still reported", () => {
   assert.equal(leakyCredentialCheck("if x_internal_token != internal_token: abort(403)"), "x_internal_token");
 });
 
+// Found when comparisons started being reported for projects with no route read: none of these
+// compares a secret. netbox's presence check, owner check and constraint placeholder, flaskbb's token
+// operation, pygoat's None check, redash's display mask.
+test("a presence check, an owner, an action and a literal constant are not leaky comparisons", () => {
+  for (const src of [
+    "if webhook.secret != '':\n    sign()",
+    "if token == None:\n    return",
+    "if token_user != request.user and not may_grant(request.user, token_user):",
+    "if parsed_token.operation != TokenActions.RESET_PASSWORD:\n    raise TokenError.invalid()",
+    "CONSTRAINT_TOKEN_USER = '$user'\nif token == CONSTRAINT_TOKEN_USER and isinstance(value, User):",
+    'SECRET_PLACEHOLDER = "--------"\nif v == SECRET_PLACEHOLDER:\n    v = old[k]',
+  ]) {
+    assert.equal(leakyCredentialCheck(src), false, src);
+  }
+});
+
+// The near misses of the test above, each still a secret compared with ==.
+test("a credential constant, a reset token and a local named like a constant still count", () => {
+  // A constant read from the environment is a secret, not a literal.
+  assert.equal(leakyCredentialCheck("API_TOKEN = os.environ['API_TOKEN']\nif sent == API_TOKEN:\n    ok()"), "API_TOKEN");
+  // Devise's reset credential: the action-name rule is whole names only.
+  assert.equal(leakyCredentialCheck("if user.reset_password_token == params[:token]"), "reset_password_token");
+  // railsgoat: a lowercase `password = "..."` elsewhere is a local, not this value.
+  assert.equal(
+    leakyCredentialCheck('password = "seeded"\nif user.password == Digest::MD5.hexdigest(password)'),
+    "password"
+  );
+  assert.equal(leakyCredentialCheck("if owner_token != request.token:"), "owner_token");
+});
+
 // The scan must not stop at the first match. A benign comparison earlier in the file standing in
 // for the rest is the same short-circuit as the file-wide constant-time bail-out that this check
 // already had removed, one scope down.
@@ -2796,6 +2826,38 @@ test("rails: the advisory stands beside the findings for routes that are read", 
   );
   assert.match(failures[0], /1 of 1 endpoint\(s\)/);
   assert.ok(advisories.some((a) => /^authentication: Rails routing is not read/.test(a)), advisories.join("\n"));
+});
+
+// rubygems.org's shape. Once its Rails routes stopped being read it had no routes left, and the
+// no-route report dropped the comparison findings already computed -- so `path_token ==` went from
+// blocking in v1.13.0 to unmentioned.
+test("rails: a credential compared with == still blocks when no route is read", () => {
+  const app = {
+    ...RAILS_APP,
+    "app/controllers/verifications_controller.rb":
+      "class VerificationsController < ApplicationController\n  def show\n" +
+      "    head :not_found unless @verification.path_token == params[:token]\n  end\nend\n",
+  };
+  const report = run(app, checkAuthentication);
+  assert.deepEqual(report.routes, []);
+  assert.equal(report.leakyCredential.name, "path_token");
+  const { failures, advisories } = run(app, authenticationFailures);
+  assert.equal(failures.length, 1, failures.join("\n"));
+  assert.match(failures[0], /^authentication: the credential `path_token` is compared with an ordinary equality operator .*verifications_controller\.rb:3.*ActiveSupport::SecurityUtils\.secure_compare/);
+  assert.match(advisories[0], /^authentication: Rails routing is not read/);
+});
+
+test("no routes at all: a leaky comparison and an unset credential are still reported", () => {
+  const { failures, advisories } = run(
+    {
+      "lib/check.py":
+        "import os\nEXPECTED_TOKEN = os.environ.get('EXPECTED_TOKEN')\n\ndef allowed(sent_token):\n    return sent_token == EXPECTED_TOKEN\n",
+    },
+    authenticationFailures
+  );
+  assert.ok(failures.some((f) => /the credential `sent_token` is compared with an ordinary equality operator/.test(f)), failures.join("\n"));
+  assert.ok(failures.some((f) => /EXPECTED_TOKEN is read from the environment/.test(f)), failures.join("\n"));
+  assert.match(advisories[0], /no HTTP routes were identified/);
 });
 
 test("rails: route files drawn from config/routes/ are Rails routing too", () => {

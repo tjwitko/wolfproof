@@ -31,6 +31,12 @@ Validator: `authentication`.
   is unset the check is vacuous and the endpoint opens (`None != None` is false; so is
   `undefined !== undefined`)
 - a credential or signature compared with `==` instead of in constant time
+
+The two comparison findings are about code, not routes, so they block whether or not any route was
+read. A comparison is not counted when what it tests is a presence (`!= ''`, `== None`), the
+credential's owner (`token_user != request.user`), an action named after a credential
+(`TokenActions.RESET_PASSWORD`), or an UPPER_CASE constant the source assigns a string literal: a
+secret written into the source is the secret scan's finding.
 - a signature header that the route accepts and nothing in the project verifies
 - a dependency that looks like authentication and isn't — `Depends(get_db)` on every route
   authenticates none of them

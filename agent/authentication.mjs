@@ -397,12 +397,28 @@ const LEAKY_CREDENTIAL_COMPARE = new RegExp(
 );
 
 // Operands that carry no secret. Comparing against any of these is a presence or type check: it
-// reveals whether a header arrived, not what it contained.
+// reveals whether a header arrived, not what it contained. A trailing `:` is Python's, ending the
+// condition: `if webhook.secret != '':` asks whether a secret is set (netbox), and without it the
+// operand read as `'':`, which is not the empty string.
 const NON_SECRET_OPERAND =
-  /^(?:null|undefined|true|false|none|nil|-?\d+(?:\.\d+)?|["'`](?:|string|object|number|boolean|undefined|function|symbol|bigint)["'`])[;,)\]}]*$/i;
+  /^(?:null|undefined|true|false|none|nil|-?\d+(?:\.\d+)?|["'`](?:|string|object|number|boolean|undefined|function|symbol|bigint)["'`])[;,:)\]}]*$/i;
 
 const NAMES_ABOUT_A_CREDENTIAL =
-  /(?:Ids?|IDs?|_ids?|Identifier|Type|_type|Kind|Count|_count|Quantity|Length|_length|Result|_result|Status|_status|Sub|_sub|Subject|_subject|Issuer|_issuer|Audience|_audience|Expiry|_expiry)$|^(?:[uU]se|[hH]as|[iI]s|[cC]an|[sS]hould|[eE]nable|[aA]llow|[rR]equire)(?=[A-Z_])|^(?:USE|HAS|IS|CAN|SHOULD|ENABLE|ALLOW|REQUIRE)_/;
+  /(?:Ids?|IDs?|_ids?|Identifier|Type|_type|Kind|Count|_count|Quantity|Length|_length|Result|_result|Status|_status|Sub|_sub|Subject|_subject|Issuer|_issuer|Audience|_audience|Expiry|_expiry|User|_user|Owner|_owner)$|^(?:[uU]se|[hH]as|[iI]s|[cC]an|[sS]hould|[eE]nable|[aA]llow|[rR]equire)(?=[A-Z_])|^(?:USE|HAS|IS|CAN|SHOULD|ENABLE|ALLOW|REQUIRE)_/;
+
+// A constant -- an UPPER_CASE name -- assigned a quoted string at the start of a line. Constants
+// only: a lowercase `password = "..."` in a seed file once silenced railsgoat's real
+// `user.password == Digest::MD5.hexdigest(password)`, because a local of the same name is not the
+// same value.
+function literalConstant(all, name) {
+  const bare = name.replace(/[;,:)\]}]+$/, "");
+  if (!/^[A-Z][A-Z0-9_]*$/.test(bare)) return false;
+  return new RegExp(
+    `^[ \\t]*(?:(?:export|public|private|protected|static|final|readonly|const|let|var|val)\\s+)*` +
+      `(?:\\w+\\s+)?${bare}\\s*(?::\\s*\\w+\\s*)?=\\s*["'][^"'\\n]*["']\\s*;?\\s*$`,
+    "m"
+  ).test(all);
+}
 
 export function leakyCredentialCheck(all) {
   // Deliberately NOT gated on the file containing a constant-time comparison somewhere. That
@@ -421,6 +437,10 @@ export function leakyCredentialCheck(all) {
     // `typeof cred === ...` asks what kind of thing arrived, never what it is.
     if (typeofPrefix) continue;
     if (NON_SECRET_OPERAND.test(other)) continue;
+    // Either side a name the source assigns a string literal: netbox's `token ==
+    // CONSTRAINT_TOKEN_USER`, where the constant is '$user'. Fixed in the source, like the class
+    // constant below, so not a secret the caller guesses at; one written there is the secret scan's.
+    if ([other, name].some((n) => literalConstant(all, n))) continue;
     // The word can name the object rather than the value: `b.email == passwordResetRequest.email`
     // compares e-mail addresses, and was reported as a password compared unsafely -- found running
     // the C# reader over dvcsharp-api. A property access is judged by the property it ends in. A
@@ -444,6 +464,10 @@ export function leakyCredentialCheck(all) {
     // compared unsafely. Matched on the identifier's own casing, so `apiKey` and `api_key` are still
     // credentials and `apiKeyId` and `api_key_id` are not.
     if (NAMES_ABOUT_A_CREDENTIAL.test(compared)) continue;
+    // An action on a credential, named whole: flaskbb's `parsed_token.operation !=
+    // TokenActions.RESET_PASSWORD` compares which operation a token was issued for. Whole names only,
+    // so `reset_password_token` -- Devise's reset credential -- is still a credential.
+    if (/^(?:reset|change|forgot|forgotten|update)_?password$/i.test(compared)) continue;
     // A confirmation field is the caller's own input typed twice. `password != passwordConfirmation`
     // is in every registration handler, and there is no secret on either side to leak.
     if (/confirm/i.test(compared) || /confirm/i.test(other)) continue;
@@ -1568,6 +1592,10 @@ export function checkAuthentication(projectDir) {
     if (adapter.unreadRouting) unread.push(...adapter.unreadRouting(adapterFiles));
   }
 
+  // What the comparisons found is reported whether or not any route was read. These were left out
+  // of the no-route report, so when Rails routing stopped being read a Ruby app with no other routes
+  // lost a credential compared with `==`: the finding was computed above and then dropped.
+  const comparisons = { leakySignature, leakyCredential, vacuousCredentials: [...vacuous.keys()], vacuousAt: Object.fromEntries(vacuous) };
   if (routes.length === 0) {
     return {
       ran: true,
@@ -1575,6 +1603,7 @@ export function checkAuthentication(projectDir) {
       exempt,
       languages: [],
       unread,
+      ...comparisons,
       unknown: exempt.length
         ? `the only routes identified are exempt by name, so nothing was checked — ${exemptList(exempt)}. ` +
           `If any of them does more than report status or issue a credential, it needs authentication like any other`
@@ -1582,7 +1611,7 @@ export function checkAuthentication(projectDir) {
           "they are declared in a form this check does not recognise",
     };
   }
-  return { ran: true, routes, exempt, languages, unread, leakySignature, leakyCredential, vacuousCredentials: [...vacuous.keys()], vacuousAt: Object.fromEntries(vacuous), unknown: null };
+  return { ran: true, routes, exempt, languages, unread, ...comparisons, unknown: null };
 }
 
 // The advice has to be in the language that matched. The first version of these messages said
@@ -1608,51 +1637,8 @@ const where = (at) =>
 const exemptList = (exempt) =>
   exempt.map((r) => `${r.method} ${r.route} (${r.file}:${r.line}, ${r.why})`).join(", ");
 
-/** Blocking failures for the gate. */
-export function authenticationFailures(projectDir, { reviews = [] } = {}) {
-  const report = checkAuthentication(projectDir);
-  if (!report.ran) return { failures: [], advisories: [`authentication: not checked — ${report.unknown}`] };
-  const unreadAdvisories = report.unread?.length
-    ? [
-        `authentication: Rails routing is not read, so the routes declared in ${report.unread.slice(0, 3).join(", ")}` +
-          `${report.unread.length > 3 ? ` and ${report.unread.length - 3} more file(s)` : ""} were not checked. ` +
-          `Whether a Rails route requires sign-in is decided in its controller — \`before_action\`, ` +
-          `\`skip_before_action\`, \`only:\` and \`except:\`, and the class it inherits from — which this ` +
-          `check does not resolve, so a person has to judge them.`,
-      ]
-    : [];
-  // A Rails app with no other routes: the sentence above is the specific form of "no routes were
-  // identified", so it replaces it rather than repeating it.
-  if (report.unknown) {
-    const general = unreadAdvisories.length && !report.exempt?.length ? [] : [`authentication: ${report.unknown}`];
-    return { failures: [], advisories: [...unreadAdvisories, ...general] };
-  }
-
-  const exempt = report.exempt || [];
-  const exemptAdvisories = exempt.length
-    ? [
-        `authentication: ${exempt.length} route(s) exempt by name, not checked — ${exemptList(exempt)}. ` +
-          `Probe paths (/health, /ping, /metrics and the like) are expected to be open, and an endpoint ` +
-          `that issues a credential cannot require it first. The exemption is by path alone: a route with ` +
-          `one of these names that reads request input or changes state needs authentication like any other.`,
-      ]
-    : [];
-  exemptAdvisories.unshift(...unreadAdvisories);
-
-  // Protection read from inside a handler is listed, as an exemption is: it is the reader's judgement
-  // of code, not something the code declares, and crediting a check that is not one is the way this
-  // check can be wrong in the dangerous direction.
-  const credited = report.routes.filter((r) => r.inHandler);
-  if (credited.length) {
-    const shown = credited.slice(0, 10).map((r) => `${r.method} ${r.route} (${r.file}:${r.line}, ${r.protectedBy})`).join(", ");
-    exemptAdvisories.push(
-      `authentication: ${credited.length} route(s) count as protected by a check inside the handler — ${shown}` +
-        `${credited.length > 10 ? `, +${credited.length - 10} more` : ""}. Each has a check at the top of its handler ` +
-        `that refuses the request and ends it when a secret, a credential or the caller's identity does not ` +
-        `match. Confirm each one checks what it appears to.`
-    );
-  }
-
+/** The comparison findings: blocking whether or not any route was read or is open. */
+function comparisonFindings(report) {
   // Reported whether or not any route is open, and separately from the open-route finding: a
   // service can authenticate every endpoint and still have a leaky comparison in the one control
   // that matters. Conflating the two would let a fix for one hide the other.
@@ -1700,6 +1686,55 @@ export function authenticationFailures(projectDir, { reviews = [] } = {}) {
         `as well as non-vacuous.`
     );
   }
+  return timing;
+}
+
+/** Blocking failures for the gate. */
+export function authenticationFailures(projectDir, { reviews = [] } = {}) {
+  const report = checkAuthentication(projectDir);
+  if (!report.ran) return { failures: [], advisories: [`authentication: not checked — ${report.unknown}`] };
+  const unreadAdvisories = report.unread?.length
+    ? [
+        `authentication: Rails routing is not read, so the routes declared in ${report.unread.slice(0, 3).join(", ")}` +
+          `${report.unread.length > 3 ? ` and ${report.unread.length - 3} more file(s)` : ""} were not checked. ` +
+          `Whether a Rails route requires sign-in is decided in its controller — \`before_action\`, ` +
+          `\`skip_before_action\`, \`only:\` and \`except:\`, and the class it inherits from — which this ` +
+          `check does not resolve, so a person has to judge them.`,
+      ]
+    : [];
+  // A Rails app with no other routes: the sentence above is the specific form of "no routes were
+  // identified", so it replaces it rather than repeating it.
+  if (report.unknown) {
+    const general = unreadAdvisories.length && !report.exempt?.length ? [] : [`authentication: ${report.unknown}`];
+    return { failures: comparisonFindings(report), advisories: [...unreadAdvisories, ...general] };
+  }
+
+  const exempt = report.exempt || [];
+  const exemptAdvisories = exempt.length
+    ? [
+        `authentication: ${exempt.length} route(s) exempt by name, not checked — ${exemptList(exempt)}. ` +
+          `Probe paths (/health, /ping, /metrics and the like) are expected to be open, and an endpoint ` +
+          `that issues a credential cannot require it first. The exemption is by path alone: a route with ` +
+          `one of these names that reads request input or changes state needs authentication like any other.`,
+      ]
+    : [];
+  exemptAdvisories.unshift(...unreadAdvisories);
+
+  // Protection read from inside a handler is listed, as an exemption is: it is the reader's judgement
+  // of code, not something the code declares, and crediting a check that is not one is the way this
+  // check can be wrong in the dangerous direction.
+  const credited = report.routes.filter((r) => r.inHandler);
+  if (credited.length) {
+    const shown = credited.slice(0, 10).map((r) => `${r.method} ${r.route} (${r.file}:${r.line}, ${r.protectedBy})`).join(", ");
+    exemptAdvisories.push(
+      `authentication: ${credited.length} route(s) count as protected by a check inside the handler — ${shown}` +
+        `${credited.length > 10 ? `, +${credited.length - 10} more` : ""}. Each has a check at the top of its handler ` +
+        `that refuses the request and ends it when a secret, a credential or the caller's identity does not ` +
+        `match. Confirm each one checks what it appears to.`
+    );
+  }
+
+  const timing = comparisonFindings(report);
 
   // An open route a review covers -- a webhook that checks its own signature, a public page -- is set
   // aside and listed, not counted. The ID names the route, not a line: the review holds until the

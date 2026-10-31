@@ -250,6 +250,16 @@ not-checked advisory does; a policy can drop `auth-rails-unread` once a person h
 A Sinatra `before` filter with a path now protects only the routes it matches, and a filter counts
 only on what its own block does.
 
+**After v1.13.0: a credential compared with `==` blocks when no route is read.** The two comparison
+findings, a credential or signature compared with `==` and a credential that is vacuous when its
+variable is unset, were dropped from the report of a project with no route read. Once Rails routing
+stopped being read, rubygems.org lost the `path_token ==` finding v1.13.0 blocked on. They are reported
+again, so a Rails app with such a comparison blocks as it did, and a project whose routes are not read
+at all can now block on one: of the 72 projects compared, dvwa and railsgoat newly block, each on a
+credential compared with `==`. Comparisons with an empty string or `None` behind a Python `:`, with a
+credential's owner, with an action named after a credential, or with an UPPER_CASE constant the source
+assigns a string are no longer counted; these were six of 88 matches and none was a secret compared.
+
 **After v1.13.0: a check inside a handler counts only before any work, and only against the caller
 who fails it.** v1.13.0 credited a check that came after a branch doing work for anyone (CTFd's email
 confirmation marks the account verified before its sign-in check), and a check pointing the wrong way
