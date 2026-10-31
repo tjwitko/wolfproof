@@ -186,8 +186,8 @@ installed by a function (`def init_app(app)`, `target.before_request(check)`) pr
 whatever each call passes it. A hook on an app imported from another module, or made by a factory
 (`app = create_app()`, or one returning `Flask(...)` directly), protects that app's routes, and those
 under the directory the app is made in. A hook in an app factory counts though the project never
-calls the factory, since Flask's CLI and servers do. A hook in a function nothing calls, or calls only from such a function, or only stores, no longer
-counts. Names are read as Python reads them: a helper's local `app`, or a parameter named like the
+calls the factory, since Flask's CLI and servers do. A hook in a function nothing calls, or calls
+only from such a function, or only stores, no longer counts. Names are read as Python reads them: a helper's local `app`, or a parameter named like the
 module's app, no longer stands for the module's app. A flask-restx `Api` is read where it is mounted,
 on a parameter or by `init_app` in another file; one mounted on several blueprints is protected only
 where each is. Each call of a factory makes its own blueprint, so a hook on `b1 = make_b()` protects
