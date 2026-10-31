@@ -82,6 +82,9 @@ time. It exits **1** if something of its own could not be refreshed, and says wh
 passing something it should not have, projects relying on that gap start failing. Release notes
 call these out under *expect this to fail*.
 
+So run the new version locally first, read what it finds, and move the CI pin once you have — not
+the other way round, where the first you hear of it is a red build on someone else's pull request.
+
 **In v1.7.0: a test suite the gate cannot run is exit 3.** In a Java, Kotlin, C#, Rust, PHP or
 Ruby project whose task or baseline asks for tests, the gate now finds the test files, has no
 runner for them, and exits 3 — in the default mode, where it used to exit 0 with the suite unrun,
@@ -155,154 +158,126 @@ with the check in the handler of a route declared below it. In an Express app wi
 `webhook` verifies a signature. Each route is now judged by its own handlers, so a route like
 `/purge` is reported open. None of the 29 calibration applications had one.
 
-**After v1.13.0: the fix for an open route names its framework.** A Flask route was told to add a
-FastAPI dependency, and every language's advice named all of that language's frameworks. The advice
-now names the fix for the framework each open route is written in, and only forms the check
-credits. A NestJS `@UseGuards(...)` written below the route decorator now counts,
-as one above it did. A Flask route on a class (`@ns.route` on a flask-restx `Resource`) is told
-about a `before_request` hook, on the app or on the blueprint its `Api` is mounted on, the one form
-that counts for it, not a check at the top of the view.
+### In v1.14.0
 
-**After v1.13.0: Flask's decorators and `before_request` hooks count.** `@login_required` from
-Flask-Login, Flask-Security's and Flask-JWT-Extended's decorators, Flask-HTTPAuth's
-`@auth.login_required`, a project's own decorator that refuses the caller, and a `before_request` hook
-that refuses now protect the routes they run for. A hook that lets some paths through
-(`request.path.startswith("/public")`) leaves open the routes whose full path it matches, read with
-their blueprint's `url_prefix` and, for flask-restx, the `Api`'s prefix and the namespace's path, and
-every route whose full path cannot be read. A blueprint registered by a helper function, in a loop over
-a list, or made by a factory now has a known full path, so such a hook can protect its routes; and a
-blueprint registered on a helper's parameter is read as what the helper is called with, not as a
-module-level name the parameter shadows, which credited routes the hook lets through. A Flask route open before can now pass, and a review
-of one now matches nothing and is reported as doing nothing: delete it.
+**v1.14.0 changes how the authentication check reads routes, and verdicts move both ways.** A route
+reported open can pass, and a route that passed can block. On the 72 calibration projects, v1.14.0
+reads 3,748 routes where v1.13.0 read 3,880, reports 1,745 of them open where v1.13.0 reported
+1,819, and blocks 29 projects where v1.13.0 blocked 28. A review of a route that now passes matches no
+finding and is reported as doing nothing: delete it.
 
-**After v1.13.0: a JavaScript or Go handler is the function its route's file names.** A named
-handler was the first function of that name anywhere in the project, so a route could be credited with
-another file's check; such a route can now block. The name is resolved from the route's file, through
-its imports or its package, and a method through the receiver's type. A handler imported from a
-package, or from a TypeScript path alias, is not read, so a check inside it is not credited.
+**Flask's decorators and `before_request` hooks count.** `@login_required` from Flask-Login,
+Flask-Security's and Flask-JWT-Extended's decorators, Flask-HTTPAuth's `@auth.login_required`, a
+project's own decorator that refuses the caller, and a `before_request` hook that refuses now protect
+the routes they run for: 19 of microblog's routes and 3 of Flask's tutorial's now pass. A hook that
+lets some paths through (`request.path.startswith("/public")`) leaves open the routes whose full path
+it matches, and every route whose full path cannot be read. A full path is read from the blueprint's
+`url_prefix`, and for flask-restx from the `Api`'s prefix and the namespace's path. It is also read
+for a blueprint registered by a helper, in a loop over a list, or made by a factory (`admin =
+make_admin()`, or a factory returning `Blueprint(...)`), and for a rule built from the module's names
+(`BASE + "/one"` with `BASE = "/api"`). A conditional rule is either path, where v1.13.0 read
+`"/a" if ON else "/b"` as "/a". A rule with a part that is not written out has no known path, where
+v1.13.0 read `"/x" + SUFFIX` as "/x"; so has one built from a name written by `+=`, from another
+module or from the environment. A hook's path rule is taken to reach such a route, which can be
+reported open.
 
-**After v1.13.0: a Flask rule built from a module's names has a known path.** `@app.get(BASE +
-"/one")` with `BASE = "/api"` now has the full path `/api/one`, so a hook's path rule is matched against
-it rather than taken to reach it: a route open before can now pass. A name written by `+=`, from
-another module, or from the environment still has no known path.
+**A Flask hook counts on the app it is installed on, and only where that code runs.** A hook
+installed by a function (`def init_app(app)`, `target.before_request(check)`) protects the routes of
+whatever each call passes it. A hook on an app imported from another module, or made by a factory
+(`app = create_app()`, or one returning `Flask(...)` directly), protects that app's routes, and those
+under the directory the app is made in. A hook in an app factory counts though the project never
+calls the factory, since Flask's CLI and servers do. A hook in a function nothing calls, or calls only from such a function, or only stores, no longer
+counts. Names are read as Python reads them: a helper's local `app`, or a parameter named like the
+module's app, no longer stands for the module's app. A flask-restx `Api` is read where it is mounted,
+on a parameter or by `init_app` in another file; one mounted on several blueprints is protected only
+where each is. Each call of a factory makes its own blueprint, so a hook on `b1 = make_b()` protects
+the routes declared on `b1`, not those of `b2 = make_b()`, and those declared inside the factory only
+when it runs once. A route that passed on a hook it is not under can now block.
 
-**After v1.13.0: a Flask hook counts only where the code installing it runs.** A `before_request`
-hook in a function nothing calls, or calls only from such a function, or only stores, was credited,
-and no longer is: a route that passed on it can now block. A hook in an app factory still counts
-though the project never calls the factory, since Flask's CLI and servers do.
-
-**After v1.13.0: names are read as Python reads them, and an Api where it is mounted.** A Flask name
-was the first assignment of it anywhere in its file, so a helper's local `app` could stand for the
-module's app and credit the module's routes with a hook the helper put on its own blueprint; such a
-route can now block. A flask-restx `Api` mounted on a parameter or by `init_app` in another file is now
-read, so a blueprint hook can protect its routes; one mounted on several blueprints is protected only
-where each is.
-
-**After v1.13.0: a Flask rule is read as a literal only when it is one.** `@app.get("/a" if ON else
-"/b")` was read as "/a", and `@app.get("/x" + SUFFIX)` as "/x", so a hook letting "/b" or "/x/c"
-through was credited on a route Flask serves to anyone. A conditional rule is now either path, and one
-with a part not written out has no known path, so a hook's path rule is taken to reach it: such a route
-can now be reported open. A factory or name choosing between two blueprints with a conditional
-expression now stands for both.
-
-**After v1.13.0: an app or blueprint made by a factory is known.** A hook on `app = create_app()`
-imported from wsgi.py now protects that app's routes, a route declared there has a full path, and a
-blueprint assigned from a factory (`admin = make_admin()`) has the prefix it is registered with, as
-does a factory returning `Blueprint(...)` or `Flask(...)` directly. A route open before can now pass.
-Each call of a factory makes its own blueprint: a hook put on one call's result (`b1 = make_b()`)
-protects the routes declared on that name, not those of `b2 = make_b()`, and those declared inside the
-factory only when it runs once.
-
-**After v1.13.0: a Flask hook installed by a function counts, and one never installed does not.** A
-`before_request` hook inside `def init_app(app)`, or added with `target.before_request(check)`, now
-protects the routes of whatever each call passes it, and a hook on an app imported from another module
-protects that app's routes; an app's hook reaches the routes under the directory the app is made in.
-A hook in a function nobody calls, on a parameter named like the module's app, was credited and no
-longer is: a route that passed on it can now block.
-
-**After v1.13.0: a Flask route whose rule is a call is checked.** A route written as
-`@routes.route(org_scoped_rule("/login"))` was not found, so nothing checked it: 19 of redash's. It is
-now found, shown by the path written in it, and judged like any other route, so one with nothing
-protecting it is reported open and a project can start to block on it; redash has 8, its sign-in,
-invitation and password-reset pages and `POST /verification_email/`. A hook's path rule is matched
-against each path the call can return, every branch of it, and reaches the route when the call
-cannot be read. A raw-string rule (`r"/x"`) is now found as well.
-
-**After v1.13.0: a Python route on a class is not judged by its first method.** A flask-restx route,
+**A Flask route on a class is judged by a hook, not by its first method.** A flask-restx route,
 `@ns.route(...)` on a `Resource` class, was judged by the body of the class's first method, so a
-sign-in check in its `get` credited an open `post`. A route on a class is now judged by none of its
-methods: not by their bodies, not by `@login_required` on a method, and not by `method_decorators`.
-It is reported open unless a `before_request` hook protects it: the app's, or that of the blueprint
-its `Api` is mounted on (`Api(bp)`, `api.init_app(bp)`). A hook that lets requests through by endpoint
-leaves it open, since its endpoint is not read, and one that lets them through by path leaves it open
-when the path matches its full path. A class route that passed on
-its first method's check can now block: move the check into such a hook, or mark the finding
-reviewed once a person has read each method. A `MethodView` registered with `add_url_rule` is not
-read as a route by either version, so nothing changes for it. It moved no route on the calibration
-applications or on five real Flask applications.
+sign-in check in its `get` credited an open `post`. No method counts now: not its body, not
+`@login_required` on it, and not `method_decorators`. The route is reported open unless a
+`before_request` hook protects it: the app's, or that of the blueprint its `Api` is mounted on
+(`Api(bp)`, `api.init_app(bp)`). A hook that lets requests through by endpoint leaves it open, since
+its endpoint is not read. A class route that passed can now block: move the check into such a hook,
+or mark the finding reviewed once a person has read each method. A `MethodView` registered with
+`add_url_rule` is not read as a route by either version.
 
-**After v1.13.0: Rails routes are reported as not checked, not as protected.** Lines in
-`config/routes.rb` were read as Sinatra routes, and a `before_action :authenticate…` in any controller
-marked them all protected — on Mastodon, its public profile page among them. Rails routing is now not
-read as routes, and an advisory names the files whose routes were not checked. A Rails app that passed
-on that credit passes in the default mode with the advisory, and blocks in factory mode, as any
-not-checked advisory does; a policy can drop `auth-rails-unread` once a person has judged the routes.
-A Sinatra `before` filter with a path now protects only the routes it matches, and a filter counts
-only on what its own block does.
+**A Flask route whose rule is a call is checked.** `@routes.route(org_scoped_rule("/login"))` was
+not found, so nothing checked it: 19 of redash's routes. They are now found, shown by the path written
+in them, and judged like any other route. A hook's path rule is matched against every path the call
+can return, and reaches the route when the call cannot be read. redash has 9 with nothing protecting
+them: its LDAP, SAML and remote-user sign-in pages, its invitation, password-reset and verification
+pages, and `POST /verification_email/`. A raw-string rule (`r"/x"`) is found as well.
 
-**After v1.13.0: a credential compared with `==` blocks when no route is read.** The two comparison
-findings, a credential or signature compared with `==` and a credential that is vacuous when its
-variable is unset, were dropped from the report of a project with no route read. Once Rails routing
-stopped being read, rubygems.org lost the `path_token ==` finding v1.13.0 blocked on. They are reported
-again, so a Rails app with such a comparison blocks as it did, and a project whose routes are not read
-at all can now block on one: of the 72 projects compared, dvwa and railsgoat newly block, each on a
-credential compared with `==`. Comparisons with an empty string or `None` behind a Python `:`, with a
-credential's owner, with an action named after a credential, or with an UPPER_CASE constant the source
-assigns a string are no longer counted; these were six of 88 matches and none was a secret compared.
+**A check inside a handler counts only before any work, and only against the caller who fails it.**
+v1.13.0 credited a check that came after a branch doing work for anyone (CTFd's email confirmation
+marks the account verified before its sign-in check), and a check pointing the wrong way (`if
+current_user.is_authenticated: return redirect(...)`, which turns away signed-in users). A session
+value counts as the caller only when its key names the caller: `session.get("user_id")`,
+`session[:user_id]`, `"uid" in session`, `req.session.userId` and `req.session?.user` count, and
+Ktor's `call.sessions.get<T>()` is unchanged. Sign-in flow state no longer counts (CTFd's OAuth
+callback compares `session["nonce"]` with the `state` parameter), nor does a key that is not a
+literal (`session[KEY]`). Four of CTFd's routes and microblog's password-reset request page are now
+open for these reasons. A route that passed on such a check can now block: move the check to the top
+of the handler or onto the route, or mark the finding reviewed if the route is meant to be public.
 
-**After v1.13.0: a check inside a handler counts only before any work, and only against the caller
-who fails it.** v1.13.0 credited a check that came after a branch doing work for anyone (CTFd's email
-confirmation marks the account verified before its sign-in check), and a check pointing the wrong way
-(`if current_user.is_authenticated: return redirect(...)`, which turns away signed-in users). Both are
-now reported open. A route that passed on such a check can now block: move the check to the top of
-the handler, or onto the route, or mark the finding reviewed if the route is meant to be public.
+In JavaScript, a destructuring is reading, not work: `const { newPassword, currentPassword } =
+request.body` ahead of a check no longer makes the check count as after work. A destructured name is
+read as the property it takes, and a name in a check is followed through up to four assignments, so
+`const { email } = request.session.user`, then `findByEmail(email)`, then `if (!user)` counts as the
+caller checked. fastify/demo's `PUT /update-password` stays protected for that reason; v1.13.0
+credited it for `newPassword === currentPassword`, which compares two of the caller's inputs, and
+v1.14.0 does not.
 
-**After v1.13.0: a JavaScript destructuring is reading, not work.** `const { newPassword,
-currentPassword } = request.body` ahead of a check made the check count as after work, so it was not
-credited. A destructured name is now also read as the property it takes, and a name in a check is
-followed through up to four assignments, so `const { email } = request.session.user` then
-`findByEmail(email)` then `if (!user)` counts as the caller checked, as the one-line form did.
-fastify/demo's `PUT /update-password` is credited again, for that reason. v1.13.0 credited it for
-`newPassword === currentPassword`, which compares two of the caller's inputs, and no longer does. Of
-3,748 routes on 72 projects, no other verdict moved.
+**A JavaScript or Go handler is the function its route's file names.** A named handler was the first
+function of that name anywhere in the project, so a route could be credited with another file's
+check; such a route can now block. The name is resolved from the route's file, through its imports or
+its package, and a method through the receiver's type. A handler imported from a package, or from a
+TypeScript path alias, is not read, so a check inside it is not credited.
 
-**After v1.13.0: a Fastify `autohooks` file protects the routes it reaches, and only those.**
-`@fastify/autoload` applies the hooks in a directory's `autohooks` file to that directory's routes, and
-to its subdirectories' with `cascadeHooks`. Such a hook was read only by the project-wide rule, which
+**A Fastify `autohooks` file protects the routes it reaches, and only those.** `@fastify/autoload`
+applies the hooks in a directory's `autohooks` file to that directory's routes, and to its
+subdirectories' with `cascadeHooks`. v1.13.0 read such a hook only by the project-wide rule, which
 credited every route in the project when the hook's first 120 characters named authentication, and
-nothing otherwise: fastify/demo protects its 12 API routes from `src/routes/api/autohooks.ts`, and all
-were reported open. They now pass, its root page stays open, and a hook in an `autohooks` file no longer
-credits routes outside its directory, so such a route can now block. Each rule was checked against
-Fastify 5.12.7 and @fastify/autoload 6.5.1 on 29 routes in 16 apps; none counted as protected was reached. A
-session read with optional chaining, `req.session?.user`, counts as the caller again, as in v1.13.0.
+none otherwise. fastify/demo protects its 12 API routes from `src/routes/api/autohooks.ts`; 11 of them
+were reported open, and all 12 now pass on that hook, while its root page stays open. A hook in an
+`autohooks` file no longer credits routes outside its directory, so such a route can now block. Each
+rule was checked against Fastify 5.12.7 and @fastify/autoload 6.5.1, on 29 routes in 16 apps: none the
+check counts as protected was reached by an anonymous request.
 
-**After v1.13.0: a session value counts as the caller only when its key names the caller.**
-`session.get("user_id")`, `session[:user_id]`, `"uid" in session` and `req.session.userId` still count.
-A check of sign-in flow state held in the session no longer does: CTFd's OAuth callback compares
-`session["nonce"]` with the `state` parameter, and that says nothing about who is calling. A key that
-is not a literal (`session[KEY]`) no longer counts either. Ktor's typed `call.sessions.get<T>()` is
-unchanged. A route that passed on such a check can now block.
+**An HTTP client call is not a route.** In JavaScript and TypeScript, `await api.post("/api/groups",
+{...})` was read as an Express route. A call whose value is waited for, or that passes only data after
+the path, is no longer a route. That removes 139 calls from the calibration projects, 49 of them
+reported open: 37 in redash's Playwright helpers, 6 in the React RealWorld client, 5 in BookStack's
+front end, and 1 in Gitea's end-to-end helpers. A project blocked only by such calls can now pass, as
+the React RealWorld client does. No route among 611 in Express, Fastify, Hono, juice-shop and the MCP
+SDK's examples moved.
 
-**After v1.13.0: an HTTP client call is not a route.** In JavaScript and TypeScript,
-`await api.post("/api/groups", {...})` was read as an Express route and reported open: 37 in
-redash's Playwright helpers, 6 in the React RealWorld client, 1 in Gitea's end-to-end helpers. A call
-whose value is waited for, or that passes only data after the path, is no longer a route. A project
-blocked only by such calls can now pass, and a review of one now matches nothing and is reported as
-doing nothing: delete it. No other route moved: not among 611 in Express, Fastify, Hono, juice-shop
-and the MCP SDK's examples, nor among the 1,967 other calibration routes.
+**Rails routes are reported as not checked, not as protected.** Lines in `config/routes.rb` were read
+as Sinatra routes, and a `before_action :authenticate…` in any controller marked them all protected —
+on Mastodon, its public profile page among them. Rails routing is now not read as routes, and an
+advisory names the files whose routes were not checked: 9 of Mastodon's routes and 1 of
+rubygems.org's. A Rails app that passed on that credit passes in the default mode with the advisory,
+and blocks in factory mode, as any not-checked advisory does; a policy can drop `auth-rails-unread`
+once a person has judged the routes. A Sinatra `before` filter with a path now protects only the
+routes it matches, and a filter counts only on what its own block does.
 
-So run the new version locally first, read what it finds, and move the CI pin once you have — not
-the other way round, where the first you hear of it is a red build on someone else's pull request.
+**A credential compared with `==` blocks when no route is read.** The two comparison findings, a
+credential or signature compared with `==` and a credential that is vacuous when its variable is
+unset, were dropped from the report of a project with no route read. They are reported again, so a
+Rails app with such a comparison blocks: rubygems.org keeps the `path_token ==` finding v1.13.0
+blocked on, and dvwa and railsgoat newly block, each on a credential compared with `==`. Comparisons
+with an empty string or `None` behind a Python `:`, with a credential's owner, with an action named
+after a credential, or with an UPPER_CASE constant the source assigns a string are no longer counted;
+these were six of 88 matches, and none was a secret compared.
+
+**The fix for an open route names its framework.** A Flask route was told to add a FastAPI
+dependency, and every language's advice named all of that language's frameworks. The advice now names
+the fix for the framework each open route is written in, and only forms the check credits. A Flask
+route on a class is told about a `before_request` hook, the one form that counts for it. A NestJS
+`@UseGuards(...)` written below the route decorator now counts, as one above it did.
 
 ## Keeping current
 
