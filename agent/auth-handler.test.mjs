@@ -227,6 +227,41 @@ end`, "the caller checked in the handler"],
   if (!req.session.currentUser) return res.redirect("/login");
   res.render("settings");
 }`, "the caller checked in the handler"],
+  // fastify/demo's PUT /update-password. Destructuring was read as work, so the check after it was
+  // not credited; and `email` was two names from the session, where one was followed.
+  ["fastify/demo: the session user looked up after destructuring the body", "brace", `async function (request, reply) {
+      const { newPassword, currentPassword } = request.body
+      const { email } = request.session.user
+
+      const user = await usersRepository.findByEmail(email)
+
+      if (!user) {
+        return reply.code(401).send({ message: 'User does not exist.' })
+      }
+
+      await usersRepository.updatePassword(email, newPassword)
+    }`, "the caller checked in the handler"],
+  ["a session user destructured, as it is credited read plainly", "brace", `async (request, reply) => {
+  const { user } = request.session;
+  if (!user) {
+    return reply.code(401).send({ message: "no" });
+  }
+  await save(user);
+}`, "the caller checked in the handler"],
+  ["a session user destructured under another name", "brace", `async (request, reply) => {
+  const { user: me } = request.session;
+  if (!me) {
+    return reply.code(401).send({ message: "no" });
+  }
+  await save(me);
+}`, "the caller checked in the handler"],
+  ["a header destructured with a TypeScript type is not work before its check", "brace", `async (req, res) => {
+  const { authorization }: Headers = req.headers;
+  if (authorization !== expectedAuthorization) {
+    return res.status(401).end();
+  }
+  await save(1);
+}`, "a credential checked in the handler"],
 ];
 
 const NO = [
@@ -411,6 +446,45 @@ end`],
     if not upload_session.get("owner"):
         abort(403)
     return save_chunk(upload_session)`],
+  // v1.13.0 credited fastify/demo's route with this: two of the caller's own inputs compared.
+  ["a new password compared with the current one the caller sent", "brace", `async function (request, reply) {
+  const { newPassword, currentPassword } = request.body
+  if (newPassword === currentPassword) {
+    return reply.code(401).send({ message: 'New password cannot be the same.' })
+  }
+  await usersRepository.updatePassword(email, newPassword)
+}`],
+  // ktor-samples' public profile page: `.user` in `dao.user(...)` is a method, not the session local.
+  ["a method named like the session local is not the local", "brace", `async (req, res) => {
+  const user = req.session.user;
+  const pageUser = dao.user(req.params.name);
+  if (!pageUser) {
+    return res.status(401).end();
+  }
+  res.render("user", { user, pageUser });
+}`],
+  ["a destructuring default that calls something is work before the check", "brace", `async (req, res) => {
+  const { limit = audit.record(req) } = req.query;
+  if (!req.session.user) {
+    return res.status(401).end();
+  }
+  res.json(list(limit));
+}`],
+  ["a write after destructuring is work before the check", "brace", `async (req, res) => {
+  const { item } = req.body;
+  await items.insert(item);
+  if (!req.session.user) {
+    return res.status(401).end();
+  }
+  res.json({ ok: true });
+}`],
+  ["a route parameter destructured is not the caller", "brace", `async (req, res) => {
+  const { id } = req.params;
+  if (!id) {
+    return res.status(401).end();
+  }
+  await remove(id);
+}`],
 ];
 
 for (const [name, family, body, want] of YES) {

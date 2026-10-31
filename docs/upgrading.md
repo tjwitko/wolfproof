@@ -267,6 +267,15 @@ confirmation marks the account verified before its sign-in check), and a check p
 now reported open. A route that passed on such a check can now block: move the check to the top of
 the handler, or onto the route, or mark the finding reviewed if the route is meant to be public.
 
+**After v1.13.0: a JavaScript destructuring is reading, not work.** `const { newPassword,
+currentPassword } = request.body` ahead of a check made the check count as after work, so it was not
+credited. A destructured name is now also read as the property it takes, and a name in a check is
+followed through up to four assignments, so `const { email } = request.session.user` then
+`findByEmail(email)` then `if (!user)` counts as the caller checked, as the one-line form did.
+fastify/demo's `PUT /update-password` is credited again, for that reason. v1.13.0 credited it for
+`newPassword === currentPassword`, which compares two of the caller's inputs, and no longer does. Of
+3,748 routes on 72 projects, no other verdict moved.
+
 **After v1.13.0: a session value counts as the caller only when its key names the caller.**
 `session.get("user_id")`, `session[:user_id]`, `"uid" in session` and `req.session.userId` still count.
 A check of sign-in flow state held in the session no longer does: CTFd's OAuth callback compares

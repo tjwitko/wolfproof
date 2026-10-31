@@ -172,8 +172,9 @@ visitor without a session to the sign-in page, used to be reported as open to an
 to have this shape, all of it:
 
 - **At the top level of the handler.** A check nested inside another branch protects one path.
-- **Before any work.** What may come first: reading into a name (`user = load(id)`, or a call named
-  for reading or checking, such as `comment.LoadIssue(ctx)`), a log line, and a branch that only
+- **Before any work.** What may come first: reading into a name (`user = load(id)`, a JavaScript
+  destructuring such as `const { email } = request.session.user` whose defaults call nothing, or a
+  call named for reading or checking, such as `comment.LoadIssue(ctx)`), a log line, and a branch that only
   refuses or answers an error. A call that may write, a field set, or a branch that does work and
   returns is a path the check never sees: CTFd's email confirmation marks the account verified and
   returns before its sign-in check, so that check is not credited.
@@ -184,7 +185,9 @@ to have this shape, all of it:
   confirmation; or the caller's identity — a principal, a signed-in user, a role, or a session key
   that names the caller (`session.get("user_id")`, `session[:user_id]`, `req.session.userId`; not
   `session["nonce"]` or `session.get("setup_git_device")`, which hold sign-in flow state). A name
-  assigned earlier in the handler is read through its assignment. A call whose name only says it
+  assigned earlier in the handler is read through its assignment, and the names in that through theirs,
+  up to four steps; a destructured name is read as the property it takes (`const { user } =
+  request.session` as `request.session.user`), and a name after `.` is a property, not a local. A call whose name only says it
   authenticates or authorizes counts with a 401, a 403 or the sign-in page, and not with a 404.
 - **A refusal that ends the request:** it returns, throws, aborts or halts — with 401, 403, 400,
   404, a redirect or an exception — or the `if` has an `else` that does the work and is the handler's

@@ -99,6 +99,13 @@ const QUIET_CALL = new RegExp(
 const COMPOUND = /^\s*(?:if|else|elif|elsif|unless|for|foreach|while|do|try|catch|except|finally|with|switch|match|case|begin|loop|select|go)\b/;
 const BARE_RETURN = /^\s*(?:return|break)\b\s*(?:@\w+)?\s*(?:nil|null|None|false|undefined)?\s*;?\s*$/;
 
+// A JavaScript destructuring declaration, `const { newPassword, currentPassword } = request.body` or
+// `let [first] = rows`, with renames, nesting, rest and a TypeScript type after it. It reads into
+// names as `const x = ...` does. Counted as work, it put fastify/demo's `PUT /update-password` open:
+// its handler destructures the body and the session user before checking the current password.
+// A default with a call in it (`{ limit = compute() }`) is still work, since the call may act.
+const DESTRUCTURE = /^\s*(?:const|let|var)\s+[{[][^()]*[}\]]\s*(?::\s*[\w$.<>[\]\s,|]+)?$/;
+
 /** Assignment to a plain name (`x = ...`, `val x: T = ...`, `a, b := ...`, `$x = ...`), or to Flask's `g`. */
 function plainAssignment(m) {
   let depth = 0;
@@ -112,7 +119,7 @@ function plainAssignment(m) {
         continue;
       }
       const lhs = m.slice(0, k).replace(/:$/, "").replace(/\[\]/g, "").replace(/^\s*g\s*\.\s*(?=\w+\s*$)/, "");
-      return /^\s*[\w$@\s,:<>?]+$/.test(lhs) && /[\w$]\s*$/.test(lhs);
+      return (/^\s*[\w$@\s,:<>?]+$/.test(lhs) && /[\w$]\s*$/.test(lhs)) || DESTRUCTURE.test(lhs);
     }
   }
   return false;
@@ -184,6 +191,48 @@ function refusesOnly(branch, family) {
 const ASSIGN_BRACE =
   /^\s*(?:(?:val|var|let|const|final|auto)\s+|(?:[\w.<>?[\],\s]+?\s+)(?=\w+\s*=[^=>]))?\$?(\w+)\s*(?::\s*[\w.<>?]+\s*)?(?::=|=)(?!=)\s*([\s\S]*)$/;
 
+// The names a destructuring declaration binds, each with the property it reads:
+// `const { user } = request.session` binds `user` to `request.session.user`, as
+// `const user = request.session.user` would. Without it a guard on `user` had nothing to read
+// through, so the destructured form of a session check left its route open where the plain form
+// protected it. A nested pattern binds nothing here; its names stay unknown.
+function destructured(m, t) {
+  const eq = /^\s*(?:const|let|var)\s+([{[])/.exec(m);
+  if (!eq) return [];
+  const open = eq[0].length - 1;
+  const close = closeOf(m, open);
+  if (close < 0) return [];
+  const rest = /^\s*(?::\s*[\w$.<>[\]\s,|]+?)?\s*=(?![=>])\s*/.exec(m.slice(close + 1));
+  if (!rest || !DESTRUCTURE.test(m.slice(0, close + 1 + rest[0].indexOf("=")))) return [];
+  const rhs = t.slice(close + 1 + rest[0].length).trim().replace(/;$/, "");
+  const out = [];
+  let depth = 0;
+  let from = open + 1;
+  const entries = [];
+  for (let k = open + 1; k < close; k++) {
+    if ("([{".includes(m[k])) depth++;
+    else if (")]}".includes(m[k])) depth--;
+    else if (m[k] === "," && depth === 0) {
+      entries.push(m.slice(from, k));
+      from = k + 1;
+    }
+  }
+  entries.push(m.slice(from, close));
+  entries.forEach((e, i) => {
+    const entry = e.trim();
+    if (!entry) return;
+    const spread = /^\.\.\.\s*([\w$]+)$/.exec(entry);
+    if (spread) return out.push([spread[1], rhs]);
+    if (eq[1] === "[") {
+      const n = /^([\w$]+)\s*(?:=.*)?$/s.exec(entry);
+      return n && out.push([n[1], `${rhs}[${i}]`]);
+    }
+    const kv = /^([\w$]+)\s*(?::\s*([\w$]+))?\s*(?:=.*)?$/s.exec(entry);
+    if (kv) out.push([kv[2] || kv[1], `${rhs}.${kv[1]}`]);
+  });
+  return out;
+}
+
 function braceStatements(body) {
   const masked = maskStrings(body, "brace");
   const open = openingBrace(masked);
@@ -203,9 +252,11 @@ function braceStatements(body) {
     else if (ch === ")" || ch === "]" || ch === "}") {
       depth--;
       if (depth === 0 && ch === "}") {
-        // An `else`, `catch` or chained call after the block continues the statement.
+        // An `else`, `catch` or chained call after the block continues the statement, and so does
+        // the `=` of a destructuring pattern, or its TypeScript type: `const { email } =
+        // request.session.user` is one statement, not a block and then an orphan `= ...`.
         const rest = masked.slice(k + 1, k + 40);
-        if (/^\s*(?:else\b|catch\b|finally\b|\)|\.|,|\?\?|\?:)/.test(rest)) continue;
+        if (/^\s*(?:else\b|catch\b|finally\b|\)|\.|,|\?\?|\?:|=(?![=>])|:)/.test(rest)) continue;
         stmts.push([start, k + 1]);
         start = k + 1;
       }
@@ -264,6 +315,7 @@ function braceStatements(body) {
     }
     const as = ASSIGN_BRACE.exec(m);
     if (as && !/^\s*(?:return|throw|if|while|for)\b/.test(m)) assigns.set(as[1], t.slice(m.indexOf(as[2])));
+    for (const [name, value] of destructured(m, t)) assigns.set(name, value);
     if (!quiet) work = true;
   });
   return { guards, assigns };
@@ -740,10 +792,24 @@ function failing(term, assigns, depth = 0) {
 }
 
 function evidenceOf(cond, assigns) {
-  // A name in the condition, assigned earlier at the top level, is read through its assignment.
+  // A name in the condition, assigned earlier at the top level, is read through its assignment, and
+  // the names in that through theirs, as far as failing() follows them. One step stopped at
+  // fastify/demo's `user = findByEmail(email)`, where `email` comes from the session user, though
+  // the same check written in one line was credited. A name after `.`, `->` or `::` is a property
+  // or a method, not the local of that name: ktor-samples' public profile page reads
+  // `dao.user(it.user)`, and taking `.user` for its session `user` credited the page with a check.
   let expanded = cond;
-  for (const name of new Set(cond.match(/[A-Za-z_$][\w$]*/g) || [])) {
-    if (assigns.has(name)) expanded += `\n${assigns.get(name)}`;
+  const seen = new Set();
+  let frontier = cond;
+  for (let depth = 0; depth < 4 && frontier; depth++) {
+    let next = "";
+    for (const name of new Set(frontier.match(/(?<![\w$.]|->|::)[A-Za-z_$][\w$]*/g) || [])) {
+      if (seen.has(name) || !assigns.has(name)) continue;
+      seen.add(name);
+      next += `\n${assigns.get(name)}`;
+    }
+    expanded += next;
+    frontier = next;
   }
   // A signature when an HMAC is computed or a signature named; otherwise a secret compared.
   if (SECRET_CHECK.test(expanded)) return SIGNED.test(expanded) ? "signature" : "secret";
