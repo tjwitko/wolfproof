@@ -47,5 +47,5 @@ test("the semgrep the counts were measured with is the one CI installs for the g
 test("nothing from the apps lives in this repository", () => {
   // Their URL and commit only. Copying would trip push protection, fire this repository's own gate,
   // and bring their licences with it.
-  assert.deepEqual(readdirSync(__dirname).sort(), ["manifest.json", "manifest.test.mjs", "run.mjs"]);
+  assert.deepEqual(readdirSync(__dirname).sort(), ["fetch.mjs", "manifest.json", "manifest.test.mjs", "routes.json", "routes.mjs", "routes.test.mjs", "run.mjs"]);
 });

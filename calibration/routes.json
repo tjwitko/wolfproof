@@ -1,0 +1,582 @@
+{
+  "about": "Real applications whose routes the authentication check reads, each pinned to a full commit or a published package, with the counts it gives them frozen. See calibration/routes.mjs.",
+  "measured": "2026-11-01",
+  "apps": [
+    {
+      "name": "bitwarden",
+      "from": "manifest",
+      "expected": {
+        "routes": 777,
+        "open": 77,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 2
+      }
+    },
+    {
+      "name": "dvcsharp-api",
+      "from": "manifest",
+      "expected": {
+        "routes": 16,
+        "open": 9,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "ktor-samples",
+      "from": "manifest",
+      "expected": {
+        "routes": 111,
+        "open": 95,
+        "exempt": 12,
+        "unread": 0,
+        "blocking": 2
+      }
+    },
+    {
+      "name": "gitea",
+      "from": "manifest",
+      "expected": {
+        "routes": 823,
+        "open": 706,
+        "exempt": 9,
+        "unread": 0,
+        "blocking": 2
+      }
+    },
+    {
+      "name": "bookstack",
+      "from": "manifest",
+      "expected": {
+        "routes": 343,
+        "open": 41,
+        "exempt": 6,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "dvwa",
+      "from": "manifest",
+      "expected": {
+        "routes": 0,
+        "open": 0,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "eshop",
+      "from": "manifest",
+      "expected": {
+        "routes": 45,
+        "open": 27,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 2
+      }
+    },
+    {
+      "name": "jellyfin",
+      "from": "manifest",
+      "expected": {
+        "routes": 420,
+        "open": 65,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 2
+      }
+    },
+    {
+      "name": "kotlin-ktor-realworld",
+      "from": "manifest",
+      "expected": {
+        "routes": 19,
+        "open": 4,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 2
+      }
+    },
+    {
+      "name": "kotlin-spring-realworld",
+      "from": "manifest",
+      "expected": {
+        "routes": 19,
+        "open": 7,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "mastodon",
+      "from": "manifest",
+      "expected": {
+        "routes": 4,
+        "open": 0,
+        "exempt": 2,
+        "unread": 6,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "netbox",
+      "from": "manifest",
+      "expected": {
+        "routes": 0,
+        "open": 0,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "outline",
+      "from": "manifest",
+      "expected": {
+        "routes": 28,
+        "open": 0,
+        "exempt": 2,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "petclinic-kotlin",
+      "from": "manifest",
+      "expected": {
+        "routes": 18,
+        "open": 18,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "pygoat",
+      "from": "manifest",
+      "expected": {
+        "routes": 8,
+        "open": 8,
+        "exempt": 2,
+        "unread": 0,
+        "blocking": 2
+      }
+    },
+    {
+      "name": "railsgoat",
+      "from": "manifest",
+      "expected": {
+        "routes": 0,
+        "open": 0,
+        "exempt": 0,
+        "unread": 1,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "rubygems.org",
+      "from": "manifest",
+      "expected": {
+        "routes": 0,
+        "open": 0,
+        "exempt": 0,
+        "unread": 1,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "spring-petclinic",
+      "from": "manifest",
+      "expected": {
+        "routes": 18,
+        "open": 18,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "spring-realworld",
+      "from": "manifest",
+      "expected": {
+        "routes": 0,
+        "open": 0,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "symfony-demo",
+      "from": "manifest",
+      "expected": {
+        "routes": 14,
+        "open": 5,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "webgoat",
+      "from": "manifest",
+      "expected": {
+        "routes": 193,
+        "open": 189,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "CTFd",
+      "repo": "https://github.com/CTFd/CTFd",
+      "commit": "71de7a679e42a07e7cca77d6bdc52e429b1b2923",
+      "language": "Python",
+      "note": "a capture-the-flag platform on Flask: blueprints, before_request hooks, and sign-in checks inside handlers",
+      "expected": {
+        "routes": 163,
+        "open": 163,
+        "exempt": 4,
+        "unread": 0,
+        "blocking": 2
+      }
+    },
+    {
+      "name": "flask",
+      "repo": "https://github.com/pallets/flask",
+      "commit": "d086db856be187255b8ec61ef409357393020f32",
+      "language": "Python",
+      "note": "Flask itself: its examples and the tutorial app, which uses a project-written @login_required",
+      "expected": {
+        "routes": 42,
+        "open": 39,
+        "exempt": 3,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "flaskbb",
+      "repo": "https://github.com/flaskbb/flaskbb",
+      "commit": "737d76f14e8f8fa4a493f1424ab184c87aecc516",
+      "language": "Python",
+      "note": "a forum on Flask, with Flask-Login",
+      "expected": {
+        "routes": 0,
+        "open": 0,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "microblog",
+      "repo": "https://github.com/miguelgrinberg/microblog",
+      "commit": "a975ef64864354867c88e0ed3a17ba7d17dca752",
+      "language": "Python",
+      "note": "the Flask Mega-Tutorial app: Flask-Login on pages, Flask-HTTPAuth on its API",
+      "expected": {
+        "routes": 24,
+        "open": 2,
+        "exempt": 3,
+        "unread": 0,
+        "blocking": 2
+      }
+    },
+    {
+      "name": "redash",
+      "repo": "https://github.com/getredash/redash",
+      "commit": "19505d576d1762bedb0ac737fa9a25eda13abc42",
+      "language": "Python",
+      "note": "Flask with flask-restful, its rules built by org_scoped_rule()",
+      "expected": {
+        "routes": 28,
+        "open": 17,
+        "exempt": 3,
+        "unread": 0,
+        "blocking": 3
+      }
+    },
+    {
+      "name": "angular-realworld-example-app",
+      "repo": "https://github.com/realworld-apps/angular-realworld-example-app",
+      "commit": "dd99ed2cf39c805d719f943c5d7061a5683d98a8",
+      "language": "JavaScript/TypeScript",
+      "note": "an Angular client: its HTTP calls are not routes",
+      "expected": {
+        "routes": 0,
+        "open": 0,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "fastify-demo",
+      "repo": "https://github.com/fastify/demo",
+      "commit": "895908e4e706b896aa3991f3f6507617edddb1dd",
+      "language": "JavaScript/TypeScript",
+      "note": "Fastify with @fastify/autoload and an autohooks file",
+      "expected": {
+        "routes": 13,
+        "open": 1,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 2
+      }
+    },
+    {
+      "name": "hono-examples",
+      "repo": "https://github.com/honojs/examples",
+      "commit": "3b0b62875a0e1265763fea1c6388866d5697ef81",
+      "language": "JavaScript/TypeScript",
+      "note": "Hono's examples",
+      "expected": {
+        "routes": 38,
+        "open": 0,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "express",
+      "repo": "https://github.com/expressjs/express",
+      "commit": "1c6f1b0fe4000977b9a7b4f34097e4d527dd9824",
+      "language": "JavaScript/TypeScript",
+      "note": "Express itself: its examples",
+      "expected": {
+        "routes": 251,
+        "open": 249,
+        "exempt": 3,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "juice-shop-717f5ef",
+      "repo": "https://github.com/juice-shop/juice-shop",
+      "commit": "717f5efa886b0417eeecb52378b03cf10567b7e2",
+      "language": "JavaScript/TypeScript",
+      "note": "OWASP Juice Shop (Express), at a later commit than the sast pin in manifest.json",
+      "expected": {
+        "routes": 250,
+        "open": 0,
+        "exempt": 5,
+        "unread": 0,
+        "blocking": 3
+      }
+    },
+    {
+      "name": "node-express-realworld-example-app",
+      "repo": "https://github.com/gothinkster/node-express-realworld-example-app",
+      "commit": "30b68e1e881462b2f4164ea09ab4c4f5699c7b0b",
+      "language": "JavaScript/TypeScript",
+      "note": "an Express API",
+      "expected": {
+        "routes": 20,
+        "open": 3,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "react-redux-realworld-example-app",
+      "repo": "https://github.com/gothinkster/react-redux-realworld-example-app",
+      "commit": "ee72eba4056392c95a27bc48d385d3f54ba38a18",
+      "language": "JavaScript/TypeScript",
+      "note": "a React client: its HTTP calls are not routes",
+      "expected": {
+        "routes": 0,
+        "open": 0,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "vue-realworld-example-app",
+      "repo": "https://github.com/realworld-apps/vue-realworld-example-app",
+      "commit": "f7e48c8178602ce25d43293bc6f8ca51d84ae222",
+      "language": "JavaScript/TypeScript",
+      "note": "a Vue client: its HTTP calls are not routes",
+      "expected": {
+        "routes": 0,
+        "open": 0,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "mcp-sdk",
+      "npm": "@modelcontextprotocol/sdk",
+      "version": "1.30.0",
+      "integrity": "sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA==",
+      "paths": {
+        "examples": "package/dist/esm/examples",
+        "server": "package/dist/esm/server",
+        "client": "package/dist/esm/client"
+      },
+      "language": "JavaScript/TypeScript",
+      "note": "the MCP TypeScript SDK's compiled examples, server and client, as published",
+      "expected": {
+        "routes": 39,
+        "open": 0,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "shape-node-library",
+      "from": "corpus",
+      "expected": {
+        "routes": 0,
+        "open": 0,
+        "exempt": 0,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "shape-python-service",
+      "from": "corpus",
+      "expected": {
+        "routes": 2,
+        "open": 2,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 1
+      }
+    },
+    {
+      "name": "webhook-claude",
+      "from": "corpus",
+      "expected": {
+        "routes": 2,
+        "open": 0,
+        "exempt": 2,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "webhook-haiku",
+      "from": "corpus",
+      "expected": {
+        "routes": 2,
+        "open": 0,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "webhook-haiku-12",
+      "from": "corpus",
+      "expected": {
+        "routes": 2,
+        "open": 0,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "webhook-haiku-2",
+      "from": "corpus",
+      "expected": {
+        "routes": 2,
+        "open": 0,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "webhook-haiku-3",
+      "from": "corpus",
+      "expected": {
+        "routes": 2,
+        "open": 0,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "webhook-haiku-4",
+      "from": "corpus",
+      "expected": {
+        "routes": 2,
+        "open": 0,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "webhook-haiku-6",
+      "from": "corpus",
+      "expected": {
+        "routes": 2,
+        "open": 0,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "webhook-haiku-7",
+      "from": "corpus",
+      "expected": {
+        "routes": 2,
+        "open": 0,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "webhook-haiku-8",
+      "from": "corpus",
+      "expected": {
+        "routes": 2,
+        "open": 0,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "webhook-sonnet-2",
+      "from": "corpus",
+      "expected": {
+        "routes": 2,
+        "open": 0,
+        "exempt": 2,
+        "unread": 0,
+        "blocking": 0
+      }
+    },
+    {
+      "name": "webhook-sonnet-3",
+      "from": "corpus",
+      "expected": {
+        "routes": 2,
+        "open": 0,
+        "exempt": 1,
+        "unread": 0,
+        "blocking": 0
+      }
+    }
+  ]
+}

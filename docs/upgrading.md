@@ -161,9 +161,10 @@ with the check in the handler of a route declared below it. In an Express app wi
 ### In v1.14.0
 
 **v1.14.0 changes how the authentication check reads routes, and verdicts move both ways.** A route
-reported open can pass, and a route that passed can block. On the 72 calibration projects, v1.14.0
-reads 3,748 routes where v1.13.0 read 3,880, reports 1,745 of them open where v1.13.0 reported
-1,819, and blocks 29 projects where v1.13.0 blocked 28. A review of a route that now passes matches no
+reported open can pass, and a route that passed can block. On the 48 projects pinned in
+[`calibration/routes.json`](../calibration/routes.json), v1.14.0 reads 3,748 routes where v1.13.0
+read 3,880, reports 1,745 of them open where v1.13.0 reported 1,819, and blocks 29 projects where
+v1.13.0 blocked 28. A review of a route that now passes matches no
 finding and is reported as doing nothing: delete it.
 
 **Flask's decorators and `before_request` hooks count.** `@login_required` from Flask-Login,

@@ -34,13 +34,12 @@
 // reasons that are not a rule change, and that difference is exactly what reads as one.
 //
 // Exit: 0 every app matches, 1 a count moved, 3 something could not be measured.
-import { execFileSync } from "child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { readFileSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
 import { sastScan } from "../agent/sast.mjs";
+import { checkout, existing } from "./fetch.mjs";
 import { toolchain, toolchainDrift } from "../lib/toolchain.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -48,8 +47,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MANIFEST = path.resolve((process.argv.find((a) => a.startsWith("--manifest=")) || "").slice("--manifest=".length) || path.join(__dirname, "manifest.json"));
 const UPDATE = process.argv.includes("--update");
 // For re-measuring on a machine that already has the apps: DIR/<name> is used only when it is a git
-// checkout at exactly the pinned commit with nothing changed in it, and is never deleted; anything
-// else is cloned as usual.
+// checkout at exactly the pinned commit with nothing changed or added in it, and is never deleted;
+// anything else is cloned as usual.
 const CHECKOUTS = (process.argv.find((a) => a.startsWith("--checkouts=")) || "").slice("--checkouts=".length);
 const ONLY = (process.argv.find((a) => a.startsWith("--only=")) || "").slice("--only=".length).split(",").filter(Boolean);
 const SHARD = /^--shard=(\d+)\/(\d+)$/.exec(process.argv.find((a) => a.startsWith("--shard=")) || "");
@@ -98,40 +97,6 @@ if (!UPDATE) {
 }
 console.log("");
 
-/** An existing checkout at exactly `commit`, unmodified, or null. */
-function existing(name, commit) {
-  if (!CHECKOUTS) return null;
-  const dir = path.resolve(CHECKOUTS, name);
-  const git = (...args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  try {
-    if (git("rev-parse", "HEAD") !== commit) return null;
-    if (git("status", "--porcelain", "--untracked-files=no") !== "") return null;
-    return { dir, kept: true };
-  } catch {
-    return null;
-  }
-}
-
-/** Clone exactly one commit, shallow, into a fresh directory. Runs nothing from the repository. */
-function checkout(repo, commit) {
-  const dir = mkdtempSync(path.join(tmpdir(), "calibration-"));
-  const git = (...args) =>
-    execFileSync("git", ["-C", dir, "-c", "core.hooksPath=/dev/null", "-c", "advice.detachedHead=false", ...args], {
-      stdio: ["ignore", "ignore", "pipe"],
-      env: { ...process.env, GIT_LFS_SKIP_SMUDGE: "1", GIT_TERMINAL_PROMPT: "0" },
-      timeout: 600_000,
-    });
-  try {
-    git("init", "-q");
-    git("fetch", "-q", "--depth", "1", "--no-tags", repo, commit);
-    git("checkout", "-q", "FETCH_HEAD");
-    return { dir };
-  } catch (err) {
-    rmSync(dir, { recursive: true, force: true });
-    return { error: (err.stderr ? String(err.stderr) : err.message).trim().split("\n").pop() };
-  }
-}
-
 function count(scan) {
   const byRule = {};
   for (const f of scan.findings) {
@@ -167,7 +132,7 @@ const findingsAt = {};
 for (const app of manifest.apps) {
   if (!wanted(app.name)) continue;
   const started = Date.now();
-  const co = existing(app.name, app.commit) || checkout(app.repo, app.commit);
+  const co = existing(CHECKOUTS, app.name, app.commit) || checkout(app.repo, app.commit);
   if (co.error) {
     console.log(`  INCOMPLETE ${app.name} — could not fetch ${app.commit.slice(0, 12)}: ${co.error}`);
     incomplete++;

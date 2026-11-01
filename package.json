@@ -32,6 +32,7 @@
     "corpus": "node corpus/run.mjs",
     "corpus:factory": "node corpus/run.mjs --factory",
     "calibration": "node calibration/run.mjs",
+    "calibration:routes": "node calibration/routes.mjs",
     "corpus:vendor": "node corpus/vendor.mjs",
     "corpus:check": "node corpus/vendor.mjs --check",
     "test:factory": "node --test test/*.e2e.mjs"

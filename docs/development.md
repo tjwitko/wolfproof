@@ -8,6 +8,7 @@ npm test                # unit tests
 npm run corpus          # regression corpus — thirteen frozen projects
 npm run corpus:factory  # the same thirteen, in factory mode, against their own frozen verdicts
 npm run calibration     # the sast rules on 29 real apps, cloned at pinned commits — about 85 minutes
+npm run calibration:routes  # the authentication check's routes on 48 pinned projects
 node scripts/refresh-eol-data.mjs   # end-of-life dates for the dockerfile check, before a release
 ```
 
@@ -60,3 +61,19 @@ the rules or the validator change, and on demand; it is not a required check.
 | Rust | **none** | Lemmy, Meilisearch |
 | C | **none** — Damn Vulnerable C Program's bugs are memory safety, and it correctly scores 0 | curl, git, Redis, nginx |
 | C++ | **none** | **none** |
+
+### The authentication check's routes
+
+[`calibration/routes.json`](../calibration/routes.json) pins the 48 projects the release notes'
+route figures are measured on, and freezes what the `authentication` check gives each one: routes
+read, open, exempt, not read, and blocking findings. They are 21 of the calibration applications,
+by name, at the commits `manifest.json` pins; 13 more repositories, pinned here by full commit SHA
+(five Flask applications, and JavaScript ones from Express, Fastify, Hono, Juice Shop and the
+RealWorld clients); the MCP SDK's compiled examples, server and client, pinned by npm version and
+sha512 integrity; and the 13 corpus deliverables.
+
+`npm run calibration:routes` fetches each, reads it with the `authentication` check in-process, and
+compares the counts, in about half a minute once the code is local; `--checkouts=DIR` reuses
+checkouts at the pinned commits and `--offline` fetches nothing. `--wolfproof=DIR` measures another
+copy of this project, such as `git archive v1.13.0`, against the same code: that is how a release's
+before-and-after figures are reproduced. It is run by hand before a release, not in CI.
