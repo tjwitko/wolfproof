@@ -405,7 +405,13 @@ const NON_SECRET_OPERAND =
   /^(?:null|undefined|true|false|none|nil|-?\d+(?:\.\d+)?|["'`](?:|string|object|number|boolean|undefined|function|symbol|bigint)["'`])[;,:)\]}]*$/i;
 
 const NAMES_ABOUT_A_CREDENTIAL =
-  /(?:Ids?|IDs?|_ids?|Identifier|Type|_type|Kind|Count|_count|Quantity|Length|_length|Result|_result|Status|_status|Sub|_sub|Subject|_subject|Issuer|_issuer|Audience|_audience|Expiry|_expiry|User|_user|Owner|_owner)$|^(?:[uU]se|[hH]as|[iI]s|[cC]an|[sS]hould|[eE]nable|[aA]llow|[rR]equire)(?=[A-Z_])|^(?:USE|HAS|IS|CAN|SHOULD|ENABLE|ALLOW|REQUIRE)_/;
+  /(?:Ids?|IDs?|_ids?|Identifier|Type|_type|Kind|Method|_method|Mode|_mode|Count|_count|Quantity|Length|_length|Result|_result|Status|_status|Sub|_sub|Subject|_subject|Issuer|_issuer|Audience|_audience|Expiry|_expiry|User|_user|Owner|_owner)$|^(?:[uU]se|[hH]as|[iI]s|[cC]an|[sS]hould|[eE]nable|[aA]llow|[rR]equire)(?=[A-Z_])|^(?:USE|HAS|IS|CAN|SHOULD|ENABLE|ALLOW|REQUIRE)_/;
+
+// A plural names several credentials, or a setting about them, never the one value a caller
+// presents: terraform-guard's `httpTokens !== "optional"` reads the EC2 metadata option
+// `http_tokens`, and Gitea's `CallSecrets == jobparser.SecretsInherit` is a workflow setting. Not
+// `credentials`, which is as often one `user:password` string as several.
+const PLURAL_CREDENTIAL = /(?:tokens|secrets|keys|passwords)$/i;
 
 // A constant -- an UPPER_CASE name -- assigned a quoted string at the start of a line. Constants
 // only: a lowercase `password = "..."` in a seed file once silenced railsgoat's real
@@ -460,11 +466,12 @@ export function leakyCredentialCheck(all) {
     }
     // A name about a credential rather than the credential: its id, its type, a count, the result of
     // checking it, a flag, one of its claims (BookStack's `$idTokenSub !== $sub` compares the OIDC
-    // subject, a user id). Found on Bitwarden, where `secretId`, `apiKeyId`, `passwordResult ==
+    // subject, a user id), how it is sent (the MCP SDK's `token_endpoint_auth_method === 'none'`).
+    // Found on Bitwarden, where `secretId`, `apiKeyId`, `passwordResult ==
     // PasswordVerificationResult.Failed` and `useResetPassword` were each reported as a secret
     // compared unsafely. Matched on the identifier's own casing, so `apiKey` and `api_key` are still
-    // credentials and `apiKeyId` and `api_key_id` are not.
-    if (NAMES_ABOUT_A_CREDENTIAL.test(compared)) continue;
+    // credentials and `apiKeyId` and `api_key_id` are not. A plural is never the credential either.
+    if (NAMES_ABOUT_A_CREDENTIAL.test(compared) || PLURAL_CREDENTIAL.test(compared)) continue;
     // An action on a credential, named whole: flaskbb's `parsed_token.operation !=
     // TokenActions.RESET_PASSWORD` compares which operation a token was issued for. Whole names only,
     // so `reset_password_token` -- Devise's reset credential -- is still a credential.

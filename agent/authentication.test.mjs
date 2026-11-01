@@ -828,9 +828,17 @@ test("a name about a credential, a property of an object named for one, or a con
     "if (useResetPassword == organization.UseResetPassword) {}",      // Bitwarden: a flag
     "if (secretsManagerSeatQuantity != seats) {}",                    // Bitwarden: a count
     "if (token_type == expected_type) {}",
+    'if (httpTokens !== "optional") return [];',                     // terraform-guard: an EC2 setting
+    "if caller.CallSecrets == jobparser.SecretsInherit {",           // Gitea: a workflow setting
+    "const isPublicClient = clientMetadata.token_endpoint_auth_method === 'none';", // MCP SDK: how it is sent
+    'if (http_tokens == "required") {}',
+    "if (authMode == expected) {}",
   ]) {
     assert.equal(leakyCredentialCheck(line), false, line);
   }
+  // A hardcoded password compared with == is still one (DVWA), and so is a singular beside a plural.
+  assert.equal(leakyCredentialCheck('if ($password == "becareful") {'), "password");
+  assert.equal(leakyCredentialCheck('if (httpTokens !== "optional" || token == provided) {}'), "token");
   // Still credentials: the value itself, and a method called on it.
   assert.equal(leakyCredentialCheck("if (apiKey == expected) {}"), "apiKey");
   assert.equal(leakyCredentialCheck("if (req.apiToken == provided) {}"), "apiToken");
