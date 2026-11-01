@@ -281,6 +281,18 @@ the fix for the framework each open route is written in, and only forms the chec
 route on a class is told about a `before_request` hook, the one form that counts for it. A NestJS
 `@UseGuards(...)` written below the route decorator now counts, as one above it did.
 
+### After v1.14.0
+
+**After v1.14.0: a plural, or a setting named after a credential, is not the credential.** v1.14.0
+read terraform-guard-mcp's `httpTokens !== "optional"`, which tests the EC2 metadata option
+`http_tokens`, as a credential compared with `==`, and blocked on it. A name that ends in a plural
+(`tokens`, `secrets`, `keys`, `passwords`) or in `method` or `mode` is no longer counted;
+`credentials` still is, being as often one `user:password` string as several. On the 48 projects
+pinned in [`calibration/routes.json`](../calibration/routes.json), the four control repositories and
+this one, 3 of 100 matches drop, each a setting, and none is added. One verdict moves:
+terraform-guard-mcp passes. The MCP SDK still blocks, now on its `client_secret !==` comparison
+rather than on `token_endpoint_auth_method === 'none'`.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

@@ -27,6 +27,7 @@ happened to produce, so the next project's ordinary idiom reads as a violation.
 | vacuous credentials | any string default counts as validation | `os.getenv(X, "")` | false negative |
 | credential timing | its own word list, not the header check's | `authorization` | false negative |
 | credential timing | a credential word anywhere in the identifier | `secretId`, `passwordResetRequest.email` | false positive |
+| credential timing | names about a credential, by suffix | a plural or a setting: `httpTokens`, `token_endpoint_auth_method` | false positive |
 | immutability (scope) | "any table/bucket" once the task requires it | a Terraform state backend | false positive ×4 |
 | every manifest check | reads content, never asks if there is any | five zero-byte YAML files | false negative ×3 |
 | advisory parser | only lines starting "- " | a review written as prose | silent discard |
@@ -2014,6 +2015,38 @@ searching all its text per name; express and juice-shop unchanged.
 **Still open:** a method on an object whose type is not read and whose name two classes share; a
 handler held in a structure (`handlers["list"]`); TypeScript path aliases (`@/handlers`), which are
 not relative imports.
+
+### 30. A plural or a credential's setting read as the credential — fixed after v1.14.0
+
+v1.14.0 made the comparison findings block when no route is read, and pinning terraform-guard-mcp to
+it turned that repository's `main` red: `httpTokens !== "optional"` in `rules/aws.mjs`, which tests
+the EC2 metadata option `http_tokens`, was reported as a bearer credential compared with `!==`. The
+name contains `token`, and the operand is a string literal, which a hardcoded password compared with
+`==` also is, so neither the word nor the literal separates it from DVWA's real findings.
+
+The name does. A plural names several credentials or a setting about them, and a name ending in
+`Method` or `Mode` says how a credential is used; neither is the one value a caller presents. Both
+now join the names about a credential (`Id`, `Type`, `Kind`, `Count`…). `credentials` is left in:
+it is as often one `user:password` string as several.
+
+Measured by recording every comparison the rule accepts, not only the first it reports, before and
+after, on the 48 projects pinned in `calibration/routes.json`, the four control repositories and
+this one: 100 to 97. The three dropped are `httpTokens`, Gitea's `CallSecrets ==
+jobparser.SecretsInherit` (a workflow setting) and the MCP SDK's `token_endpoint_auth_method ===
+'none'`; none is added. Of the 26 that remain compared with a string literal, 19 compare a password
+or client secret with a hardcoded value (DVWA 4, juice-shop 7, pygoat 7, redash 1), and the other 7
+are the two below. Findings move in two projects: terraform-guard-mcp no longer blocks, and the MCP
+SDK blocks on its `client.client_secret !== client_secret` instead. The 48 route pins all match.
+Each half of the fix, switched off, fails a test.
+
+**Still open:** two comparisons in CTFd's minified bundles, fetch's credentials mode
+(`credentials==="include"`) and an empty-string test read with what follows it
+(`mail_password==""&&`), and Jellyfin's five tokenizer comparisons, `token == '"'`, a single
+character. Neither report names one of these: Jellyfin's names `secret == x.Value.Secret` in its
+QuickConnect manager, a real one, and CTFd's names `c.tokenize != fe` in CodeMirror's minified
+bundle, which compares parser states and is a false positive of its own, the word inside a longer
+name, unchanged since v1.14.0. CTFd blocks on 163 open routes either way. Minified bundles are read
+like any other source.
 
 ### 12. Considered and deferred
 
