@@ -294,7 +294,7 @@ Controls that are present and do not work. Each row below blocks.
 | task requirements | when the task states them: an "immutable" store that can be altered; records deleted before the stated retention period; a secret cached so that it cannot rotate; client errors reported as 500s; tests that fail when run, or do not exist; a deliverable the task names that is not there |
 | evidence | a file that exists but is empty, which every check reading it would pass; work not committed; a commit that edits the task file |
 
-Authentication covers Python, JavaScript/TypeScript, Go, Java, Ruby, C#, PHP and Kotlin; error distinction covers
+Authentication covers Python, JavaScript/TypeScript, Go, Java, Ruby (Sinatra), C#, PHP and Kotlin; error distinction covers
 Python. The task-gated checks are narrow on purpose — immutability, for instance, only judges a
 store that names itself an audit log — because a blocking check that fires on correct code gets
 switched off.
@@ -320,6 +320,8 @@ So that a clean verdict is read for what it is:
   secrets, dependencies, infrastructure. The run says so above the verdict. Rust and C/C++ get the
   injection check, but there is no authentication check for them, and C and C++ test files are not
   recognised. Plain PHP pages served without a router (no Laravel or Symfony) have no routes to read.
+- **Rails routing.** Routes in `config/routes.rb` are reported as not checked, because whether one
+  requires sign-in is decided in its controller. Judge each controller's `before_action` by hand.
 - **Injection through a call that cannot be pinned to one function** — a method on an object of
   unknown type, a name defined more than once — which is an advisory, and SSRF through any helper.
   Request data passed to a project helper that injects it, called in a way that can only mean that
