@@ -2016,7 +2016,7 @@ searching all its text per name; express and juice-shop unchanged.
 handler held in a structure (`handlers["list"]`); TypeScript path aliases (`@/handlers`), which are
 not relative imports.
 
-### 30. A plural or a credential's setting read as the credential — fixed after v1.14.0
+### 30. A plural or a credential's setting read as the credential — fixed in v1.14.1
 
 v1.14.0 made the comparison findings block when no route is read, and pinning terraform-guard-mcp to
 it turned that repository's `main` red: `httpTokens !== "optional"` in `rules/aws.mjs`, which tests

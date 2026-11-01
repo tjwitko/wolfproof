@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.14.0
+wolfproof 1.14.1
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.14.0
-- uses: tjwitko/wolfproof@v1.14.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.14.1
+- uses: tjwitko/wolfproof@v1.14.1
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.14.0
+npm install --save-dev github:tjwitko/wolfproof#v1.14.1
 ```
 
 ## 3. Refresh what setup wrote
@@ -281,9 +281,9 @@ the fix for the framework each open route is written in, and only forms the chec
 route on a class is told about a `before_request` hook, the one form that counts for it. A NestJS
 `@UseGuards(...)` written below the route decorator now counts, as one above it did.
 
-### After v1.14.0
+### In v1.14.1
 
-**After v1.14.0: a plural, or a setting named after a credential, is not the credential.** v1.14.0
+**In v1.14.1: a plural, or a setting named after a credential, is not the credential.** v1.14.0
 read terraform-guard-mcp's `httpTokens !== "optional"`, which tests the EC2 metadata option
 `http_tokens`, as a credential compared with `==`, and blocked on it. A name that ends in a plural
 (`tokens`, `secrets`, `keys`, `passwords`) or in `method` or `mode` is no longer counted;
