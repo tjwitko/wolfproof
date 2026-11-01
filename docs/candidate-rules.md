@@ -1561,7 +1561,7 @@ in a helper the handler calls (ktor-samples' `getOrThrow`, the reworked example 
 `docs/configuration.md`); Gitea's `ctx.Doer == nil`, which is that project's own name for the user.
 A route these leave open can be marked reviewed (#24).
 
-**Two defects, found measuring Flask (#27) and fixed after v1.13.0.** The rule promised that a guard
+**Two defects, found measuring Flask (#27) and fixed in v1.14.0.** The rule promised that a guard
 after the work is not credited, and nothing enforced it: the reader collected guards and assignments
 and never looked at what else came first. CTFd's `/confirm` was credited for
 `if current_user.authed() is False: return redirect(login)`, below a branch that marks the account
@@ -1669,7 +1669,7 @@ declared on Resource classes. flaskbb registers `MethodView`s through its own `r
 helper, which is not read as routes (no routes found, reported as such); redash's API is
 flask-restful resources added with `api.add_org_resource`, likewise.
 
-A blueprint's hook did not reach a flask-restx route, fixed after v1.13.0. The route is declared on a
+A blueprint's hook did not reach a flask-restx route, fixed in v1.14.0. The route is declared on a
 Namespace or the Api, never on the blueprint, so `@bp.before_request` was matched to none of them,
 though Flask runs it for every route of an Api mounted on the blueprint. The reader now follows the
 route's receiver to its Api (`api.add_namespace(ns)` anywhere in the project, `ns =
@@ -1685,7 +1685,7 @@ blueprint. On a copy of CTFd with a refusing `@api.before_request` added, the ho
 90 API routes and on none of the other 73, against none before. 7 tests, and each part of the change
 switched off fails at least one.
 
-A hook's path rule was matched against the path in the route decorator, fixed after v1.13.0.
+A hook's path rule was matched against the path in the route decorator, fixed in v1.14.0.
 `request.path` is the whole path, so a hook letting `/public` through was credited on a blueprint
 registered with `app.register_blueprint(bp, url_prefix="/public")`, whose routes it lets through: the
 prefix counted only when written in the route's own file. Three more in the same comparison: a
@@ -1717,7 +1717,7 @@ the earlier reader saw the hook too, 79 API routes it reported open are credited
 is open: the catch-all `/<path:route>`, which serves `/setup/...`. 7 tests, and each of 29 parts of the
 change switched off fails at least one.
 
-Redash's blueprints had no known full path, fixed after v1.13.0. They are registered inside
+Redash's blueprints had no known full path, fixed in v1.14.0. They are registered inside
 `def init_app(app)`, where `app` is whatever each caller passes, and its sign-in blueprints in
 `for blueprint in [create_google_oauth_blueprint(app), ..., saml_auth.blueprint]`, two of them made
 inside a factory function. Matching by name found neither. The reader now follows the blueprint and
@@ -1741,7 +1741,7 @@ of the reader switched off fail at least one; the two that do not, ignoring a `*
 a class body as a scope boundary, change nothing in any case constructed, since a method's
 parameter and a spread call are already given up.
 
-A route whose rule is a call was not found at all, fixed after v1.13.0. Redash writes 19 of its
+A route whose rule is a call was not found at all, fixed in v1.14.0. Redash writes 19 of its
 decorators as `@routes.route(org_scoped_rule("/login"))` (the earlier count of 18 missed one split
 over four lines), so none of those routes was checked by anything. A route decorator starting a line
 whose first argument starts with a name is now a route; one quoted mid-line, as in Flask's own error
@@ -1766,7 +1766,7 @@ the 6 routes it expects unknown. c1 to c8 unchanged route for route. 1 test, 28 
 switched off, 29 fail it, and the other two, an unclosed `{` and a lone `}` in a template, are
 templates Python refuses. Median of 7 runs: redash 148 to 153 ms, CTFd 247 to 251 ms.
 
-A hook on a parameter was not read, fixed after v1.13.0, and one in a function nobody calls was
+A hook on a parameter was not read, fixed in v1.14.0, and one in a function nobody calls was
 credited. A hook's target was its receiver's name looked up in the hook's own file: `def init_app(app):
 @app.before_request`, as redash and CTFd write theirs (CTFd's seven in `init_request_processors(app)`),
 found no `app = ...` there and protected nothing, while `def never_called(app): @app.before_request`
@@ -1792,7 +1792,7 @@ switched off, each fails the test. Median of 7 runs: redash 153 to 156 ms, CTFd 
 CTFd copy 255 to 620 ms, the cost of judging 163 routes against a hook, which the module-level
 version of it costs either way (550 to 554 ms).
 
-An app or blueprint made by a factory was not known, fixed after v1.13.0. Whether a name is an app
+An app or blueprint made by a factory was not known, fixed in v1.14.0. Whether a name is an app
 or a blueprint was read from the call it is assigned, so `app = create_app()` in wsgi.py was neither:
 a hook on it protected nothing, a route declared on it had no full path, and `admin = make_admin()`
 had no prefix, since its registration named the module's `admin` and the routes the `bp` inside
@@ -1817,7 +1817,7 @@ earlier code leaves 6 of them open that Flask refuses (`/direct`, `/home`, `/adm
 `/admin/staff`, `/x/thing`, `/api/items`). 12 parts switched off, each fails the test.
 Timing unchanged on redash, CTFd and microblog.
 
-A factory returning `Blueprint(...)` or `Flask(...)` directly was not followed, fixed after v1.13.0,
+A factory returning `Blueprint(...)` or `Flask(...)` directly was not followed, fixed in v1.14.0,
 and fixing it found a false credit in the factory reading just above. The call written in place has
 no name, so it is now known by the file and line it is written on. And two calls of one factory make
 two objects, which the factory reading took as one: with `b1 = make_b()`, `b2 = make_b()` and
@@ -1844,7 +1844,7 @@ open. In the test, cli.py's app answers 200 on `/home`. A project's other calls 
 usually a worker, a CLI or tests, and treating each as a server would leave every factory app's hook
 uncredited.
 
-A conditional expression was not followed, fixed after v1.13.0, and looking at the same construct
+A conditional expression was not followed, fixed in v1.14.0, and looking at the same construct
 in a route's rule found a false credit. `return Blueprint(..., url_prefix="/t") if ON else
 Blueprint(..., url_prefix="/t2")`, and `chosen = pa if ON else pb`, now stand for both values, as two
 `return`s do; the two constructors on one line are told apart by their text as well as their place.
@@ -1864,7 +1864,7 @@ through) and reads `"/x9" + PREFIX` and `"/d1" if ... else PREFIX` as "/x9" and 
 rules test now also counts its routes, which caught a decorator read by both route patterns. Not
 done: an `or` (`existing or Blueprint(...)`), which is not a choice between two equals.
 
-A flask-restx `Api` mounted on a parameter was not followed, fixed after v1.13.0, and two false
+A flask-restx `Api` mounted on a parameter was not followed, fixed in v1.14.0, and two false
 credits came out of it. `Api(bp)` and `api.init_app(bp)` were read by looking `bp` up by name in the
 Api's file, and `init_app` only there. So `def mount(target): Api(target)` had no blueprint, nor did
 `api.init_app(bp)` in `create_app`, and a blueprint hook did not reach the Api's routes. And with a
@@ -1895,7 +1895,7 @@ the helper's hook rather than the app's. 8
 parts of the Api reading and 13 of the name reading switched off, each fails a test. Timing
 unchanged (CTFd probe 599 to 616 ms).
 
-A hook in code that never runs was credited, fixed after v1.13.0, found while testing the name
+A hook in code that never runs was credited, fixed in v1.14.0, found while testing the name
 reading above. Hooks were read wherever they were written; only one on a parameter was traced to
 calls. So `def setup(): admin.before_request(refuse)`, never called, a decorator hook inside such a
 function, a helper called only from it, one only put in a list, and a nested function never called
@@ -1914,7 +1914,7 @@ anyone. 8 parts switched off, each fails the test. Timing: unchanged on the cali
 probe, whose refusing hook is inside `init_request_processors(app)`, 634 to 676 ms, the cost of
 finding who calls that function.
 
-A rule built from a module's names was not read, fixed after v1.13.0. `@app.get(BASE + "/one")` with
+A rule built from a module's names was not read, fixed in v1.14.0. `@app.get(BASE + "/one")` with
 `BASE = "/api"` had no known path, so a hook's path rule was taken to reach it and a route the hook
 refuses was reported open. A name or `module.NAME` a rule reads, when it is not a parameter of the
 function the rule is in, is now what it is assigned, found as Python finds it at that point (the
@@ -1940,7 +1940,7 @@ read as a literal only; `LOGIN_DISABLED` switches Flask-Login's decorator
 off and is not read; a class route's methods, which would each need judging; a decorator or hook
 whose condition is a helper call (CTFd's `authed()`).
 
-### 28. HTTP client calls read as Express routes — fixed after v1.13.0
+### 28. HTTP client calls read as Express routes — fixed in v1.14.0
 
 `await api.post("/api/groups", { name })` is `app.post(PATH, handler)` to the route pattern, which
 asks only for a receiver, a verb, a quoted path starting `/` and a comma. Redash's Playwright helpers
@@ -1970,7 +1970,7 @@ repository 422 to 423 ms, redash 327 to 149 ms, for the 37 routes it no longer j
 **Still open:** a request passing a name after the path and neither awaited nor chained
 (`api.post("/x", payload)`), since the name could be a handler.
 
-### 29. A handler name read as the first function of that name in the project — fixed after v1.13.0
+### 29. A handler name read as the first function of that name in the project — fixed in v1.14.0
 
 The JavaScript and Go readers looked a route's named handler up as the first definition of that name
 in all the project's files of the language joined together. With two files each defining
