@@ -1119,8 +1119,29 @@ Not covered: Rocket, Warp and other Rust frameworks; ASP.NET WebForms; insecure 
 
 Trivy for the packages inside a built image, and CodeQL for taint that crosses functions and files, both
 as optional Action steps. Neither belongs in the core gate: one needs a build, the other a database and,
-for private code, a licence. Two other routes to cross-function taint are #22 (one-hop helper sinks,
-inside open-source Semgrep) and #23 (Semgrep's Pro engine, opt-in).
+for most code, a licence (below). Two other routes to cross-function taint are #22 (one-hop helper
+sinks, inside open-source Semgrep) and #23 (Semgrep's Pro engine, opt-in).
+
+**Licensing** (checked 2026-11-02 against each project's licence file):
+
+- **Trivy** and its database code, `aquasecurity/trivy-db`, are Apache 2.0, so the step can be on
+  for anyone. Not settled: whether that covers the data. The database is built from upstream feeds
+  (NVD, Red Hat, Debian and others), and neither its README nor its licence says. Ask Aqua or read
+  the feeds' terms before the docs call it free for any use.
+- **CodeQL's** CLI is under GitHub's CodeQL Terms, not an open-source licence. Without a GitHub
+  Advanced Security licence it may analyse only a codebase under an OSI-approved licence, and may
+  run in CI on one only when it is hosted and maintained on GitHub.com. Private and closed-source
+  code, and CI anywhere else, need the paid licence. The terms turn on the licence and the host,
+  not on whether a repository is public.
+- **For this project:** wolfproof and the four control repositories are Apache 2.0 on GitHub.com,
+  so both steps can run in their own CI. A project wolfproof gates may be private or hosted
+  elsewhere, so the CodeQL step must be opt-in, and its option must say it needs that licence
+  unless the project is open source on GitHub.com. wolfproof cannot tell whether a project is
+  licensed, so the option's description is the only safeguard.
+
+Sources: [CodeQL Terms](https://github.com/github/codeql-cli-binaries/blob/main/LICENSE.md),
+[Trivy](https://github.com/aquasecurity/trivy/blob/main/LICENSE),
+[trivy-db](https://github.com/aquasecurity/trivy-db/blob/main/LICENSE).
 
 ### 18. The unit suite is CPU-bound near the gate's own test limit — fixed
 
