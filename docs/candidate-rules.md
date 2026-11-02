@@ -30,6 +30,7 @@ happened to produce, so the next project's ordinary idiom reads as a violation.
 | credential timing | names about a credential, by suffix | a plural or a setting: `httpTokens`, `token_endpoint_auth_method` | false positive |
 | credential timing | the word with any letters around it | the word inside a longer word: CodeMirror's `tokenize` | false positive |
 | credential timing | the operand up to the next space | minified code: `""&&delete` | false positive |
+| credential timing | every literal a credential is compared with | fetch's mode: `credentials==="include"` | false positive |
 | immutability (scope) | "any table/bucket" once the task requires it | a Terraform state backend | false positive ×4 |
 | every manifest check | reads content, never asks if there is any | five zero-byte YAML files | false negative ×3 |
 | advisory parser | only lines starting "- " | a review written as prose | silent discard |
@@ -2042,7 +2043,7 @@ SDK blocks on its `client.client_secret !== client_secret` instead. The 48 route
 Each half of the fix, switched off, fails a test.
 
 **Still open:** two comparisons in CTFd's minified bundles, fetch's credentials mode
-(`credentials==="include"`) and an empty-string test read with what follows it
+(`credentials==="include"`, #33) and an empty-string test read with what follows it
 (`mail_password==""&&`, #32), and Jellyfin's five tokenizer comparisons, `token == '"'`, a single
 character. Neither report names one of these: Jellyfin's names `secret == x.Value.Secret` in its
 QuickConnect manager, a real one, and CTFd's names `c.tokenize != fe` in CodeMirror's minified
@@ -2092,6 +2093,28 @@ and none is added. All 19 comparisons of a password or client secret with a hard
 match. One project's finding moves and no verdict does: CTFd still blocks, and its report now names
 `credentials==="include"`, fetch's credentials mode, the last of the three CTFd comparisons #30
 lists as still open.
+
+### 33. Fetch's credentials mode read as a credential — fixed after v1.14.1
+
+With #32 fixed, CTFd's report named `credentials==="include"`, from its minified theme bundles. It
+is the Fetch API's `credentials` option, which says whether cookies go with a request, and the Fetch
+standard allows it three values: `omit`, `same-origin` and `include`. A name ending in `credentials`
+compared with exactly one of those is no longer counted. Only those three values and only that name:
+`credentials === "letmein"` is still a credential compared, and so is `password === "include"`.
+Across the 34 checkouts, every `credentials` compared with a string literal is one of fetch's modes.
+
+Measured as #30–#32 were: 91 to 90. The one dropped is this comparison, and none is added. All 19
+comparisons of a password or client secret with a hardcoded value still match. One project's finding
+moves and no verdict does. CTFd still blocks, and its report now names `password` in `CTFd/auth.py`,
+where line 457 of the login handler compares the submitted password with the configured preset admin
+password using `==` and, on a match, signs the caller in as admin. That one is real, the first real
+comparison CTFd's report has named since v1.14.0.
+
+**Still open, found measuring this:** in minified code the match runs to the next space, so the
+comparisons after it in the same run of text are never examined. `i.credentials==="omit"`, behind
+the `"include"` one in the same bundle, was never looked at on its own; it is another of fetch's
+modes, but a real comparison minified behind another one would be missed the same way. Jellyfin's
+single-character tokenizer comparisons (#30) are still open too.
 
 ### 12. Considered and deferred
 

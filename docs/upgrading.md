@@ -311,6 +311,13 @@ password compared with `===`, because the operand was taken up to the next space
 matches drops, this one, and none is added. No verdict moves. CTFd still blocks, now naming
 `credentials==="include"`.
 
+**After v1.14.1: fetch's credentials mode is not a credential.** `credentials === "include"`,
+fetch's option for sending cookies, was read as a credential compared with a hardcoded value. A name
+ending in `credentials` compared with one of the three values the Fetch standard allows, `omit`,
+`same-origin` or `include`, is no longer counted; compared with anything else, it still is. On the
+same projects, 1 of 91 matches drops, this one, and none is added. No verdict moves. CTFd still
+blocks, now naming its `password == preset_admin_password` comparison in `CTFd/auth.py`.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
