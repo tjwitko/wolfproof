@@ -391,9 +391,14 @@ const CREDENTIAL_WORD = "api_?key|token|secret|credential|password|authorization
 // files away. Four of that run's ten validation rounds went into a finding that was never real.
 // What matters is what the credential is being compared TO: another value leaks it a byte at a
 // time, whereas null, a type name or a number tells an attacker only whether the header was sent.
+// Neither operand may take in another comparison. Minified code has no spaces, and the operand on
+// the right ran to the next one: in CTFd's bundles, `credentials==="include"` and the
+// `i.credentials==="omit"` behind it were one match, and the second was never examined. That
+// operand is read without being consumed, so the scan resumes after the operator. The one on the left stops at an `=`, or in
+// `a.token==b&&c==secret` it would take in `a.token==b&&c` and the token comparison with it.
 const LEAKY_CREDENTIAL_COMPARE = new RegExp(
-  `(typeof\\s+)?\\b(\\w*(?:${CREDENTIAL_WORD})\\w*)\\s*(?:===?|!==?)\\s*([^\\s;,)]+)` +
-    `|([^\\s;,(]+)\\s*(?:===?|!==?)\\s*(typeof\\s+)?\\b(\\w*(?:${CREDENTIAL_WORD})\\w*)\\b`,
+  `(typeof\\s+)?\\b(\\w*(?:${CREDENTIAL_WORD})\\w*)\\s*(?:===?|!==?)\\s*(?=([^\\s;,)]+))` +
+    `|([^\\s;,(=]+)\\s*(?:===?|!==?)\\s*(typeof\\s+)?\\b(\\w*(?:${CREDENTIAL_WORD})\\w*)\\b`,
   "gi"
 );
 

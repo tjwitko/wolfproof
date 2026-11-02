@@ -855,6 +855,9 @@ test("a name about a credential, a property of an object named for one, or a con
     ["if (APIKEY == provided) {}", "APIKEY"],
     ['if (credentials === "letmein") {}', "credentials"],           // not one of fetch's modes
     ['if (password === "include") {}', "password"],          // a mode only for `credentials`
+    // Minified, a comparison behind another is examined too, on either side of the operator.
+    ['credentials==="include"?o.c=!0:i.password==="hunter"&&(', "password"],
+    ["a.token==b&&c==secretId", "token"],
     ["if (tokenizeSecret == provided) {}", "tokenizeSecret"],
     ["if (accessTokenSalt == provided) {}", "accessTokenSalt"],     // the capital S is the next word
     // Cut at `&&`, `||` or `?`, a hardcoded password is still one: juice-shop's has a `?`.
