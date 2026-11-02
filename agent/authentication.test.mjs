@@ -843,6 +843,13 @@ test("a name about a credential, a property of an object named for one, or a con
     "f=token===undefined?a:b",
     'credentials==="include"?o.withCredentials=!0:i.credentials==="omit"&&(', // CTFd, minified
     "if (request.credentials === 'same-origin') {}",
+    `if (token == '"' || token == ',')`,                             // Jellyfin: one character
+    `escaped = (!escaped) == (token == '"');`,
+    `else if (!escaped && token == '=')`,
+    `if (',' == token) {}`,
+    `if (token == '\\'') {}`,
+    `if (token == '\\u0022') {}`,
+    `if (token === ";") {}`,
   ]) {
     assert.equal(leakyCredentialCheck(line), false, line);
   }
@@ -866,6 +873,11 @@ test("a name about a credential, a property of an object named for one, or a con
     ["ok=token==provided&&x", "token"],
     ["ok=x.token===expected?a:b", "token"],
     ["ok=token==none?.value", "token"],                               // `?.` reads on: not `none`
+    // More than one character, though the operand is captured only up to the comma.
+    ["if (password == 'a,b') {}", "password"],
+    ["if (token == ',' + rest) {}", "token"],
+    ["if (p + 'a' == token) {}", "token"],
+    ["if (token == 'a'.repeat(n)) {}", "token"],
   ]) {
     assert.equal(leakyCredentialCheck(line), name, line);
   }

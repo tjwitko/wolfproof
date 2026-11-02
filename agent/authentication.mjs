@@ -411,6 +411,24 @@ const NON_SECRET_OPERAND =
 
 const FETCH_CREDENTIALS_MODE = /^["'`](?:omit|same-origin|include)["'`][;,:)\]}]*$/;
 
+// One character, quoted: Jellyfin's header parser walks the header a character at a time, and
+// `token == '"'`, `token == ','` and `token == '='` were read as a token compared unsafely. In C#,
+// Java, C, Go and Rust a `'x'` is a character, so the name holds one; and in any language a timing
+// leak of one character tells an attacker nothing a guess would not. Read from the source, not the
+// captured operand, which stops at a comma: `','` was captured as `'`. A literal with more after it
+// (`'a' + rest`, `'a'.repeat(n)`, `p + 'a'`) is not one character, and is still read.
+const ONE_CHARACTER = String.raw`(["'\x60])(?:\\(?:u[0-9a-fA-F]{4}|x[0-9a-fA-F]{1,4}|.)|[^\\\n])\1`;
+function comparedWithOneCharacter(all, m) {
+  if (m[3] !== undefined) {
+    const after = all.slice(m.index + m[0].length);
+    const lit = new RegExp(`^${ONE_CHARACTER}`).exec(after);
+    return Boolean(lit) && !/^\s*[+.[(]/.test(after.slice(lit[0].length));
+  }
+  const before = all.slice(0, m.index + m[4].length);
+  const lit = new RegExp(`${ONE_CHARACTER}$`).exec(before);
+  return Boolean(lit) && !/[+.]\s*$/.test(before.slice(0, lit.index));
+}
+
 // The operand alone, without the code that follows it. The capture runs to the next space, and
 // minified code has none: CTFd's `mail_password==""&&delete e.mail_password` read the operand as
 // `""&&delete`, which is not the empty string, and reported a presence test as a password compared
@@ -480,6 +498,7 @@ export function leakyCredentialCheck(all) {
     // `typeof cred === ...` asks what kind of thing arrived, never what it is.
     if (typeofPrefix) continue;
     if (NON_SECRET_OPERAND.test(other)) continue;
+    if (comparedWithOneCharacter(all, m)) continue;
     // Either side a name the source assigns a string literal: netbox's `token ==
     // CONSTRAINT_TOKEN_USER`, where the constant is '$user'. Fixed in the source, like the class
     // constant below, so not a secret the caller guesses at; one written there is the secret scan's.
