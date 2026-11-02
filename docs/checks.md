@@ -33,8 +33,8 @@ Validator: `authentication`.
 - a credential or signature compared with `==` instead of in constant time
 
 The two comparison findings are about code, not routes, so they block whether or not any route was
-read. A comparison is not counted when what it tests is a presence (`!= ''`, `== None`), the
-credential's owner (`token_user != request.user`), an action named after a credential
+read. A comparison is not counted when what it tests is a presence (`!= ''`, `== None`, minified
+`==""&&`), the credential's owner (`token_user != request.user`), an action named after a credential
 (`TokenActions.RESET_PASSWORD`), a plural or a setting (`httpTokens !== "optional"`,
 `token_endpoint_auth_method`), the word inside a longer word (`c.tokenize != fe`), or an UPPER_CASE
 constant the source assigns a string literal: a secret written into the source is the secret scan's

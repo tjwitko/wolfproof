@@ -304,6 +304,13 @@ the same 48 projects, four control repositories and this one, 5 of 97 matches dr
 `tokenize`, and none is added. No verdict moves. CTFd still blocks, and its report now names
 `mail_password` instead.
 
+**After v1.14.1: a presence test in minified code is a presence test.** The empty-string test
+`mail_password===""&&delete e.mail_password`, minified in CTFd's admin bundle, was read as a
+password compared with `===`, because the operand was taken up to the next space and read as
+`""&&delete`. The operand now ends at `&&`, `||` or `?` (not `?.`). On the same projects, 1 of 92
+matches drops, this one, and none is added. No verdict moves. CTFd still blocks, now naming
+`credentials==="include"`.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

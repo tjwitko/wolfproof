@@ -29,6 +29,7 @@ happened to produce, so the next project's ordinary idiom reads as a violation.
 | credential timing | a credential word anywhere in the identifier | `secretId`, `passwordResetRequest.email` | false positive |
 | credential timing | names about a credential, by suffix | a plural or a setting: `httpTokens`, `token_endpoint_auth_method` | false positive |
 | credential timing | the word with any letters around it | the word inside a longer word: CodeMirror's `tokenize` | false positive |
+| credential timing | the operand up to the next space | minified code: `""&&delete` | false positive |
 | immutability (scope) | "any table/bucket" once the task requires it | a Terraform state backend | false positive ×4 |
 | every manifest check | reads content, never asks if there is any | five zero-byte YAML files | false negative ×3 |
 | advisory parser | only lines starting "- " | a review written as prose | silent discard |
@@ -2042,7 +2043,7 @@ Each half of the fix, switched off, fails a test.
 
 **Still open:** two comparisons in CTFd's minified bundles, fetch's credentials mode
 (`credentials==="include"`) and an empty-string test read with what follows it
-(`mail_password==""&&`), and Jellyfin's five tokenizer comparisons, `token == '"'`, a single
+(`mail_password==""&&`, #32), and Jellyfin's five tokenizer comparisons, `token == '"'`, a single
 character. Neither report names one of these: Jellyfin's names `secret == x.Value.Secret` in its
 QuickConnect manager, a real one, and CTFd's names `c.tokenize != fe` in CodeMirror's minified
 bundle, which compares parser states and is a false positive of its own, the word inside a longer
@@ -2071,6 +2072,26 @@ dropped five of Gitea's `AccessTokenScope…` constants, because the plural `s` 
 case and took the capital `S` of `Scope`; the measurement caught it, and a test now pins it. One
 project's finding moves and no verdict does: CTFd still blocks on its 163 open routes, and its report
 now names `mail_password==""&&`, the empty-string test #30 lists as still open.
+
+### 32. A minified presence test read with the code after it — fixed after v1.14.1
+
+With #31 fixed, CTFd's report named `mail_password===""&&delete e.mail_password`, from the minified
+bundle of its admin settings page, as a password compared with `===`. It asks whether the form's
+password field was left empty, and if so leaves the saved one out of the update. The rule already
+skips an empty string, and does in the readable source, `obj.mail_password === "")`. But it captures
+the operand up to the next space, and minified code has none, so there the operand read as
+`""&&delete`, which is not the empty string.
+
+The operand now ends at `&&`, `||` or a `?` that is not `?.`, and on the left of the operator at the
+last of them. A cut inside a quoted value leaves an unclosed quote, which is never an operand the
+rule skips, so a hardcoded password containing one of these is still reported: juice-shop's has a
+`?`.
+
+Measured as #30 and #31 were, on the same projects: 92 to 91. The one dropped is this comparison,
+and none is added. All 19 comparisons of a password or client secret with a hardcoded value still
+match. One project's finding moves and no verdict does: CTFd still blocks, and its report now names
+`credentials==="include"`, fetch's credentials mode, the last of the three CTFd comparisons #30
+lists as still open.
 
 ### 12. Considered and deferred
 
