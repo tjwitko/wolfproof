@@ -413,6 +413,24 @@ const NAMES_ABOUT_A_CREDENTIAL =
 // `credentials`, which is as often one `user:password` string as several.
 const PLURAL_CREDENTIAL = /(?:tokens|secrets|keys|passwords)$/i;
 
+// The word inside a longer word is not the credential: CodeMirror's `c.tokenize != fe`, minified
+// into CTFd's bundles, compares tokenizer states, and was reported as a token compared unsafely.
+// The word counts where its part of the name ends: at the end, or before `_`, a digit or a capital
+// (`tokenValue`, `token_hash`, `AccessTokenScope`). A plural `s` is still the word, and
+// PLURAL_CREDENTIAL judges it; a lowercase `s` only, since in `AccessTokenScopeAll` the capital
+// starts the next word. A name in capitals is read lowercased by the same rule, so `TOKEN_VALUE` is
+// a token and `TOKENIZER` is not. The cost is a name run together in lower case: `tokenvalue` is no
+// longer read as a credential.
+function namesTheWord(name) {
+  const n = /[a-z]/.test(name) ? name : name.toLowerCase();
+  for (const m of n.matchAll(new RegExp(CREDENTIAL_WORD, "gi"))) {
+    let end = m.index + m[0].length;
+    if (n[end] === "s") end++;
+    if (!/[a-z]/.test(n.charAt(end))) return true;
+  }
+  return false;
+}
+
 // A constant -- an UPPER_CASE name -- assigned a quoted string at the start of a line. Constants
 // only: a lowercase `password = "..."` in a seed file once silenced railsgoat's real
 // `user.password == Digest::MD5.hexdigest(password)`, because a local of the same name is not the
@@ -472,6 +490,7 @@ export function leakyCredentialCheck(all) {
     // compared unsafely. Matched on the identifier's own casing, so `apiKey` and `api_key` are still
     // credentials and `apiKeyId` and `api_key_id` are not. A plural is never the credential either.
     if (NAMES_ABOUT_A_CREDENTIAL.test(compared) || PLURAL_CREDENTIAL.test(compared)) continue;
+    if (!namesTheWord(compared)) continue;
     // An action on a credential, named whole: flaskbb's `parsed_token.operation !=
     // TokenActions.RESET_PASSWORD` compares which operation a token was issued for. Whole names only,
     // so `reset_password_token` -- Devise's reset credential -- is still a credential.

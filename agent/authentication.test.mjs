@@ -833,8 +833,25 @@ test("a name about a credential, a property of an object named for one, or a con
     "const isPublicClient = clientMetadata.token_endpoint_auth_method === 'none';", // MCP SDK: how it is sent
     'if (http_tokens == "required") {}',
     "if (authMode == expected) {}",
+    "tokenize!=fe&&c.tokenize!=J",                                  // CTFd: CodeMirror, minified
+    "if (f.tokenize == Y || f.tokenize == Te) {}",
+    "if (TOKENIZER == mode) {}",
+    "if (secretary == chosen) {}",
   ]) {
     assert.equal(leakyCredentialCheck(line), false, line);
+  }
+  // The word where its part of the name ends is still the credential, in every casing.
+  for (const [line, name] of [
+    ["if (tokenValue == provided) {}", "tokenValue"],
+    ["if (token_value == provided) {}", "token_value"],
+    ["if (TOKEN_VALUE == provided) {}", "TOKEN_VALUE"],
+    ["if (token2 == provided) {}", "token2"],
+    ["if (APIKEY == provided) {}", "APIKEY"],
+    ['if (credentials === "include") {}', "credentials"],
+    ["if (tokenizeSecret == provided) {}", "tokenizeSecret"],
+    ["if (accessTokenSalt == provided) {}", "accessTokenSalt"],     // the capital S is the next word
+  ]) {
+    assert.equal(leakyCredentialCheck(line), name, line);
   }
   // A hardcoded password compared with == is still one (DVWA), and so is a singular beside a plural.
   assert.equal(leakyCredentialCheck('if ($password == "becareful") {'), "password");
