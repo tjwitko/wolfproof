@@ -841,6 +841,8 @@ test("a name about a credential, a property of an object named for one, or a con
     "if(token==null||x){}",
     'if(x&&""==token){}',
     "f=token===undefined?a:b",
+    'credentials==="include"?o.withCredentials=!0:i.credentials==="omit"&&(', // CTFd, minified
+    "if (request.credentials === 'same-origin') {}",
   ]) {
     assert.equal(leakyCredentialCheck(line), false, line);
   }
@@ -851,7 +853,8 @@ test("a name about a credential, a property of an object named for one, or a con
     ["if (TOKEN_VALUE == provided) {}", "TOKEN_VALUE"],
     ["if (token2 == provided) {}", "token2"],
     ["if (APIKEY == provided) {}", "APIKEY"],
-    ['if (credentials === "include") {}', "credentials"],
+    ['if (credentials === "letmein") {}', "credentials"],           // not one of fetch's modes
+    ['if (password === "include") {}', "password"],          // a mode only for `credentials`
     ["if (tokenizeSecret == provided) {}", "tokenizeSecret"],
     ["if (accessTokenSalt == provided) {}", "accessTokenSalt"],     // the capital S is the next word
     // Cut at `&&`, `||` or `?`, a hardcoded password is still one: juice-shop's has a `?`.

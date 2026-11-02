@@ -404,6 +404,8 @@ const LEAKY_CREDENTIAL_COMPARE = new RegExp(
 const NON_SECRET_OPERAND =
   /^(?:null|undefined|true|false|none|nil|-?\d+(?:\.\d+)?|["'`](?:|string|object|number|boolean|undefined|function|symbol|bigint)["'`])[;,:)\]}]*$/i;
 
+const FETCH_CREDENTIALS_MODE = /^["'`](?:omit|same-origin|include)["'`][;,:)\]}]*$/;
+
 // The operand alone, without the code that follows it. The capture runs to the next space, and
 // minified code has none: CTFd's `mail_password==""&&delete e.mail_password` read the operand as
 // `""&&delete`, which is not the empty string, and reported a presence test as a password compared
@@ -509,6 +511,11 @@ export function leakyCredentialCheck(all) {
     // A confirmation field is the caller's own input typed twice. `password != passwordConfirmation`
     // is in every registration handler, and there is no secret on either side to leak.
     if (/confirm/i.test(compared) || /confirm/i.test(other)) continue;
+    // Fetch's credentials mode: `request.credentials === "include"` asks whether cookies go with a
+    // request, and was CTFd's finding, in its minified bundles. The Fetch standard allows three
+    // values, so only those three count, and only for a name ending in `credentials`; a password
+    // compared with any other value is still reported.
+    if (/credentials$/i.test(compared) && FETCH_CREDENTIALS_MODE.test(other)) continue;
     // A signature compared loosely is the OTHER check's finding; reporting it here too would give
     // one defect two names.
     if (/signature|digest|hmac/i.test(name)) continue;
