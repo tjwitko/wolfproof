@@ -293,6 +293,17 @@ this one, 3 of 100 matches drop, each a setting, and none is added. One verdict 
 terraform-guard-mcp passes. The MCP SDK still blocks, now on its `client_secret !==` comparison
 rather than on `token_endpoint_auth_method === 'none'`.
 
+### After v1.14.1
+
+**After v1.14.1: a credential word inside a longer word is not the credential.** v1.14.1 read
+CodeMirror's `c.tokenize != fe`, minified into CTFd's theme bundles, as a token compared with `!=`.
+The word now counts only where its part of the name ends: at the end, or before `_`, a digit or a
+capital. `tokenValue`, `token_hash`, `TOKEN_VALUE` and `credentials` are read as before; `tokenize`
+and `TOKENIZER` are not, and neither is a name run together in lower case, such as `tokenvalue`. On
+the same 48 projects, four control repositories and this one, 5 of 97 matches drop, all CTFd's
+`tokenize`, and none is added. No verdict moves. CTFd still blocks, and its report now names
+`mail_password` instead.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

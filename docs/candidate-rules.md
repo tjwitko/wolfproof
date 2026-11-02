@@ -28,6 +28,7 @@ happened to produce, so the next project's ordinary idiom reads as a violation.
 | credential timing | its own word list, not the header check's | `authorization` | false negative |
 | credential timing | a credential word anywhere in the identifier | `secretId`, `passwordResetRequest.email` | false positive |
 | credential timing | names about a credential, by suffix | a plural or a setting: `httpTokens`, `token_endpoint_auth_method` | false positive |
+| credential timing | the word with any letters around it | the word inside a longer word: CodeMirror's `tokenize` | false positive |
 | immutability (scope) | "any table/bucket" once the task requires it | a Terraform state backend | false positive ×4 |
 | every manifest check | reads content, never asks if there is any | five zero-byte YAML files | false negative ×3 |
 | advisory parser | only lines starting "- " | a review written as prose | silent discard |
@@ -2045,8 +2046,31 @@ Each half of the fix, switched off, fails a test.
 character. Neither report names one of these: Jellyfin's names `secret == x.Value.Secret` in its
 QuickConnect manager, a real one, and CTFd's names `c.tokenize != fe` in CodeMirror's minified
 bundle, which compares parser states and is a false positive of its own, the word inside a longer
-name, unchanged since v1.14.0. CTFd blocks on 163 open routes either way. Minified bundles are read
-like any other source.
+name, unchanged since v1.14.0 (#31). CTFd blocks on 163 open routes either way. Minified bundles are
+read like any other source.
+
+### 31. The word inside a longer word read as the credential — fixed after v1.14.1
+
+CTFd's report named `c.tokenize != fe` as a token compared with `!=`. It is CodeMirror, minified into
+CTFd's theme bundles, comparing tokenizer states, and it was the finding CTFd's report printed from
+v1.14.0 on. The comparison rule took the credential word with any letters around it, so `tokenize`
+was read as `token`.
+
+The word now counts where its part of the name ends: at the end of the name, or before `_`, a digit
+or a capital, so `tokenValue`, `token_hash` and `AccessTokenScopeAll` are read as before and
+`tokenize` is not. A lowercase plural `s` is still the word, and #30's plural rule judges it, so
+`credentials` is unchanged. A name in capitals is read lowercased, so `TOKEN_VALUE` is a token and
+`TOKENIZER` is not. The cost is a name run together in lower case, `tokenvalue`, which is no longer
+read as a credential; none of the projects measured has one.
+
+Measured as #30 was, by recording every comparison the rule accepts, on the 48 projects pinned in
+`calibration/routes.json`, the four control repositories and this one: 97 to 92. The five dropped are
+CTFd's `tokenize` comparisons, and none is added. All 19 comparisons of a password or client secret
+with a hardcoded value still match (DVWA 4, juice-shop 7, pygoat 7, redash 1). The first cut also
+dropped five of Gitea's `AccessTokenScope…` constants, because the plural `s` was matched in either
+case and took the capital `S` of `Scope`; the measurement caught it, and a test now pins it. One
+project's finding moves and no verdict does: CTFd still blocks on its 163 open routes, and its report
+now names `mail_password==""&&`, the empty-string test #30 lists as still open.
 
 ### 12. Considered and deferred
 
