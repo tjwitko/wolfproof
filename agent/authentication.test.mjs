@@ -837,6 +837,10 @@ test("a name about a credential, a property of an object named for one, or a con
     "if (f.tokenize == Y || f.tokenize == Te) {}",
     "if (TOKENIZER == mode) {}",
     "if (secretary == chosen) {}",
+    'mail_password==""&&delete e.mail_password',                    // CTFd: a presence test, minified
+    "if(token==null||x){}",
+    'if(x&&""==token){}',
+    "f=token===undefined?a:b",
   ]) {
     assert.equal(leakyCredentialCheck(line), false, line);
   }
@@ -850,6 +854,12 @@ test("a name about a credential, a property of an object named for one, or a con
     ['if (credentials === "include") {}', "credentials"],
     ["if (tokenizeSecret == provided) {}", "tokenizeSecret"],
     ["if (accessTokenSalt == provided) {}", "accessTokenSalt"],     // the capital S is the next word
+    // Cut at `&&`, `||` or `?`, a hardcoded password is still one: juice-shop's has a `?`.
+    ["if (password == 'J6a?5l!Zk') {}", "password"],
+    ['ok=password==="a&&b"||x', "password"],
+    ["ok=token==provided&&x", "token"],
+    ["ok=x.token===expected?a:b", "token"],
+    ["ok=token==none?.value", "token"],                               // `?.` reads on: not `none`
   ]) {
     assert.equal(leakyCredentialCheck(line), name, line);
   }

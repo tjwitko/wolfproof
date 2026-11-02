@@ -404,6 +404,17 @@ const LEAKY_CREDENTIAL_COMPARE = new RegExp(
 const NON_SECRET_OPERAND =
   /^(?:null|undefined|true|false|none|nil|-?\d+(?:\.\d+)?|["'`](?:|string|object|number|boolean|undefined|function|symbol|bigint)["'`])[;,:)\]}]*$/i;
 
+// The operand alone, without the code that follows it. The capture runs to the next space, and
+// minified code has none: CTFd's `mail_password==""&&delete e.mail_password` read the operand as
+// `""&&delete`, which is not the empty string, and reported a presence test as a password compared
+// unsafely. The operand ends at `&&`, `||` or a `?` that is not `?.`; on the left of the operator,
+// at the last of them. A cut inside a quoted password (juice-shop's has a `?`) leaves an unclosed
+// quote, which is never an operand skipped below, so the password is still reported.
+function ownOperand(raw, onTheRight) {
+  const parts = raw.split(/&&|\|\||\?\??(?!\.)/);
+  return onTheRight ? parts[0] : parts[parts.length - 1];
+}
+
 const NAMES_ABOUT_A_CREDENTIAL =
   /(?:Ids?|IDs?|_ids?|Identifier|Type|_type|Kind|Method|_method|Mode|_mode|Count|_count|Quantity|Length|_length|Result|_result|Status|_status|Sub|_sub|Subject|_subject|Issuer|_issuer|Audience|_audience|Expiry|_expiry|User|_user|Owner|_owner)$|^(?:[uU]se|[hH]as|[iI]s|[cC]an|[sS]hould|[eE]nable|[aA]llow|[rR]equire)(?=[A-Z_])|^(?:USE|HAS|IS|CAN|SHOULD|ENABLE|ALLOW|REQUIRE)_/;
 
@@ -458,7 +469,7 @@ export function leakyCredentialCheck(all) {
   for (const m of all.matchAll(LEAKY_CREDENTIAL_COMPARE)) {
     const typeofPrefix = m[1] || m[5];
     const name = m[2] || m[6] || "";
-    const other = (m[3] || m[4] || "").trim();
+    const other = ownOperand((m[3] || m[4] || "").trim(), Boolean(m[3]));
     // `typeof cred === ...` asks what kind of thing arrived, never what it is.
     if (typeofPrefix) continue;
     if (NON_SECRET_OPERAND.test(other)) continue;
