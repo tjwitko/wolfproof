@@ -325,6 +325,17 @@ is skipped. Each is now examined, so a minified bundle can report one it did not
 projects, three more comparisons are examined, all in CTFd and none of them a credential, and no
 finding or verdict moves.
 
+### After v1.14.2
+
+**After v1.14.2: a credential compared with one character is not counted.** Jellyfin's header
+parser reads the `Authorization` header a character at a time into a variable named `token`, and
+`token == '"'`, `token == ','` and `token == '='` were each read as a token compared with `==`. A
+comparison with one quoted character, or one escape such as `'\''`, is no longer counted: in C#,
+Java, C, Go and Rust that is a character, not a credential, and in any language a timing leak of one
+character tells an attacker nothing a guess would not. A literal with more after it (`'a' + rest`)
+is still read. On the same projects, 5 of 90 matches drop, all Jellyfin's, and none is added. No
+finding or verdict moves: Jellyfin's report already named its QuickConnect `secret` comparison.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

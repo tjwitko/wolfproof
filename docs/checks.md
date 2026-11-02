@@ -37,8 +37,9 @@ read. A comparison is not counted when what it tests is a presence (`!= ''`, `==
 `==""&&`), the credential's owner (`token_user != request.user`), an action named after a credential
 (`TokenActions.RESET_PASSWORD`), a plural or a setting (`httpTokens !== "optional"`,
 `token_endpoint_auth_method`), the word inside a longer word (`c.tokenize != fe`), fetch's
-credentials mode (`credentials === "include"`), or an UPPER_CASE constant the source assigns a
-string literal: a secret written into the source is the secret scan's finding.
+credentials mode (`credentials === "include"`), a single character (`token == '"'`), or an
+UPPER_CASE constant the source assigns a string literal: a secret written into the source is the
+secret scan's finding.
 - a signature header that the route accepts and nothing in the project verifies
 - a dependency that looks like authentication and isn't — `Depends(get_db)` on every route
   authenticates none of them

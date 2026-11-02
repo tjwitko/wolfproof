@@ -32,6 +32,7 @@ happened to produce, so the next project's ordinary idiom reads as a violation.
 | credential timing | the operand up to the next space | minified code: `""&&delete` | false positive |
 | credential timing | every literal a credential is compared with | fetch's mode: `credentials==="include"` | false positive |
 | credential timing | an operand that runs to the next space | minified code: the comparison behind it | false negative |
+| credential timing | any quoted operand is a value | one character: Jellyfin's `token == '"'` | false positive |
 | immutability (scope) | "any table/bucket" once the task requires it | a Terraform state backend | false positive ×4 |
 | every manifest check | reads content, never asks if there is any | five zero-byte YAML files | false negative ×3 |
 | advisory parser | only lines starting "- " | a review written as prose | silent discard |
@@ -2046,8 +2047,8 @@ Each half of the fix, switched off, fails a test.
 **Still open:** two comparisons in CTFd's minified bundles, fetch's credentials mode
 (`credentials==="include"`, #33) and an empty-string test read with what follows it
 (`mail_password==""&&`, #32), and Jellyfin's five tokenizer comparisons, `token == '"'`, a single
-character. Neither report names one of these: Jellyfin's names `secret == x.Value.Secret` in its
-QuickConnect manager, a real one, and CTFd's names `c.tokenize != fe` in CodeMirror's minified
+character (#35). Neither report names one of these: Jellyfin's names `secret == x.Value.Secret` in
+its QuickConnect manager, a real one, and CTFd's names `c.tokenize != fe` in CodeMirror's minified
 bundle, which compares parser states and is a false positive of its own, the word inside a longer
 name, unchanged since v1.14.0 (#31). CTFd blocks on 163 open routes either way. Minified bundles are
 read like any other source.
@@ -2115,7 +2116,7 @@ comparison CTFd's report has named since v1.14.0.
 comparisons after it in the same run of text are never examined. `i.credentials==="omit"`, behind
 the `"include"` one in the same bundle, was never looked at on its own; it is another of fetch's
 modes, but a real comparison minified behind another one would be missed the same way. Jellyfin's
-single-character tokenizer comparisons (#30) are still open too.
+single-character tokenizer comparisons (#30) were left for #35.
 
 ### 34. A comparison minified behind another never examined — fixed in v1.14.2
 
@@ -2135,6 +2136,29 @@ projects pinned in `calibration/routes.json`, the four control repositories and 
 (#31) and `i.credentials==="omit"` (#33). Accepted: 90 to 90, the same 90. So on these projects
 nothing was hidden that the rule reports; the fix is for the next minified bundle that hides a real
 one. No project's finding moves.
+
+### 35. A credential compared with one character — fixed after v1.14.2
+
+The last of the wrong matches #30 listed. Jellyfin's `AuthorizationContext.GetParts` parses the
+`Authorization` header a character at a time, into a variable named `token`, and its five tests of
+that character (`token == '"'`, `token == ','`, `token == '='`) were read as a token compared with
+`==`. Its report named a real comparison, the QuickConnect `secret == x.Value.Secret`, so no finding
+showed it, but each one was a match the check accepted.
+
+A credential compared with one quoted character is no longer counted. In C#, Java, C, Go and Rust
+`'x'` is a character, so the name holds one and not a credential; in any language, a timing leak of
+one character tells an attacker nothing a guess would not. The literal is read from the source, not
+from the captured operand, which stops at a comma: `token == ','` was captured as `'`. A literal
+with more after it, `'a' + rest` or `'a'.repeat(n)`, or after a `+` or `.` on the left, is still
+read, as is a longer string containing a comma (`password == 'a,b'`).
+
+Measured by recording every comparison the rule accepts, as for #30 to #34, on the 48 projects
+pinned in `calibration/routes.json`, the four control repositories and this one: 90 to 85, the five
+Jellyfin comparisons, and none added. Examined matches are unchanged. All 19 that remain compared
+with a quoted literal are the hardcoded passwords #30 counted (DVWA 4, juice-shop 7, pygoat 7,
+redash 1). No project's finding or verdict moves. Each part of the rule, switched off, fails a test:
+the skip itself, either side's concatenation guard, the left side, and reading the literal from the
+source rather than the operand.
 
 ### 12. Considered and deferred
 
