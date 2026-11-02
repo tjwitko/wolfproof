@@ -31,6 +31,7 @@ happened to produce, so the next project's ordinary idiom reads as a violation.
 | credential timing | the word with any letters around it | the word inside a longer word: CodeMirror's `tokenize` | false positive |
 | credential timing | the operand up to the next space | minified code: `""&&delete` | false positive |
 | credential timing | every literal a credential is compared with | fetch's mode: `credentials==="include"` | false positive |
+| credential timing | an operand that runs to the next space | minified code: the comparison behind it | false negative |
 | immutability (scope) | "any table/bucket" once the task requires it | a Terraform state backend | false positive ×4 |
 | every manifest check | reads content, never asks if there is any | five zero-byte YAML files | false negative ×3 |
 | advisory parser | only lines starting "- " | a review written as prose | silent discard |
@@ -2110,11 +2111,30 @@ where line 457 of the login handler compares the submitted password with the con
 password using `==` and, on a match, signs the caller in as admin. That one is real, the first real
 comparison CTFd's report has named since v1.14.0.
 
-**Still open, found measuring this:** in minified code the match runs to the next space, so the
+**Found measuring this, fixed in #34:** in minified code the match runs to the next space, so the
 comparisons after it in the same run of text are never examined. `i.credentials==="omit"`, behind
 the `"include"` one in the same bundle, was never looked at on its own; it is another of fetch's
 modes, but a real comparison minified behind another one would be missed the same way. Jellyfin's
 single-character tokenizer comparisons (#30) are still open too.
+
+### 34. A comparison minified behind another never examined — fixed after v1.14.1
+
+Found measuring #33. The rule's operands are captured up to the next space, and the one on the right
+was consumed with the match, so in minified code the scan resumed after it: CTFd's
+`credentials==="include"?o.withCredentials=!0:i.credentials==="omit"&&(` was one match, and the
+second comparison was never examined. The operand on the left could do the same backwards: in
+`a.token==b&&c==secret` it took in `a.token==b&&c`, so the token comparison went unread.
+
+The operand on the right is now read without being consumed, so the scan resumes after the operator,
+and the one on the left stops at an `=`. What each operand is judged as is unchanged; #32 already
+cut both at `&&`, `||` and `?`.
+
+Measured by recording every match the rule examines as well as every one it accepts, on the 48
+projects pinned in `calibration/routes.json`, the four control repositories and this one. Examined:
+510 to 513, the three new ones all in CTFd's bundles, two more CodeMirror `tokenize` comparisons
+(#31) and `i.credentials==="omit"` (#33). Accepted: 90 to 90, the same 90. So on these projects
+nothing was hidden that the rule reports; the fix is for the next minified bundle that hides a real
+one. No project's finding moves.
 
 ### 12. Considered and deferred
 

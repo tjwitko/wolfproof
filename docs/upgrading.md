@@ -318,6 +318,13 @@ ending in `credentials` compared with one of the three values the Fetch standard
 same projects, 1 of 91 matches drops, this one, and none is added. No verdict moves. CTFd still
 blocks, now naming its `password == preset_admin_password` comparison in `CTFd/auth.py`.
 
+**After v1.14.1: a comparison minified behind another is examined.** In code with no spaces, a
+credential comparison that followed another in the same run of text was never read:
+`credentials==="include"?a:b.password==="hunter"` was one match, about the first comparison, which
+is skipped. Each is now examined, so a minified bundle can report one it did not before. On the same
+projects, three more comparisons are examined, all in CTFd and none of them a credential, and no
+finding or verdict moves.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
