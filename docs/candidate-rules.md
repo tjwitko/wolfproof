@@ -2052,7 +2052,7 @@ bundle, which compares parser states and is a false positive of its own, the wor
 name, unchanged since v1.14.0 (#31). CTFd blocks on 163 open routes either way. Minified bundles are
 read like any other source.
 
-### 31. The word inside a longer word read as the credential — fixed after v1.14.1
+### 31. The word inside a longer word read as the credential — fixed in v1.14.2
 
 CTFd's report named `c.tokenize != fe` as a token compared with `!=`. It is CodeMirror, minified into
 CTFd's theme bundles, comparing tokenizer states, and it was the finding CTFd's report printed from
@@ -2075,7 +2075,7 @@ case and took the capital `S` of `Scope`; the measurement caught it, and a test 
 project's finding moves and no verdict does: CTFd still blocks on its 163 open routes, and its report
 now names `mail_password==""&&`, the empty-string test #30 lists as still open.
 
-### 32. A minified presence test read with the code after it — fixed after v1.14.1
+### 32. A minified presence test read with the code after it — fixed in v1.14.2
 
 With #31 fixed, CTFd's report named `mail_password===""&&delete e.mail_password`, from the minified
 bundle of its admin settings page, as a password compared with `===`. It asks whether the form's
@@ -2095,7 +2095,7 @@ match. One project's finding moves and no verdict does: CTFd still blocks, and i
 `credentials==="include"`, fetch's credentials mode, the last of the three CTFd comparisons #30
 lists as still open.
 
-### 33. Fetch's credentials mode read as a credential — fixed after v1.14.1
+### 33. Fetch's credentials mode read as a credential — fixed in v1.14.2
 
 With #32 fixed, CTFd's report named `credentials==="include"`, from its minified theme bundles. It
 is the Fetch API's `credentials` option, which says whether cookies go with a request, and the Fetch
@@ -2117,7 +2117,7 @@ the `"include"` one in the same bundle, was never looked at on its own; it is an
 modes, but a real comparison minified behind another one would be missed the same way. Jellyfin's
 single-character tokenizer comparisons (#30) are still open too.
 
-### 34. A comparison minified behind another never examined — fixed after v1.14.1
+### 34. A comparison minified behind another never examined — fixed in v1.14.2
 
 Found measuring #33. The rule's operands are captured up to the next space, and the one on the right
 was consumed with the match, so in minified code the scan resumed after it: CTFd's

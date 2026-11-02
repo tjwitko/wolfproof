@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.14.1
+wolfproof 1.14.2
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.14.1
-- uses: tjwitko/wolfproof@v1.14.1
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.14.2
+- uses: tjwitko/wolfproof@v1.14.2
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.14.1
+npm install --save-dev github:tjwitko/wolfproof#v1.14.2
 ```
 
 ## 3. Refresh what setup wrote
@@ -293,9 +293,9 @@ this one, 3 of 100 matches drop, each a setting, and none is added. One verdict 
 terraform-guard-mcp passes. The MCP SDK still blocks, now on its `client_secret !==` comparison
 rather than on `token_endpoint_auth_method === 'none'`.
 
-### After v1.14.1
+### In v1.14.2
 
-**After v1.14.1: a credential word inside a longer word is not the credential.** v1.14.1 read
+**In v1.14.2: a credential word inside a longer word is not the credential.** v1.14.1 read
 CodeMirror's `c.tokenize != fe`, minified into CTFd's theme bundles, as a token compared with `!=`.
 The word now counts only where its part of the name ends: at the end, or before `_`, a digit or a
 capital. `tokenValue`, `token_hash`, `TOKEN_VALUE` and `credentials` are read as before; `tokenize`
@@ -304,21 +304,21 @@ the same 48 projects, four control repositories and this one, 5 of 97 matches dr
 `tokenize`, and none is added. No verdict moves. CTFd still blocks, and its report now names
 `mail_password` instead.
 
-**After v1.14.1: a presence test in minified code is a presence test.** The empty-string test
+**In v1.14.2: a presence test in minified code is a presence test.** The empty-string test
 `mail_password===""&&delete e.mail_password`, minified in CTFd's admin bundle, was read as a
 password compared with `===`, because the operand was taken up to the next space and read as
 `""&&delete`. The operand now ends at `&&`, `||` or `?` (not `?.`). On the same projects, 1 of 92
 matches drops, this one, and none is added. No verdict moves. CTFd still blocks, now naming
 `credentials==="include"`.
 
-**After v1.14.1: fetch's credentials mode is not a credential.** `credentials === "include"`,
+**In v1.14.2: fetch's credentials mode is not a credential.** `credentials === "include"`,
 fetch's option for sending cookies, was read as a credential compared with a hardcoded value. A name
 ending in `credentials` compared with one of the three values the Fetch standard allows, `omit`,
 `same-origin` or `include`, is no longer counted; compared with anything else, it still is. On the
 same projects, 1 of 91 matches drops, this one, and none is added. No verdict moves. CTFd still
 blocks, now naming its `password == preset_admin_password` comparison in `CTFd/auth.py`.
 
-**After v1.14.1: a comparison minified behind another is examined.** In code with no spaces, a
+**In v1.14.2: a comparison minified behind another is examined.** In code with no spaces, a
 credential comparison that followed another in the same run of text was never read:
 `credentials==="include"?a:b.password==="hunter"` was one match, about the first comparison, which
 is skipped. Each is now examined, so a minified bundle can report one it did not before. On the same
