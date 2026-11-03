@@ -1206,8 +1206,40 @@ a log line naming `SECRETGUARD_SERVER`, a variable's name. CI runs three project
 on every push: the clean fixture clean, the same with a password written to the log blocked, and the
 same with a Kotlin file nothing can build incomplete.
 
-Not measured: the calibration checkouts. Autobuild there would run third-party Gradle and Go builds
-on this machine, and that was not approved.
+Measured on the calibration checkouts (2026-11-03, after v1.15.0): the 34 cloned apps in
+`calibration/routes.json`, through `scanSource`, with outbound network refused by `sandbox-exec`
+(loopback allowed). Median 32 seconds, Bitwarden the longest at 522; 31 minutes in all.
+
+- **19 block, 10 are clean, 5 are incomplete.** The five are every project whose code needed a
+  build that could not fetch what it needed offline: Gitea's Go (a newer toolchain and its modules),
+  the Kotlin of `kotlin-ktor-realworld`, `kotlin-spring-realworld`, `ktor-samples` and
+  `petclinic-kotlin` (a Gradle or Maven wrapper that downloads itself), and `ktor-samples`' Swift.
+  None was reported clean. With network, some of these would be analysed; that was not measured.
+- **The six deliberately vulnerable apps:** PyGoat and RailsGoat 11 rules each, Juice Shop 8,
+  WebGoat 3, `dvcsharp-api` 1. DVWA is clean, because its vulnerable code is PHP, which CodeQL does
+  not read; only its JavaScript, Python and workflows were analysed. Symfony Demo and BookStack are
+  the same: their PHP is not analysed.
+- **The other 28:** 14 block, 9 are clean, 5 are incomplete. Two of the 14 block only on code that
+  is not the application: Flask on `py/reflective-xss` in eight places, all under `tests/`, and
+  Express on `js/clear-text-logging` in `examples/auth/index.js`. CodeQL reads every file the walk
+  keeps, tests and examples included.
+- **Against the authentication check**, which already blocks 27 of the 34: CodeQL blocks 2 it
+  passes, FlaskBB and NetBox, and passes 5 it blocks. Read against the source:
+  - FlaskBB's `py/redos` is real. `INLINE_ATTACHMENT_RE` in `flaskbb/forum/utils.py:53` is applied
+    to every post's content (lines 232 and 286); `[` and 44 backslashes took under a millisecond on
+    Python 3.14.8, `[` and 46 held it past 25 seconds.
+  - Its `py/url-redirection` is a false positive: every target passes through
+    `get_first_safe_redirect_url` first, a check CodeQL does not recognise.
+  - NetBox's `py/url-redirection` is the same: `safe_for_redirect()` guards the flagged redirects.
+    Of its other three, `py/clear-text-logging-sensitive-data` is by design: both lines are the
+    command whose job is to print a new secret key. `js/clear-text-storage-of-sensitive-data` is a
+    generic store saving its state to `localStorage`, and whether anything sensitive reaches it was
+    not read; nor was `py/stack-trace-exposure`, in six API serializers and error handlers.
+
+So expect a first run on a real application to block, and to need reviews. Of the two new blocks
+read against the source, one is a real denial of service through a forum post, and the false
+positives in both come from redirect validators CodeQL does not recognise. The other 17 blocking
+projects' results were not read.
 
 ### 18. The unit suite is CPU-bound near the gate's own test limit — fixed
 
