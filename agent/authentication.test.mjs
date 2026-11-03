@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 
-import { checkAuthentication, authenticationFailures, leakyCredentialCheck, isProbeRoute } from "./authentication.mjs";
+import { checkAuthentication, authenticationFailures, leakyCredentialCheck, isProbeRoute, credentialComparisons } from "./authentication.mjs";
 
 // These fixtures often carry more than one real defect -- a credential compared with `!=` against
 // an unset env var is BOTH vacuous and timing-unsafe. Asserting on totals would make every test
@@ -2923,4 +2923,56 @@ test("rails: route files drawn from config/routes/ are Rails routing too", () =>
   );
   assert.deepEqual(report.routes, []);
   assert.deepEqual(report.unread, ["config/routes.rb", "config/routes/admin.rb"], "routes.rb first");
+});
+
+// The finding names one comparison; credentialComparisons() lists every one the rule accepts, so a
+// change to what the rule skips can be measured on matches no report printed.
+test("every accepted credential comparison is listed, with where it is; the finding still names the first", () => {
+  const files = {
+    "app.py": [
+      "def check(req):",
+      "    if req.token == expected_token:",           // accepted
+      "        return True",
+      "    if api_key != None:",                       // rejected: a presence test
+      "        pass",
+      "    return req.password == stored_password",    // accepted
+      "",
+    ].join("\n"),
+    "lib/other.py": "def f(a):\n    return a.secret == other_secret\n", // accepted, in the second file
+    "server.js": "if (req.headers.authorization != expectedAuthorization) deny();\n", // another language
+  };
+  run(files, (dir) => {
+    const got = credentialComparisons(dir);
+    assert.deepEqual(
+      got.map((c) => `${c.language} ${c.file}:${c.line}:${c.column} ${c.name} | ${c.text}`).sort(),
+      [
+        // Named as the rule names them: from the left operand, the credential-named name on the right.
+        "JavaScript/TypeScript server.js:1:5 expectedAuthorization | if (req.headers.authorization != expectedAuthorization) deny();",
+        "Python app.py:2:8 expected_token | if req.token == expected_token:",
+        "Python app.py:6:12 stored_password | return req.password == stored_password",
+        "Python lib/other.py:2:12 other_secret | return a.secret == other_secret",
+      ].sort()
+    );
+    // Unchanged: the report names one comparison, the first its language's files gave.
+    const report = checkAuthentication(dir);
+    assert.ok(got.some((c) => c.name === report.leakyCredential.name && c.language === report.leakyCredential.language));
+    assert.equal(leakyCredentialCheck(files["app.py"]), "expected_token");
+  });
+});
+
+test("a comparison in a minified line is shown with its surroundings, not the whole line", () => {
+  const filler = "a=1;".repeat(200);
+  run({ "bundle.js": `${filler}if(x.token===given){ok()}${filler}\n` }, (dir) => {
+    const [c] = credentialComparisons(dir);
+    assert.equal(c.name, "token");
+    assert.equal(c.line, 1);
+    assert.equal(c.column, filler.length + 6); // where `token===` starts
+    assert.ok(c.text.length <= 202 && c.text.includes("x.token===given"), c.text);
+  });
+});
+
+test("a project with no accepted comparison lists none", () => {
+  run({ "app.py": "if token is None:\n    pass\nif api_key == None:\n    pass\n" }, (dir) => {
+    assert.deepEqual(credentialComparisons(dir), []);
+  });
 });

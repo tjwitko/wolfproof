@@ -481,7 +481,16 @@ function literalConstant(all, name) {
   ).test(all);
 }
 
+/** The name of the first comparison the credential rule accepts in `all`, or false. */
 export function leakyCredentialCheck(all) {
+  for (const c of acceptedCredentialComparisons(all)) return c.name;
+  return false;
+}
+
+// Every comparison the rule accepts in `all`, in order, as { name, index }. The finding names only
+// the first (leakyCredentialCheck); credentialComparisons() lists them all, for measuring a change
+// to what the rule skips -- a skipped match no finding printed is otherwise invisible.
+function* acceptedCredentialComparisons(all) {
   // Deliberately NOT gated on the file containing a constant-time comparison somewhere. That
   // file-wide bail-out is what made this check miss the case it was written for: webhook-5 used
   // hmac.compare_digest for the signature and a bare `!=` for the support token, so one correct
@@ -543,9 +552,8 @@ export function leakyCredentialCheck(all) {
     // A signature compared loosely is the OTHER check's finding; reporting it here too would give
     // one defect two names.
     if (/signature|digest|hmac/i.test(name)) continue;
-    return name;
+    yield { name, index: m.index };
   }
-  return false;
 }
 
 export function leakySignatureCheck(all) {
@@ -1567,10 +1575,58 @@ function locateComparisons(files, names) {
   return [...new Set(at)];
 }
 
-/** Per-route authentication state. Returns { ran, routes, languages, unknown }. */
-export function checkAuthentication(projectDir) {
+// The project's files, and its source files grouped by the adapter that reads them, in walk order.
+// One function for the check and for credentialComparisons(), so the two cannot see different files.
+function sourcesByAdapter(projectDir) {
   const walked = walk(projectDir);
   const files = walked.filter((f) => !f.config);
+  // Global auth is judged per language against that language's own files. A Python app-wide
+  // dependency says nothing about an Express server sitting next to it in the same repo.
+  const byAdapter = new Map();
+  for (const f of files) {
+    if (!byAdapter.has(f.adapter)) byAdapter.set(f.adapter, []);
+    byAdapter.get(f.adapter).push(f);
+  }
+  return { walked, files, byAdapter };
+}
+
+/**
+ * Every comparison the credential rule accepts in the project, as { name, language, file, line,
+ * column, text }. Files are walked, grouped and joined as checkAuthentication does, so this sees what
+ * the finding sees; the finding names only the first. `text` is the line, or about 200 characters of
+ * it around the comparison when the line is longer -- a minified bundle's line is a whole file.
+ */
+export function credentialComparisons(projectDir) {
+  const out = [];
+  for (const [adapter, adapterFiles] of sourcesByAdapter(projectDir).byAdapter) {
+    const starts = [];
+    let offset = 0;
+    for (const f of adapterFiles) {
+      starts.push(offset);
+      offset += f.text.length + 1; // the "\n" each language's files are joined with
+    }
+    const all = adapterFiles.map((f) => f.text).join("\n");
+    for (const { name, index } of acceptedCredentialComparisons(all)) {
+      let i = starts.length - 1;
+      while (starts[i] > index) i--;
+      const f = adapterFiles[i];
+      const local = index - starts[i];
+      const lineStart = f.text.lastIndexOf("\n", local - 1) + 1;
+      const lineEnd = f.text.indexOf("\n", local) === -1 ? f.text.length : f.text.indexOf("\n", local);
+      let line = 1;
+      for (let k = f.text.indexOf("\n"); k !== -1 && k < lineStart; k = f.text.indexOf("\n", k + 1)) line++;
+      const column = local - lineStart + 1;
+      const whole = f.text.slice(lineStart, lineEnd);
+      const text = whole.length <= 200 ? whole.trim() : `…${whole.slice(Math.max(0, column - 81), column + 119).trim()}…`;
+      out.push({ name, language: adapter.name, file: f.rel.split(path.sep).join("/"), line, column, text });
+    }
+  }
+  return out;
+}
+
+/** Per-route authentication state. Returns { ran, routes, languages, unknown }. */
+export function checkAuthentication(projectDir) {
+  const { walked, files, byAdapter } = sourcesByAdapter(projectDir);
   if (files.length === 0) {
     return {
       ran: false,
@@ -1578,14 +1634,6 @@ export function checkAuthentication(projectDir) {
       languages: [],
       unknown: `no source files in a language this check recognises (${RECOGNISED})`,
     };
-  }
-
-  // Global auth is judged per language against that language's own files. A Python app-wide
-  // dependency says nothing about an Express server sitting next to it in the same repo.
-  const byAdapter = new Map();
-  for (const f of files) {
-    if (!byAdapter.has(f.adapter)) byAdapter.set(f.adapter, []);
-    byAdapter.get(f.adapter).push(f);
   }
 
   const routes = [];
