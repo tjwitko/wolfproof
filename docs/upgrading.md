@@ -344,6 +344,22 @@ each of seven images on one machine with packages Trivy could check had at least
 `alpine:latest` to 298 in `node:22`. A scan that cannot run makes the run incomplete (exit 3). The
 Action installs Trivy v0.76.0 itself, checked against its SHA-256.
 
+**After v1.14.2: the source can be analysed with CodeQL.** Turn it on — `codeql: true` in the
+Action, `--codeql` on the command line — and CodeQL's code-scanning suite runs for each language it
+finds; a result at error level blocks, the rest are advisories, and a language it could not analyse
+makes the run incomplete. Nothing changes for a run that does not ask for it. Without GitHub
+Advanced Security, CodeQL's licence allows this only for open-source code; see
+[CodeQL](checks.md#codeql-opt-in). Go, Swift and Kotlin are built first, by CodeQL's autobuild. On
+the 13 corpus fixtures it took 10 to 18 seconds each and found one error-level result. The Action
+installs the CodeQL bundle 2.27.3 itself, checked against its SHA-256. A CodeQL finding is reviewed
+like any other, by ID: `wolfproof review <project> --codeql` lists them.
+
+**After v1.14.2: decorators no longer stall the authentication check.** The pattern for a NestJS
+controller-wide guard backtracked exponentially on a guard followed by decorators with spaces after
+them and no class: twelve held the gate past 30 seconds, and each one more took eleven times longer.
+It now takes linear time and matches the same text. On the same projects no route count, finding or
+verdict moves.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

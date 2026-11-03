@@ -87,9 +87,9 @@ So run
 wolfproof review <project-dir>
 ```
 
-It runs only the injection and authentication checks, changes nothing, and prints each finding as two
-lines — a status (`BLOCKING`, `advisory` or `reviewed`) followed by the ID, then where the finding is
-and what it is:
+It runs only the injection and authentication checks — and CodeQL, with `--codeql`, for a gate run
+with `--codeql` — changes nothing, and prints each finding as two lines — a status (`BLOCKING`,
+`advisory` or `reviewed`) followed by the ID, then where the finding is and what it is:
 
 ```text
 BLOCKING  sast:python-sql-injection:app.py:5df60c0d
@@ -97,12 +97,13 @@ BLOCKING  sast:python-sql-injection:app.py:5df60c0d
 ```
 
 The ID is everything after the status word, here `sast:python-sql-injection:app.py:5df60c0d`. Copy it
-as printed. It has one of two shapes:
+as printed. It has one of three shapes:
 
 | check | ID | example |
 |---|---|---|
 | injection | `sast:<rule>:<file>:<hash of the line>` | `sast:python-sql-injection:app.py:5df60c0d` |
 | authentication | `authentication:<METHOD> <route>:<file>` | `authentication:GET /reports:app.py` |
+| CodeQL | `codeql:<query>:<file>:<hash of the line>` | `codeql:js/reflected-xss:src/app.js:39f7be0b` |
 
 The last part of an injection ID is a hash of the flagged line, so it cannot be written by hand. Take it
 from the list. (`--json` carries the blocking ones too, as `reviewable`.) When two findings would get the same ID (the same rule on two identical lines of one file), the

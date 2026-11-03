@@ -1115,7 +1115,7 @@ fixture markers exempt directories, not findings. That is the open question this
 Not covered: Rocket, Warp and other Rust frameworks; ASP.NET WebForms; insecure deserialization
 (dvcsharp-api's "Generic import entities"); and memory safety in C/C++ beyond `gets()`.
 
-### 17. Opt-in CI integrations: Trivy and CodeQL — Trivy done after v1.14.2, CodeQL next
+### 17. Opt-in CI integrations: Trivy and CodeQL — fixed after v1.14.2
 
 Trivy for the packages inside a built image, and CodeQL for taint that crosses functions and files, both
 as optional Action steps. Neither belongs in the core gate: one needs a build, the other a database and,
@@ -1174,6 +1174,40 @@ reports fewer. The `FROM scratch` image has nothing to scan, and says so. Kali g
 unrecognised-OS advisory, which factory mode turns into exit 3. The image that does not exist exits
 3. CI runs three of these through the Action on every push: scratch clean, `node:18.0.0-alpine`
 blocked, a missing image incomplete.
+
+**CodeQL, done** (`agent/codeql.mjs`, `--codeql`, the Action's `codeql`). Into the one verdict, like
+Trivy: a result at `error` level from each language's `code-scanning` suite blocks, warnings and
+notes are advisories, and a language that could not be analysed exits 3. Findings have IDs
+(`codeql:<query>:<file>:<hash>`), so a review accepts one; `wolfproof review --codeql` lists them.
+
+- **The gate runs CodeQL, on a copy.** The copy is the walk every other check uses, so skipped
+  directories and declared fixtures stay out, and a build writes into it rather than the project.
+  The suites are named by path in the bundle, and the scan runs in an empty directory. In-code
+  suppressions do not count: the CLI ignores `// codeql[...]` (measured: the comment above a command
+  injection left it blocking) and a result that carries one is counted anyway. `CODEQL_*`, `LGTM_*`
+  and `SEMMLE_*` variables configure the extractors and are dropped.
+- **Languages that need a build are built.** Go, Swift, and Java with Kotlin go through CodeQL's
+  autobuild, which runs the project's build. That was chosen over reporting them not checked. A
+  build that fails is exit 3 with the build's own error line ("Could not detect a suitable build
+  command"), not autobuild's exit status. Go is the exception: its extractor reads code that does
+  not compile, and reports the file it could not fully read as an advisory instead.
+- **The bundle is pinned, not a tag.** v2.27.3 from `github/codeql-action`'s release
+  `codeql-bundle-v2.27.3`, two weeks old when chosen rather than the day-old v2.27.4. The release is
+  immutable, and the macOS bundle was checked with `gh release verify-asset` against GitHub's signed
+  release attestation; the Linux digests in `action.yml` are the ones that attestation lists.
+
+Measured with 2.27.3: the 13 corpus fixtures took 10 to 18 seconds each, the five in Go built by
+autobuild, and one had an error-level result (`webhook-haiku-3`, a test runner logging an error's
+message, in a fixture that blocks already). On this repository it found two. A regular expression in
+the authentication check (the NestJS controller-wide guard) backtracked exponentially: twelve
+decorators with spaces after them and no class held the gate past 30 seconds, eleven times longer
+per decorator. It is rewritten to match the same text in linear time. The other is a false positive:
+a log line naming `SECRETGUARD_SERVER`, a variable's name. CI runs three projects through the Action
+on every push: the clean fixture clean, the same with a password written to the log blocked, and the
+same with a Kotlin file nothing can build incomplete.
+
+Not measured: the calibration checkouts. Autobuild there would run third-party Gradle and Go builds
+on this machine, and that was not approved.
 
 ### 18. The unit suite is CPU-bound near the gate's own test limit — fixed
 

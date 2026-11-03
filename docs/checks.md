@@ -497,6 +497,50 @@ Validator: `build_check`.
 
 **Covers:** Python, JavaScript, Go.
 
+### CodeQL (opt-in)
+
+Runs only when asked for: `codeql: true` in the Action, `--codeql` on the command line. The Action
+installs the CodeQL bundle 2.27.3 (the CLI with its query packs), checked against its published
+SHA-256; the command line uses the `codeql` on `PATH`, or `WOLFPROOF_CODEQL`, which must be the
+bundle rather than the CLI alone.
+
+**Licence.** Without a GitHub Advanced Security licence, CodeQL's terms allow it only on a codebase
+under an OSI-approved open-source licence, and in CI only when that codebase is hosted on
+GitHub.com. wolfproof cannot tell whether yours is, so it is off unless you turn it on.
+
+**Blocks on:** a result at CodeQL's `error` level from each language's `code-scanning` suite, the
+one GitHub's code scanning runs by default. CodeQL follows request data across functions and files,
+where the injection check's Semgrep rules follow it one function and the project's own helpers. It
+also covers what those rules do not, such as reflected cross-site scripting and script injection in
+GitHub Actions workflows.
+
+**Reports without blocking:** warnings and notes, one line per query; files CodeQL could not fully
+extract, which factory mode treats as nothing checked; an error CodeQL reported and carried on past,
+which it treats as a check that could not run.
+
+**Languages:** JavaScript and TypeScript, Python, Ruby, Rust, Java, C#, C and C++, and GitHub
+Actions workflows are extracted without a build. Go, Swift, and Java with Kotlin need one, and are
+built by CodeQL's autobuild — which runs the project's build tooling, and downloads what the build
+needs. Swift only on macOS. PHP is not supported, and the run says so; the injection check still
+reads it.
+
+**Could not run:** CodeQL missing, a CLI without the bundle's query suites, a language CodeQL could
+not build or extract (the build's own error is quoted), or no readable SARIF. The run exits 3.
+
+What the project cannot change: the scan reads a copy of the project made by the same walk as the
+other checks, so skipped directories, declared fixtures and symbolic links are left out, and a build
+writes into the copy. A suppression comment (`// codeql[...]`) is not honoured — it is the code's
+author clearing their own finding, as `# nosemgrep` is. A finding is accepted by a
+[review](configuration.md#reviewed-findings) instead: `wolfproof review <project> --codeql` lists
+the IDs. `CODEQL_*`, `LGTM_*` and `SEMMLE_*` variables, which configure the extractors, are dropped,
+and the run says which.
+
+Measured with 2.27.3: each of the 13 corpus fixtures took 10 to 18 seconds, the five in Go built by
+autobuild. One had an error-level result, a test runner logging an error message CodeQL traces to a
+secret. On this repository CodeQL found two: a regular expression in the authentication check that
+backtracked exponentially on a run of decorators, which is fixed, and a log line it reads as
+sensitive because an environment variable's *name* contains `SECRET`.
+
 ## Where the checks live
 
 The checks live in four control servers, each in its own repository and each installed as a
@@ -512,7 +556,7 @@ dependency:
 Plus in-process validators: `build_check`, `tests`, `immutability`, `authentication`,
 `manifest_contract`, `k8s_manifest`, `secret_rotation`, `retention`, `iam_contract`,
 `artifact_presence`, `dockerfile`, `sast`, `code_quality`, `artifact_census`, `uncommitted_work`;
-and `trivy` when an image is named.
+`trivy` when an image is named; and `codeql` when asked for.
 
 ## What it does not check
 
@@ -546,6 +590,7 @@ Listed so that a clean verdict is read for what it is.
   templates escape by default, so what is worth checking is the escape hatches (`|safe`, `Markup()`,
   `dangerouslySetInnerHTML`, `html_safe`), and that is not written yet. Neither is server-side
   template injection, LDAP injection, open redirect or insecure deserialization.
+  [CodeQL](#codeql-opt-in)'s code-scanning suites have queries for each.
 - **Memory safety in C and C++.** Beyond `gets()`, buffer overflows, use-after-free and integer
   overflow are not checked: the patterns that find them flag most C code, and a check that blocks most
   projects gets switched off. A sanitiser build (`-fsanitize=address`) and a fuzzer find them better.

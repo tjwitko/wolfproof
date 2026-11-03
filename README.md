@@ -325,12 +325,16 @@ So that a clean verdict is read for what it is:
 - **Injection through a call that cannot be pinned to one function** — a method on an object of
   unknown type, a name defined more than once — which is an advisory, and SSRF through any helper.
   Request data passed to a project helper that injects it, called in a way that can only mean that
-  helper, blocks. Not covered at all: cross-site scripting, template injection, LDAP injection, open
-  redirect and insecure deserialization.
+  helper, blocks. Not covered by these rules: cross-site scripting, template injection, LDAP
+  injection, open redirect and insecure deserialization. CodeQL's code-scanning suites, when you
+  turn CodeQL on, have queries for each.
 - **Memory safety in C and C++**, beyond `gets()`.
 - **Authorisation** — what an authenticated caller may then do.
 - **The packages inside a built image**, unless you name the image: `trivy-image` in the Action,
   `--trivy-image` on the command line.
+- **Taint across functions and files**, beyond the project's own helpers, unless you turn on CodeQL:
+  `codeql: true` in the Action, `--codeql` on the command line. Its licence allows that without
+  GitHub Advanced Security only for open-source code.
 - **Blocking infrastructure policy beyond Terraform on AWS and Kubernetes.** Other clouds and
   formats get advisories only.
 - **Requirements nobody stated.**

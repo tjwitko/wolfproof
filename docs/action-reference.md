@@ -21,6 +21,7 @@ For setting the gate up as a required check, start with the README's
 | `reviewed` | *(none)* | JSON naming [reviewed findings](configuration.md#reviewed-findings), from outside the workspace; either mode |
 | `trivy-image` | *(none)* | A container image to scan with Trivy, built or pulled by an earlier step — see [the built image](checks.md#the-built-image-opt-in). Linux runners only |
 | `trivy-severity` | `HIGH` | The lowest severity that blocks when a fix exists: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW` |
+| `codeql` | `false` | `true` to analyse the source with [CodeQL](checks.md#codeql-opt-in) too. Needs a GitHub Advanced Security licence unless the code is open source on GitHub.com. Linux and macOS runners |
 
 ## Outputs
 
@@ -52,6 +53,26 @@ rather than using `aquasecurity/trivy-action`, whose version tags were force-pus
 credential-stealing code in March 2026 (CVE-2026-33634). If the install fails, the run is
 `incomplete`; a Trivy already on the runner is not used in its place. Each run downloads Trivy's
 vulnerability database, about 140 MB. Linux runners only.
+
+## Analysing the source with CodeQL
+
+```yaml
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.14.2
+- uses: tjwitko/wolfproof@v1.14.2
+  with:
+    task-file: TASK.md
+    codeql: true
+```
+
+Check the licence first. Without GitHub Advanced Security, CodeQL's terms allow it only on code
+under an OSI-approved open-source licence, in CI only when that code is on GitHub.com.
+
+The action installs the CodeQL bundle 2.27.3 from `github/codeql-action`'s immutable release and
+checks it against the SHA-256 pinned in `action.yml`, a download of about 550 MB on Linux. If the
+install fails, the run is `incomplete`; the CodeQL that GitHub's runner images carry is not used in
+its place. Go, Swift and Kotlin are built first with CodeQL's autobuild, so the runner needs their
+toolchains, as it would for your own build. Each language takes from seconds to minutes, so this
+input suits a pull-request workflow better than a pre-commit hook.
 
 ## A baseline the project cannot edit
 
