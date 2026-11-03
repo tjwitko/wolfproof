@@ -311,6 +311,7 @@ The checks you would expect, still necessary:
 | infrastructure | Terraform plan and policy violations on AWS, such as a security group or EKS API open to `0.0.0.0/0` |
 | containers | a base image past end of life, in any build stage; with an image named, its packages' fixable high or critical vulnerabilities (Trivy) |
 | build | syntax errors, undefined names, a Go build that fails |
+| source analysis | with CodeQL turned on, any error-level result from its code-scanning suite — in JavaScript/TypeScript, Python, Ruby, Go, Java and Kotlin, C#, C and C++, Rust, Swift (on macOS) and GitHub Actions workflows |
 
 ## What it does not check
 
