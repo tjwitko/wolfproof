@@ -466,6 +466,29 @@ language image's tag (`-buster`, `-alpine3.18`) is judged too.
 **Why it exists:** `FROM node:14` passed until it did, because the only check confirmed the file was
 there.
 
+#### The built image (opt-in)
+
+Runs only when an image is named: `trivy-image` in the Action, `--trivy-image=<ref>` on the command
+line. The image is not in the project, so the pipeline builds or pulls it first. The scan uses
+Trivy: the Action installs v0.76.0, checked against its published SHA-256; the command line uses the
+`trivy` on `PATH`, or `WOLFPROOF_TRIVY`.
+
+**Blocks on:** a vulnerability at `trivy-severity` (`--trivy-severity`, default `HIGH`) or above
+that has a fixed version, in the OS packages or the language packages Trivy finds in the image.
+
+**Reports without blocking:** the rest, as a count — no fix yet, or below the severity; an OS past
+its end of service life, whose newer vulnerabilities are not in Trivy's database; an OS version
+Trivy does not recognise when it found nothing in its packages (Kali reads as Debian `kali-rolling`,
+with 0 of 79 packages vulnerable); a warning Trivy carried on past. Factory mode treats the end of
+service life as nothing checked, and the other two as a check that could not run.
+
+**Could not run:** Trivy missing, the image not found, or no readable report. The run exits 3.
+
+The scan runs in an empty directory with every severity reported and an empty ignore file, so the
+project's `.trivyignore` and `trivy.yaml` are not read. `TRIVY_*` variables pass through only for
+registry credentials, database mirrors, the cache and the transport; the rest, such as
+`TRIVY_SEVERITY` and `TRIVY_IGNORE_UNFIXED`, are dropped, and the run says which.
+
 ### Build
 
 Validator: `build_check`.
@@ -488,7 +511,8 @@ dependency:
 
 Plus in-process validators: `build_check`, `tests`, `immutability`, `authentication`,
 `manifest_contract`, `k8s_manifest`, `secret_rotation`, `retention`, `iam_contract`,
-`artifact_presence`, `dockerfile`, `sast`, `code_quality`, `artifact_census`, `uncommitted_work`.
+`artifact_presence`, `dockerfile`, `sast`, `code_quality`, `artifact_census`, `uncommitted_work`;
+and `trivy` when an image is named.
 
 ## What it does not check
 
@@ -535,8 +559,10 @@ Listed so that a clean verdict is read for what it is.
   named as sources.
 - **Authorisation.** `authentication` checks that a route requires a caller identity, not what that
   caller may then do.
-- **The built image.** A Dockerfile's base image is judged; the packages inside a built image are not
-  scanned. That needs a build or a pull, so it is a job for a CI step with Trivy or Grype.
+- **The built image, unless it is named.** A Dockerfile's base image is always judged; the packages
+  inside a built image are scanned only for `trivy-image` or `--trivy-image`, because the image
+  needs a build or a pull. An OS Trivy has no advisories for, such as Kali, can read as clean; the
+  run says so when it found nothing.
 - **Secrets assembled at run time.** gitleaks reads literals, including credentials that only look
   random, and a credential-named value assembled from literals — split, joined, reversed, base64- or
   hex-encoded — is caught too. A key built by a loop, fetched from somewhere unsafe, or held under a

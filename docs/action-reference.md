@@ -19,6 +19,8 @@ For setting the gate up as a required check, start with the README's
 | `allowlist` | *(none)* | Factory mode: JSON approving specific exemptions |
 | `policy` | *(none)* | Factory mode: JSON choosing what each advisory class does |
 | `reviewed` | *(none)* | JSON naming [reviewed findings](configuration.md#reviewed-findings), from outside the workspace; either mode |
+| `trivy-image` | *(none)* | A container image to scan with Trivy, built or pulled by an earlier step — see [the built image](checks.md#the-built-image-opt-in). Linux runners only |
+| `trivy-severity` | `HIGH` | The lowest severity that blocks when a fix exists: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW` |
 
 ## Outputs
 
@@ -31,6 +33,25 @@ For setting the gate up as a required check, start with the README's
 `blocked` and `incomplete` both fail the build, and they are reported distinctly on purpose. Use
 `outcome` if you want to treat them differently — for example, retrying an `incomplete` run on a
 runner that has the missing scanner, which is never the right response to `blocked`.
+
+## Scanning the built image
+
+Build or pull the image in an earlier step and name it. Its vulnerabilities join the one verdict:
+
+```yaml
+- run: docker build -t myapp:ci .
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.14.2
+- uses: tjwitko/wolfproof@v1.14.2
+  with:
+    task-file: TASK.md
+    trivy-image: myapp:ci
+```
+
+The action installs Trivy v0.76.0 itself and checks it against the SHA-256 pinned in `action.yml`,
+rather than using `aquasecurity/trivy-action`, whose version tags were force-pushed to
+credential-stealing code in March 2026 (CVE-2026-33634). If the install fails, the run is
+`incomplete`; a Trivy already on the runner is not used in its place. Each run downloads Trivy's
+vulnerability database, about 140 MB. Linux runners only.
 
 ## A baseline the project cannot edit
 

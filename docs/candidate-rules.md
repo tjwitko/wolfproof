@@ -1115,7 +1115,7 @@ fixture markers exempt directories, not findings. That is the open question this
 Not covered: Rocket, Warp and other Rust frameworks; ASP.NET WebForms; insecure deserialization
 (dvcsharp-api's "Generic import entities"); and memory safety in C/C++ beyond `gets()`.
 
-### 17. Opt-in CI integrations: Trivy and CodeQL — next
+### 17. Opt-in CI integrations: Trivy and CodeQL — Trivy done after v1.14.2, CodeQL next
 
 Trivy for the packages inside a built image, and CodeQL for taint that crosses functions and files, both
 as optional Action steps. Neither belongs in the core gate: one needs a build, the other a database and,
@@ -1142,6 +1142,38 @@ sinks, inside open-source Semgrep) and #23 (Semgrep's Pro engine, opt-in).
 Sources: [CodeQL Terms](https://github.com/github/codeql-cli-binaries/blob/main/LICENSE.md),
 [Trivy](https://github.com/aquasecurity/trivy/blob/main/LICENSE),
 [trivy-db](https://github.com/aquasecurity/trivy-db/blob/main/LICENSE).
+
+**Trivy, done** (`agent/trivy.mjs`, `--trivy-image`, the Action's `trivy-image`). Into the one
+verdict rather than a step of its own: a vulnerability at the chosen severity (`HIGH` by default)
+or above with a fixed version blocks, the rest are advisories, and a scan that could not run exits
+3.
+
+- **The gate runs Trivy, rather than reading a report.** Kali was found scanning real images: Trivy
+  reads it as Debian `kali-rolling`, has no advisories for it, and reports 0 of 79 packages
+  vulnerable. The JSON reads as clean, and only the log says "This OS version is not on the EOL
+  list". That warning alone is not enough, because Trivy 0.74 says it of Alpine 3.24 too and finds
+  its vulnerabilities, so it counts only when nothing in the OS packages was found. A report written
+  before the gate ran is also a file anyone could have written.
+- **Not `aquasecurity/trivy-action`.** In March 2026, 76 of its 77 version tags were force-pushed to
+  credential-stealing code, and a malicious Trivy v0.69.4 was published (CVE-2026-33634). The
+  Action downloads v0.76.0 and checks a SHA-256 fixed in `action.yml`. The checksums file those
+  come from was checked with openssl: its signature verifies against a Sigstore certificate issued
+  to `aquasecurity/trivy`'s `reusable-release.yaml` at `refs/tags/v0.76.0`, commit `531360e`, which
+  is the tag's commit. Not checked: the certificate's chain to Sigstore's root, and the Rekor entry,
+  which need cosign. The gate is given the installed binary's path (`WOLFPROOF_TRIVY`), so a failed
+  install is "not installed", never a Trivy already on the runner.
+- **What the project cannot change.** Trivy reads `.trivyignore` and `trivy.yaml` from where it
+  runs, and `TRIVY_*` variables. It runs in an empty directory, with every severity reported and an
+  empty ignore file; `TRIVY_*` variables pass only for registry credentials, mirrors, the cache and
+  the transport.
+
+Measured on nine local images with Trivy 0.74.0. All seven with packages it could check block:
+`alpine:latest` 2, `node:22-alpine` 15, `postgres:16-alpine` 35, Chainguard's minio 14, `redis:7`
+12, `node:22` 298, `node:18.0.0-alpine` 38. These are local copies months old, so a fresh pull
+reports fewer. The `FROM scratch` image has nothing to scan, and says so. Kali gives the
+unrecognised-OS advisory, which factory mode turns into exit 3. The image that does not exist exits
+3. CI runs three of these through the Action on every push: scratch clean, `node:18.0.0-alpine`
+blocked, a missing image incomplete.
 
 ### 18. The unit suite is CPU-bound near the gate's own test limit — fixed
 

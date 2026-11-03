@@ -336,6 +336,14 @@ character tells an attacker nothing a guess would not. A literal with more after
 is still read. On the same projects, 5 of 90 matches drop, all Jellyfin's, and none is added. No
 finding or verdict moves: Jellyfin's report already named its QuickConnect `secret` comparison.
 
+**After v1.14.2: the built image can be scanned.** Name it — `trivy-image: myapp:ci` in the Action,
+`--trivy-image=myapp:ci` on the command line — and Trivy scans its OS and language packages. A
+vulnerability at `HIGH` or above with a fixed version blocks (`trivy-severity` moves the line); the
+rest are advisories. Nothing changes for a run that names no image. Expect a first run to block:
+each of seven images on one machine with packages Trivy could check had at least one, from 2 in
+`alpine:latest` to 298 in `node:22`. A scan that cannot run makes the run incomplete (exit 3). The
+Action installs Trivy v0.76.0 itself, checked against its SHA-256.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

@@ -309,7 +309,7 @@ The checks you would expect, still necessary:
 | dependencies | high or critical CVEs; dependencies declared with no lockfile the scanner can read |
 | secrets | credentials hardcoded in any file, including ones split, joined or encoded |
 | infrastructure | Terraform plan and policy violations on AWS, such as a security group or EKS API open to `0.0.0.0/0` |
-| containers | a base image past end of life, in any build stage |
+| containers | a base image past end of life, in any build stage; with an image named, its packages' fixable high or critical vulnerabilities (Trivy) |
 | build | syntax errors, undefined names, a Go build that fails |
 
 ## What it does not check
@@ -329,7 +329,8 @@ So that a clean verdict is read for what it is:
   redirect and insecure deserialization.
 - **Memory safety in C and C++**, beyond `gets()`.
 - **Authorisation** — what an authenticated caller may then do.
-- **The packages inside a built image** — use Trivy or Grype in CI.
+- **The packages inside a built image**, unless you name the image: `trivy-image` in the Action,
+  `--trivy-image` on the command line.
 - **Blocking infrastructure policy beyond Terraform on AWS and Kubernetes.** Other clouds and
   formats get advisories only.
 - **Requirements nobody stated.**
