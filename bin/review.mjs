@@ -1,10 +1,11 @@
 // wolfproof review: list the findings a review can name, or write one entry. docs/candidate-rules.md
 // #24, lib/reviewed.mjs.
 //
-//   wolfproof review <project-dir>
+//   wolfproof review <project-dir> [--codeql]
 //       Runs the two checks whose findings have IDs -- injection and authentication -- and lists every
-//       finding with its ID, marking the ones already reviewed. Nothing else is run: no controls, no
-//       tests. Exit 0, or 3 when a check could not run (Semgrep missing), as the gate would.
+//       finding with its ID, marking the ones already reviewed. With --codeql, CodeQL's results too,
+//       as the gate's --codeql runs it. Nothing else is run: no controls, no tests. Exit 0, or 3 when
+//       a check could not run (Semgrep or CodeQL missing), as the gate would.
 //   wolfproof review <project-dir> <finding-id> --reason "..." [--reviewer <name>] [--expires YYYY-MM-DD]
 //                    [--file <path>]
 //       Writes one entry to the project's .wolfproof-reviewed.json, or to --file (a list kept outside
@@ -19,10 +20,11 @@ import path from "path";
 
 import { sastScan } from "../agent/sast.mjs";
 import { authenticationFailures } from "../agent/authentication.mjs";
+import { scanSource } from "../agent/codeql.mjs";
 import { REVIEW_FILE, parseReviews, loadProjectReviews } from "../lib/reviewed.mjs";
 
 const EXIT = { OK: 0, USAGE: 2, INCOMPLETE: 3 };
-const USAGE = `usage: wolfproof review <project-dir>
+const USAGE = `usage: wolfproof review <project-dir> [--codeql]
        wolfproof review <project-dir> <finding-id> --reason "..." [--reviewer <name>] [--expires YYYY-MM-DD] [--file <path>]`;
 
 function option(args, name) {
@@ -32,11 +34,14 @@ function option(args, name) {
   return args[i + 1] !== undefined && !args[i + 1].startsWith("--") ? args[i + 1] : null;
 }
 
+// Options that take no value, so the argument after one is not read as its value.
+const FLAGS = new Set(["--codeql", "--help"]);
+
 function positionals(args) {
   const out = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i].startsWith("--")) {
-      if (!args[i].includes("=") && args[i + 1] !== undefined && !args[i + 1].startsWith("--")) i++;
+      if (!FLAGS.has(args[i]) && !args[i].includes("=") && args[i + 1] !== undefined && !args[i + 1].startsWith("--")) i++;
       continue;
     }
     out.push(args[i]);
@@ -44,20 +49,24 @@ function positionals(args) {
   return out;
 }
 
-function list(projectDir, out, given = projectDir) {
+function list(projectDir, out, given = projectDir, codeql = false) {
   const scan = sastScan(projectDir);
   const auth = authenticationFailures(projectDir);
   const reviewed = new Set(loadProjectReviews(projectDir).entries.map((e) => e.id));
   const rows = [
     ...(scan.findings || []).map((f) => ({ id: f.id, blocking: f.blocking, where: f.where, what: `${f.category}: ${f.message}` })),
   ];
+  // CodeQL's results, reviewed or not: with no reviews applied, every one is returned in `kept`.
+  const q = codeql ? scanSource(projectDir, { reviews: [] }) : null;
+  for (const f of q?.findings || []) rows.push({ id: f.id, blocking: f.blocking, where: f.where, what: `${f.rule} (${f.level}): ${f.title}` });
   // Open routes are one finding in the gate's report; here each has its own ID.
   const authIds = auth.ids || [];
   out.push(`project : ${projectDir}`);
   if (scan.couldNotRun) out.push(`!! injection could not be checked: ${scan.couldNotRun.join("; ")}`);
+  if (q?.couldNotRun.length) out.push(`!! CodeQL could not analyse everything: ${q.couldNotRun.join("; ")}`);
   out.push("");
   if (!rows.length && !authIds.length) {
-    out.push("No finding of the injection or authentication checks to review.");
+    out.push(`No finding of the injection or authentication checks${codeql ? " or CodeQL" : ""} to review.`);
   }
   for (const r of rows) {
     out.push(`${reviewed.has(r.id) ? "reviewed" : r.blocking ? "BLOCKING" : "advisory"}  ${r.id}`);
@@ -71,7 +80,7 @@ function list(projectDir, out, given = projectDir) {
     out.push("");
     out.push(`To mark one reviewed: wolfproof review ${given} <id> --reason "why it is acceptable"`);
   }
-  return scan.couldNotRun ? EXIT.INCOMPLETE : EXIT.OK;
+  return scan.couldNotRun || q?.couldNotRun.length ? EXIT.INCOMPLETE : EXIT.OK;
 }
 
 function write(projectDir, id, args, out, err) {
@@ -131,7 +140,7 @@ export async function runReview(args) {
       err.push(`wolfproof review: ${pos[0]} is not a directory`);
       code = EXIT.USAGE;
     } else if (pos.length === 1) {
-      code = list(projectDir, out, pos[0]);
+      code = list(projectDir, out, pos[0], args.includes("--codeql"));
     } else if (pos.length === 2) {
       code = write(projectDir, pos[1], args, out, err);
     } else {

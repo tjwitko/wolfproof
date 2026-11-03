@@ -28,6 +28,7 @@ import { validateProject, localTools, McpClient } from "../lib/gate-core.mjs";
 import { resolveControls, readConfig, CONFIG_FILE } from "../lib/resolve-controls.mjs";
 import { toolchain } from "../lib/toolchain.mjs";
 import { scanImage, SEVERITIES as TRIVY_SEVERITIES } from "../agent/trivy.mjs";
+import { scanSource } from "../agent/codeql.mjs";
 import { setting, legacySettingsInUse } from "../lib/settings.mjs";
 import {
   resolveBase,
@@ -40,7 +41,7 @@ import {
   requirementAtBase,
   isInside,
 } from "../lib/factory.mjs";
-import { parseReviews, reviewableLine, REVIEW_FILE } from "../lib/reviewed.mjs";
+import { parseReviews, reviewableLine, reviewedRecord, staleReviewsLine, REVIEW_FILE } from "../lib/reviewed.mjs";
 import { classifyAdvisory, actionFor, ACTIONS, COULD_NOT_RUN, NOT_CHECKED } from "../lib/advisory-classes.mjs";
 
 const EXIT = { CLEAN: 0, BLOCKED: 1, USAGE: 2, INCOMPLETE: 3 };
@@ -154,7 +155,7 @@ function readReviewedFile(projectDir, file) {
   return parseReviews(value, `--reviewed ${file}`);
 }
 
-export async function runGate(projectDirArg, taskFile, { env = process.env, preCommit = false, baselineFile = null, factory = null, reviewedFile = null, trivy = null } = {}) {
+export async function runGate(projectDirArg, taskFile, { env = process.env, preCommit = false, baselineFile = null, factory = null, reviewedFile = null, trivy = null, codeql = false } = {}) {
   const projectDir = path.resolve(projectDirArg);
   checkInputs(projectDir, taskFile, baselineFile);
   if (trivy && (!trivy.image || !TRIVY_SEVERITIES.includes(trivy.severity))) {
@@ -308,6 +309,24 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       r.failures.push(...t.failures);
       r.advisories.push(...t.advisories);
       r.couldNotRun = [...(r.couldNotRun || []), ...t.couldNotRun];
+    }
+
+    // The source through CodeQL, when asked for (agent/codeql.mjs). Into the same verdict, with the
+    // reviews the other checks applied; a review naming a CodeQL finding that no longer exists is
+    // stale only when every language was analysed, since one that was not could still hold it.
+    if (codeql) {
+      const q = scanSource(projectDir, { env, reviews: r.activeReviews || [] });
+      if (q.ran.length) r.ran.push(`codeql(${q.ran.join(",")})`);
+      r.failures.push(...q.failures);
+      r.advisories.push(...q.advisories);
+      r.couldNotRun = [...(r.couldNotRun || []), ...q.couldNotRun];
+      r.reviewed = [...(r.reviewed || []), ...q.reviewed.map(reviewedRecord)];
+      r.reviewable = [...(r.reviewable || []), ...q.blockingIds];
+      if (q.ids) {
+        const found = new Set(q.ids);
+        const stale = (r.activeReviews || []).filter((e) => e.id.startsWith("codeql:") && !found.has(e.id));
+        if (stale.length) r.advisories.push(staleReviewsLine(stale));
+      }
     }
 
     // A server that connected but whose tool the gate never invoked. Not the same as one that could
@@ -530,7 +549,8 @@ function human(result) {
   for (const f of result.failures) out.push(`  - ${f}\n`);
   // The report prints no IDs -- one line can hold several findings -- so it says where they are.
   const reviewable = result.failures.length ? (result.reviewable || []).length : 0;
-  if (reviewable) out.push(`reviewable      : ${reviewableLine(reviewable, result.projectArg ?? result.projectDir)}\n`);
+  const viaCodeql = (result.reviewable || []).some((id) => id.startsWith("codeql:"));
+  if (reviewable) out.push(`reviewable      : ${reviewableLine(reviewable, result.projectArg ?? result.projectDir, viaCodeql)}\n`);
   out.push(`advisory        : ${result.advisories.length || "none"}\n`);
   for (const a of result.advisories) out.push(`  · ${a}\n`);
   return out.join("\n");
@@ -606,7 +626,13 @@ list is ${REVIEW_FILE}. Each reviewed finding is listed on every run and does no
 
 --trivy-image=<ref> also scans that container image with the trivy on PATH. A vulnerability at
 --trivy-severity (${TRIVY_SEVERITIES.join(", ")}; default HIGH) or above with a fixed version blocks;
-the rest are advisories. Without trivy, or when the scan fails, the run exits 3.`;
+the rest are advisories. Without trivy, or when the scan fails, the run exits 3.
+
+--codeql also analyses the source with the codeql on PATH (the bundle, with its query packs), using
+the code-scanning suites; Go, Swift and Kotlin are built first with CodeQL's autobuild, which runs
+the project's build. A result at error level blocks, the rest are advisories, and a language that
+could not be analysed exits 3. CodeQL's licence allows this without GitHub Advanced Security only
+for open-source code: see docs/checks.md.`;
 
 /**
  * A factory option's value: undefined when absent, null when given without "=value". `--base` is
@@ -692,6 +718,9 @@ async function main() {
     usageExit(`--trivy-severity is one of ${TRIVY_SEVERITIES.join(", ")}, not ${JSON.stringify(trivySeverity)}`);
   }
   const trivy = trivyImage ? { image: trivyImage, severity: (trivySeverity || "HIGH").toUpperCase() } : null;
+  const codeqlArg = args.find((a) => a === "--codeql" || a.startsWith("--codeql="));
+  if (codeqlArg !== undefined && codeqlArg !== "--codeql") usageExit("--codeql takes no value: --codeql");
+  const codeql = codeqlArg !== undefined;
   // In --json mode stdout carries exactly one thing: the result document. The validators share
   // their code with the agent loop, which narrates progress to console.log, so a single narration
   // line lands in front of the JSON and makes it unparseable. That is how the corpus first failed
@@ -705,7 +734,7 @@ async function main() {
   if (json) console.log = (...a) => console.error(...a);
   let result;
   try {
-    result = await runGate(positional[0], positional[1], { preCommit, baselineFile, factory, reviewedFile: reviewedFile || null, trivy });
+    result = await runGate(positional[0], positional[1], { preCommit, baselineFile, factory, reviewedFile: reviewedFile || null, trivy, codeql });
   } catch (err) {
     if (!(err instanceof UsageError)) throw err;
     console.log = narrate;

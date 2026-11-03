@@ -89,6 +89,17 @@ inputs:
     description: "The lowest severity that blocks when a fix exists: CRITICAL, HIGH, MEDIUM or LOW."
     required: false
     default: "HIGH"
+  codeql:
+    description: >-
+      "true" to analyse the source with CodeQL's code-scanning suites as well. A result at error
+      level blocks, the rest are advisories, and a language that could not be analysed makes the run
+      incomplete. Go, Swift and Kotlin are built first with CodeQL's autobuild, which runs the
+      project's build. LICENCE: without GitHub Advanced Security, CodeQL's terms allow this only for a
+      codebase under an OSI-approved open-source licence, in CI only when it is hosted on GitHub.com;
+      wolfproof cannot tell whether yours is. The bundle (about 550 MB) is installed by this action at
+      a pinned version, checked against its published SHA-256. Linux and macOS runners.
+    required: false
+    default: "false"
 
 outputs:
   outcome:
@@ -149,6 +160,42 @@ runs:
         tar -xzf "$dir/trivy.tar.gz" -C "$dir" trivy && rm -f "$dir/trivy.tar.gz"
         echo "trivy ${TRIVY_VERSION} installed and verified: $("$dir/trivy" --version 2>&1 | head -1)"
 
+    # CodeQL, only when asked for: the bundle, which is the CLI with its query packs, from
+    # github/codeql-action's release codeql-bundle-v2.27.3. That release is immutable, and the
+    # SHA-256s below are the asset digests GitHub publishes for it and its signed release attestation
+    # lists; the macOS bundle was checked with `gh release verify-asset`. As for trivy: a failed
+    # install leaves nothing where the gate looks, which makes the run incomplete, and a codeql
+    # already on the runner (GitHub's images carry one) is never used in its place.
+    - name: install codeql
+      if: inputs.codeql == 'true'
+      shell: bash
+      env:
+        BUNDLE_TAG: "codeql-bundle-v2.27.3"
+      run: |
+        set +e
+        dir="${RUNNER_TEMP}/wolfproof-codeql"
+        rm -rf "$dir" && mkdir -p "$dir"
+        case "${RUNNER_OS}/${RUNNER_ARCH}" in
+          Linux/X64)   asset="codeql-bundle-linux64.tar.zst";     sum="5e7607e1b721728955e31f5402d460ad227cbd2ffed0d4cc610116755796150e" ;;
+          Linux/ARM64) asset="codeql-bundle-linux-arm64.tar.zst"; sum="82a7828e050573e885ba96620c5b72db985ef4a88118dd2baf14ae7b325064d7" ;;
+          macOS/*)     asset="codeql-bundle-osx64.tar.zst";       sum="c773b4654a641d02967f40d994bab1850fd8bc3bddb3d20f9af17b0cca3c9a29" ;;
+          *) echo "::error title=wolfproof: codeql not installed::codeql is supported on Linux and macOS runners, not ${RUNNER_OS}/${RUNNER_ARCH}."; exit 0 ;;
+        esac
+        if ! command -v zstd >/dev/null; then
+          echo "::error title=wolfproof: codeql not installed::the bundle is zstd-compressed and zstd is not on this runner."; exit 0
+        fi
+        url="https://github.com/github/codeql-action/releases/download/${BUNDLE_TAG}/${asset}"
+        if ! curl -fsSL -o "$dir/bundle.tar.zst" "$url"; then
+          echo "::error title=wolfproof: codeql not installed::could not download $url"; exit 0
+        fi
+        got=$( (sha256sum "$dir/bundle.tar.zst" 2>/dev/null || shasum -a 256 "$dir/bundle.tar.zst") | cut -d' ' -f1)
+        if [ "$got" != "$sum" ]; then
+          echo "::error title=wolfproof: codeql not installed::$url does not match the SHA-256 pinned in this action. It was not installed."
+          rm -f "$dir/bundle.tar.zst"; exit 0
+        fi
+        zstd -dcq "$dir/bundle.tar.zst" | tar -xf - -C "$dir" && rm -f "$dir/bundle.tar.zst"
+        echo "codeql bundle ${BUNDLE_TAG#codeql-bundle-} installed and verified: $("$dir/codeql/codeql" version 2>&1 | head -1)"
+
     - id: gate
       shell: bash
       env:
@@ -171,6 +218,8 @@ runs:
         # Not TRIVY_*: the scan passes few of those on to Trivy, and says so of the rest.
         SCAN_IMAGE: ${{ inputs.trivy-image }}
         SCAN_SEVERITY: ${{ inputs.trivy-severity }}
+        # Not CODEQL_*: the scan passes none of those on to CodeQL.
+        SCAN_CODEQL: ${{ inputs.codeql }}
       run: |
         # GitHub runs composite `run:` steps as `bash --noprofile --norc -e -o pipefail`, and
         # `set -uo pipefail` does NOT clear that inherited -e. The gate's exit code is this action's
@@ -257,6 +306,18 @@ runs:
           export WOLFPROOF_TRIVY="${RUNNER_TEMP}/wolfproof-trivy/trivy"
           ARGS+=("--trivy-image=$SCAN_IMAGE" "--trivy-severity=${SCAN_SEVERITY:-HIGH}")
         fi
+        # The source scan, with the bundle the step above installed and verified, and no other. A value
+        # other than true or false is refused: a workflow that wrote `codeql: yes` believes it ran.
+        case "$SCAN_CODEQL" in
+          true)
+            export WOLFPROOF_CODEQL="${RUNNER_TEMP}/wolfproof-codeql/codeql/codeql"
+            ARGS+=("--codeql") ;;
+          false|"") ;;
+          *)
+            echo "outcome=incomplete" >> "$GITHUB_OUTPUT"
+            echo "::error title=wolfproof: usage error::codeql is \"true\" or \"false\", not \"$SCAN_CODEQL\". This is not a verdict on the project."
+            exit 1 ;;
+        esac
 
         # Once, not twice. terraform plan and checkov dominate the runtime here, and running the
         # gate a second time to get human output would double them on every CI job. The log view is
@@ -311,8 +372,8 @@ runs:
           for (const f of r.findings) console.log(`  - ${f.message}\n`);
           // The same line the CLI prints (lib/reviewed.mjs reviewableLine): the report has no IDs, so it
           // says where to get them. The project path comes through the environment, never the script.
-          const rv = { n: r.blocking ? (r.reviewable || []).length : 0, project: process.env.REVIEW_PROJECT || "." };
-          if (rv.n) console.log(`reviewable    : ${rv.n} injection or authentication finding${rv.n === 1 ? "" : "s"} above can be marked reviewed once read — wolfproof review ${rv.project} lists ${rv.n === 1 ? "its ID" : "their IDs"}\n`);
+          const rv = { n: r.blocking ? (r.reviewable || []).length : 0, project: process.env.REVIEW_PROJECT || ".", codeql: (r.reviewable || []).some((id) => id.startsWith("codeql:")) };
+          if (rv.n) console.log(`reviewable    : ${rv.n} ${rv.codeql ? "injection, authentication or CodeQL" : "injection or authentication"} finding${rv.n === 1 ? "" : "s"} above can be marked reviewed once read — wolfproof review ${rv.project}${rv.codeql ? " --codeql" : ""} lists ${rv.n === 1 ? "its ID" : "their IDs"}\n`);
           for (const a of r.advisories) console.log(`  . ${a.message}\n`);
         ' "$RESULT" || echo "(could not render the result; the JSON is at $RESULT)"
 

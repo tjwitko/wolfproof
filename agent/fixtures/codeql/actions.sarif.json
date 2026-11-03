@@ -1,0 +1,168 @@
+{
+ "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+ "version": "2.1.0",
+ "runs": [
+  {
+   "tool": {
+    "driver": {
+     "name": "CodeQL",
+     "semanticVersion": "2.27.3",
+     "rules": [
+      {
+       "id": "actions/code-injection/critical",
+       "name": "actions/code-injection/critical",
+       "shortDescription": {
+        "text": "Code injection"
+       },
+       "defaultConfiguration": {
+        "enabled": true,
+        "level": "error"
+       },
+       "properties": {
+        "kind": "path-problem",
+        "precision": "very-high",
+        "problem.severity": "error",
+        "security-severity": "9"
+       }
+      },
+      {
+       "id": "actions/missing-workflow-permissions",
+       "name": "actions/missing-workflow-permissions",
+       "shortDescription": {
+        "text": "Workflow does not contain permissions"
+       },
+       "defaultConfiguration": {
+        "enabled": true,
+        "level": "warning"
+       },
+       "properties": {
+        "kind": "problem",
+        "precision": "high",
+        "problem.severity": "warning",
+        "security-severity": "5.0"
+       }
+      }
+     ]
+    }
+   },
+   "invocations": [
+    {
+     "toolExecutionNotifications": [
+      {
+       "descriptor": {
+        "id": "actions/diagnostics/successfully-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": ".github/workflows/ci.yml"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "js/baseline/expected-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/app.js"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "py/baseline/expected-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/a.py"
+          }
+         }
+        }
+       ]
+      }
+     ],
+     "executionSuccessful": true
+    }
+   ],
+   "results": [
+    {
+     "ruleId": "actions/code-injection/critical",
+     "ruleIndex": 0,
+     "rule": {
+      "id": "actions/code-injection/critical",
+      "index": 0
+     },
+     "message": {
+      "text": "Potential code injection in [${{ github.event.comment.body }}](1), which may be controlled by an external user ([issue_comment](2))."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": ".github/workflows/ci.yml",
+         "uriBaseId": "%SRCROOT%",
+         "index": 0
+        },
+        "region": {
+         "startLine": 6,
+         "startColumn": 21,
+         "endColumn": 53
+        }
+       }
+      }
+     ]
+    },
+    {
+     "ruleId": "actions/missing-workflow-permissions",
+     "ruleIndex": 11,
+     "rule": {
+      "id": "actions/missing-workflow-permissions",
+      "index": 11
+     },
+     "message": {
+      "text": "Actions job or workflow does not limit the permissions of the GITHUB_TOKEN. Consider setting an explicit permissions block, using the following as a minimal starting point: {{}}"
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": ".github/workflows/ci.yml",
+         "uriBaseId": "%SRCROOT%",
+         "index": 0
+        },
+        "region": {
+         "startLine": 4,
+         "startColumn": 5,
+         "endLine": 6,
+         "endColumn": 54
+        }
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

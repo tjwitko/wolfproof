@@ -1,0 +1,249 @@
+{
+ "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+ "version": "2.1.0",
+ "runs": [
+  {
+   "tool": {
+    "driver": {
+     "name": "CodeQL",
+     "semanticVersion": "2.27.3",
+     "rules": [
+      {
+       "id": "py/sql-injection",
+       "name": "py/sql-injection",
+       "shortDescription": {
+        "text": "SQL query built from user-controlled sources"
+       },
+       "defaultConfiguration": {
+        "enabled": true,
+        "level": "error"
+       },
+       "properties": {
+        "kind": "path-problem",
+        "precision": "high",
+        "problem.severity": "error",
+        "security-severity": "8.8"
+       }
+      }
+     ]
+    }
+   },
+   "invocations": [
+    {
+     "toolExecutionNotifications": [
+      {
+       "descriptor": {
+        "id": "py/diagnostics/successfully-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/a.py"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "py/diagnostics/successfully-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.py"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "py/diagnostics/successfully-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": ".github/workflows/ci.yml"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "py/diagnostics/extraction-warnings"
+       },
+       "message": {
+        "text": "Extraction failed in src/broken.py with error Syntax Error"
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.py"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "js/baseline/expected-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/app.js"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "js/baseline/expected-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.js"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "py/baseline/expected-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/a.py"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "py/baseline/expected-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.py"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "py/extractor/summary"
+       },
+       "level": "note",
+       "message": {
+        "text": "Internal telemetry for the Python extractor.\n\nNo action needed."
+       },
+       "locations": []
+      },
+      {
+       "descriptor": {
+        "id": "py/diagnostics/syntax-error"
+       },
+       "message": {
+        "text": "A parse error occurred while processing `src/broken.py`, and as a result this file could not be analyzed. Check the syntax of the file using the `python -m py_compile` command and correct any invalid syntax."
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.py"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "py/extractor/parser-statistics"
+       },
+       "level": "note",
+       "message": {
+        "text": "Internal parser telemetry for the Python extractor.\n\nNo action needed."
+       },
+       "locations": []
+      }
+     ],
+     "executionSuccessful": true
+    }
+   ],
+   "results": [
+    {
+     "ruleId": "py/sql-injection",
+     "ruleIndex": 14,
+     "rule": {
+      "id": "py/sql-injection",
+      "index": 14
+     },
+     "message": {
+      "text": "This SQL query depends on a [user-provided value](1)."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "src/a.py",
+         "uriBaseId": "%SRCROOT%",
+         "index": 0
+        },
+        "region": {
+         "startLine": 7,
+         "startColumn": 26,
+         "endColumn": 80
+        }
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

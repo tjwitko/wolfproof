@@ -1,0 +1,477 @@
+{
+ "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+ "version": "2.1.0",
+ "runs": [
+  {
+   "tool": {
+    "driver": {
+     "name": "CodeQL",
+     "semanticVersion": "2.27.3",
+     "rules": [
+      {
+       "id": "js/missing-rate-limiting",
+       "name": "js/missing-rate-limiting",
+       "shortDescription": {
+        "text": "Missing rate limiting"
+       },
+       "defaultConfiguration": {
+        "enabled": true,
+        "level": "warning"
+       },
+       "properties": {
+        "kind": "problem",
+        "precision": "high",
+        "problem.severity": "warning",
+        "security-severity": "7.5"
+       }
+      },
+      {
+       "id": "js/unnecessary-use-of-cat",
+       "name": "js/unnecessary-use-of-cat",
+       "shortDescription": {
+        "text": "Unnecessary use of `cat` process"
+       },
+       "defaultConfiguration": {
+        "enabled": true,
+        "level": "error"
+       },
+       "properties": {
+        "kind": "problem",
+        "precision": "high",
+        "problem.severity": "error",
+        "security-severity": "6.3"
+       }
+      },
+      {
+       "id": "js/command-line-injection",
+       "name": "js/command-line-injection",
+       "shortDescription": {
+        "text": "Uncontrolled command line"
+       },
+       "defaultConfiguration": {
+        "enabled": true,
+        "level": "error"
+       },
+       "properties": {
+        "kind": "path-problem",
+        "precision": "high",
+        "problem.severity": "error",
+        "security-severity": "9.8"
+       }
+      },
+      {
+       "id": "js/reflected-xss",
+       "name": "js/reflected-xss",
+       "shortDescription": {
+        "text": "Reflected cross-site scripting"
+       },
+       "defaultConfiguration": {
+        "enabled": true,
+        "level": "error"
+       },
+       "properties": {
+        "kind": "path-problem",
+        "precision": "high",
+        "problem.severity": "error",
+        "security-severity": "7.8"
+       }
+      }
+     ]
+    }
+   },
+   "invocations": [
+    {
+     "toolExecutionNotifications": [
+      {
+       "descriptor": {
+        "id": "js/diagnostics/extraction-errors"
+       },
+       "level": "error",
+       "message": {
+        "text": "Extraction failed in src/broken.js with error Error: Missing function name"
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.js"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "js/diagnostics/extraction-errors"
+       },
+       "level": "error",
+       "message": {
+        "text": "Extraction failed in src/broken.js with error Error: Unexpected token"
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.js"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "js/diagnostics/successfully-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": ".github/workflows/ci.yml"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "js/diagnostics/successfully-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/app.js"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "js/diagnostics/successfully-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.js"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "js/baseline/expected-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/app.js"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "js/baseline/expected-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.js"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "py/baseline/expected-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/a.py"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "py/baseline/expected-extracted-files"
+       },
+       "level": "none",
+       "message": {
+        "text": ""
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.py"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "js/parse-error"
+       },
+       "message": {
+        "text": "A parse error occurred: `Missing function name`. Check the syntax of the file. If the file is invalid, correct the error or [exclude](https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/customizing-code-scanning) the file from analysis."
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.js"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "js/parse-error"
+       },
+       "message": {
+        "text": "A parse error occurred: `Unexpected token`. Check the syntax of the file. If the file is invalid, correct the error or [exclude](https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/customizing-code-scanning) the file from analysis."
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.js"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "descriptor": {
+        "id": "js/parse-error"
+       },
+       "message": {
+        "text": "A parse error occurred: `Missing function name`. Check the syntax of the file. If the file is invalid, correct the error or [exclude](https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/customizing-code-scanning) the file from analysis.\n\nCodeQL also found 1 other warning like this. See the workflow log for details."
+       },
+       "locations": [
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.js"
+          }
+         }
+        },
+        {
+         "physicalLocation": {
+          "artifactLocation": {
+           "uri": "src/broken.js"
+          }
+         }
+        }
+       ]
+      }
+     ],
+     "executionSuccessful": true
+    }
+   ],
+   "results": [
+    {
+     "ruleId": "js/missing-rate-limiting",
+     "ruleIndex": 39,
+     "rule": {
+      "id": "js/missing-rate-limiting",
+      "index": 39
+     },
+     "message": {
+      "text": "This route handler performs [a system command](1), but is not rate-limited."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "src/app.js",
+         "uriBaseId": "%SRCROOT%",
+         "index": 0
+        },
+        "region": {
+         "startLine": 4,
+         "startColumn": 17,
+         "endLine": 6,
+         "endColumn": 2
+        }
+       }
+      }
+     ]
+    },
+    {
+     "ruleId": "js/missing-rate-limiting",
+     "ruleIndex": 39,
+     "rule": {
+      "id": "js/missing-rate-limiting",
+      "index": 39
+     },
+     "message": {
+      "text": "This route handler performs [a system command](1), but is not rate-limited."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "src/app.js",
+         "uriBaseId": "%SRCROOT%",
+         "index": 0
+        },
+        "region": {
+         "startLine": 7,
+         "startColumn": 18,
+         "endLine": 10,
+         "endColumn": 2
+        }
+       }
+      }
+     ]
+    },
+    {
+     "ruleId": "js/unnecessary-use-of-cat",
+     "ruleIndex": 67,
+     "rule": {
+      "id": "js/unnecessary-use-of-cat",
+      "index": 67
+     },
+     "message": {
+      "text": "Unnecessary use of `cat` process. Can be replaced with a call to fs.readFile(..)."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "src/app.js",
+         "uriBaseId": "%SRCROOT%",
+         "index": 0
+        },
+        "region": {
+         "startLine": 9,
+         "startColumn": 3,
+         "endColumn": 56
+        }
+       }
+      }
+     ]
+    },
+    {
+     "ruleId": "js/command-line-injection",
+     "ruleIndex": 68,
+     "rule": {
+      "id": "js/command-line-injection",
+      "index": 68
+     },
+     "message": {
+      "text": "This command line depends on a [user-provided value](1)."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "src/app.js",
+         "uriBaseId": "%SRCROOT%",
+         "index": 0
+        },
+        "region": {
+         "startLine": 5,
+         "startColumn": 8,
+         "endColumn": 29
+        }
+       }
+      }
+     ]
+    },
+    {
+     "ruleId": "js/command-line-injection",
+     "ruleIndex": 68,
+     "rule": {
+      "id": "js/command-line-injection",
+      "index": 68
+     },
+     "message": {
+      "text": "This command line depends on a [user-provided value](1)."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "src/app.js",
+         "uriBaseId": "%SRCROOT%",
+         "index": 0
+        },
+        "region": {
+         "startLine": 9,
+         "startColumn": 8,
+         "endColumn": 28
+        }
+       }
+      }
+     ]
+    },
+    {
+     "ruleId": "js/reflected-xss",
+     "ruleIndex": 74,
+     "rule": {
+      "id": "js/reflected-xss",
+      "index": 74
+     },
+     "message": {
+      "text": "Cross-site scripting vulnerability due to a [user-provided value](1)."
+     },
+     "locations": [
+      {
+       "physicalLocation": {
+        "artifactLocation": {
+         "uri": "src/app.js",
+         "uriBaseId": "%SRCROOT%",
+         "index": 0
+        },
+        "region": {
+         "startLine": 11,
+         "startColumn": 44,
+         "endColumn": 75
+        }
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
