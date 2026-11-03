@@ -2976,3 +2976,30 @@ test("a project with no accepted comparison lists none", () => {
     assert.deepEqual(credentialComparisons(dir), []);
   });
 });
+
+// CodeQL's js/redos found the controller-wide guard pattern backtracking exponentially: a guard
+// followed by decorators each trailed by spaces, with no class after them. Twelve held the gate past
+// 30 seconds; at eleven times longer per decorator, twenty would run for days. In a child process,
+// because a regex that hangs blocks the event loop and no test timeout can fire.
+test("decorators after a guard, with nothing after them, are read in linear time", async () => {
+  const { spawnSync } = await import("child_process");
+  const dir = mkdtempSync(path.join(tmpdir(), "auth-redos-"));
+  try {
+    mkdirSync(path.join(dir, "src"));
+    writeFileSync(path.join(dir, "package.json"), JSON.stringify({ dependencies: { "@nestjs/core": "10.0.0", "@nestjs/common": "10.0.0" } }));
+    writeFileSync(
+      path.join(dir, "src/app.controller.ts"),
+      `import { Controller, Get, UseGuards } from "@nestjs/common";\n@Controller("x")\nclass C {\n  @UseGuards(AuthGuard)\n${"  @X          \n".repeat(40)}  @Get("/a")\n  a() { return 1; }\n}\n`
+    );
+    const module = new URL("./authentication.mjs", import.meta.url).href;
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", `const m = await import(${JSON.stringify(module)}); m.checkAuthentication(${JSON.stringify(dir)}); console.log("done");`], {
+      encoding: "utf8",
+      timeout: 20_000,
+      killSignal: "SIGKILL",
+    });
+    assert.equal(r.signal, null, "the check did not finish in 20 seconds");
+    assert.equal(r.stdout.trim(), "done", r.stderr);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

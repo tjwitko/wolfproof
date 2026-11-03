@@ -1226,7 +1226,11 @@ const jsAdapter = {
     if (/addHook\s*\(\s*(['"`])(onRequest|preHandler|preValidation)\1\s*,[^)]{0,120}?(auth|jwt|verify|token)/i.test(appWide)) {
       return "a Fastify authentication hook";
     }
-    if (/@UseGuards\s*\([^)]*\)\s*(?:@\w+\s*(?:\([^)]*\))?\s*)*export\s+class/.test(all)) {
+    // The whitespace after a decorator's name belongs to its argument list only when there is one.
+    // Written `@\w+\s*(?:\(...\))?\s*`, the two \s* could split each run of spaces between them,
+    // and a dozen decorators with no class after them held the gate for hours (found by CodeQL's
+    // js/redos, run against this repository).
+    if (/@UseGuards\s*\([^)]*\)\s*(?:@\w+(?:\s*\([^)]*\))?\s*)*export\s+class/.test(all)) {
       return "a controller-wide guard";
     }
     return null;
