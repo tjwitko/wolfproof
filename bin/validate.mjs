@@ -27,6 +27,7 @@ import { splitSentences, unjudgedSentences, alwaysOnCoverage } from "../agent/re
 import { validateProject, localTools, McpClient } from "../lib/gate-core.mjs";
 import { resolveControls, readConfig, CONFIG_FILE } from "../lib/resolve-controls.mjs";
 import { toolchain } from "../lib/toolchain.mjs";
+import { scanImage, SEVERITIES as TRIVY_SEVERITIES } from "../agent/trivy.mjs";
 import { setting, legacySettingsInUse } from "../lib/settings.mjs";
 import {
   resolveBase,
@@ -153,9 +154,12 @@ function readReviewedFile(projectDir, file) {
   return parseReviews(value, `--reviewed ${file}`);
 }
 
-export async function runGate(projectDirArg, taskFile, { env = process.env, preCommit = false, baselineFile = null, factory = null, reviewedFile = null } = {}) {
+export async function runGate(projectDirArg, taskFile, { env = process.env, preCommit = false, baselineFile = null, factory = null, reviewedFile = null, trivy = null } = {}) {
   const projectDir = path.resolve(projectDirArg);
   checkInputs(projectDir, taskFile, baselineFile);
+  if (trivy && (!trivy.image || !TRIVY_SEVERITIES.includes(trivy.severity))) {
+    throw new UsageError(`the image scan needs an image and a severity of ${TRIVY_SEVERITIES.join(", ")}; got ${JSON.stringify(trivy)}`);
+  }
   const { allowlist, policy } = checkFactoryInputs(projectDir, factory);
   const pipelineReviews = readReviewedFile(projectDir, reviewedFile);
 
@@ -295,6 +299,16 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       r.advisories.unshift(`settings: ${name} is set and no longer read since v1.3.0; set ${use} instead.`);
     }
     for (const c of clients) c.proc?.kill();
+
+    // The image the pipeline built, when it names one (agent/trivy.mjs). Its findings, advisories and
+    // could-not-run entries join the project's, so there is still one verdict.
+    if (trivy) {
+      const t = scanImage(trivy.image, { severity: trivy.severity, env });
+      if (t.ran) r.ran.push(`trivy(${trivy.image})`);
+      r.failures.push(...t.failures);
+      r.advisories.push(...t.advisories);
+      r.couldNotRun = [...(r.couldNotRun || []), ...t.couldNotRun];
+    }
 
     // A server that connected but whose tool the gate never invoked. Not the same as one that could
     // not be reached, and harder to see: identity-guard was spawned by nothing for ten graded runs
@@ -588,7 +602,11 @@ honoured only if it existed at --base or the --allowlist approves it, and an adv
 "nothing was checked" blocks. --allowlist and --policy are JSON files outside the project.
 
 --reviewed=<file> names findings that have been reviewed, outside the project; the project's own
-list is ${REVIEW_FILE}. Each reviewed finding is listed on every run and does not block.`;
+list is ${REVIEW_FILE}. Each reviewed finding is listed on every run and does not block.
+
+--trivy-image=<ref> also scans that container image with the trivy on PATH. A vulnerability at
+--trivy-severity (${TRIVY_SEVERITIES.join(", ")}; default HIGH) or above with a fixed version blocks;
+the rest are advisories. Without trivy, or when the scan fails, the run exits 3.`;
 
 /**
  * A factory option's value: undefined when absent, null when given without "=value". `--base` is
@@ -665,6 +683,15 @@ async function main() {
     : null;
   const reviewedFile = optionValue(args, "reviewed");
   if (reviewedFile === null) usageExit("--reviewed takes a file: --reviewed=<file>");
+  const trivyImage = optionValue(args, "trivy-image");
+  const trivySeverity = optionValue(args, "trivy-severity");
+  if (trivyImage === null) usageExit("--trivy-image takes an image: --trivy-image=<ref>");
+  if (trivySeverity === null) usageExit(`--trivy-severity takes one of ${TRIVY_SEVERITIES.join(", ")}: --trivy-severity=HIGH`);
+  if (trivySeverity !== undefined && trivyImage === undefined) usageExit("--trivy-severity means nothing without --trivy-image");
+  if (trivySeverity !== undefined && !TRIVY_SEVERITIES.includes(trivySeverity.toUpperCase())) {
+    usageExit(`--trivy-severity is one of ${TRIVY_SEVERITIES.join(", ")}, not ${JSON.stringify(trivySeverity)}`);
+  }
+  const trivy = trivyImage ? { image: trivyImage, severity: (trivySeverity || "HIGH").toUpperCase() } : null;
   // In --json mode stdout carries exactly one thing: the result document. The validators share
   // their code with the agent loop, which narrates progress to console.log, so a single narration
   // line lands in front of the JSON and makes it unparseable. That is how the corpus first failed
@@ -678,7 +705,7 @@ async function main() {
   if (json) console.log = (...a) => console.error(...a);
   let result;
   try {
-    result = await runGate(positional[0], positional[1], { preCommit, baselineFile, factory, reviewedFile: reviewedFile || null });
+    result = await runGate(positional[0], positional[1], { preCommit, baselineFile, factory, reviewedFile: reviewedFile || null, trivy });
   } catch (err) {
     if (!(err instanceof UsageError)) throw err;
     console.log = narrate;

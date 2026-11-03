@@ -1,0 +1,21 @@
+{
+ "SchemaVersion": 2,
+ "Trivy": {
+  "Version": "0.74.0"
+ },
+ "ArtifactName": "kalilinux/kali-rolling:latest",
+ "ArtifactType": "container_image",
+ "Metadata": {
+  "OS": {
+   "Family": "debian",
+   "Name": "kali-rolling"
+  }
+ },
+ "Results": [
+  {
+   "Target": "kalilinux/kali-rolling:latest (debian kali-rolling)",
+   "Class": "os-pkgs",
+   "Type": "debian"
+  }
+ ]
+}

@@ -244,6 +244,40 @@ jobs:
           task-file: agent/fixtures/webhook-receiver-task.txt
           terraform-guard: /nonexistent/server.mjs
 
+      # The image scan, on the clean fixture, so the image alone decides each verdict. An image with
+      # nothing in it is clean; node:18.0.0-alpine (2022, Alpine 3.15) has fixed CRITICAL and HIGH
+      # vulnerabilities that will not go away; an image that does not exist could not be scanned.
+      - name: images for the image scan
+        run: |
+          d="${RUNNER_TEMP}/scratch-image"
+          mkdir -p "$d" && echo hello > "$d/hello.txt"
+          printf 'FROM scratch\nCOPY hello.txt /hello.txt\n' > "$d/Dockerfile"
+          docker build -q -t wolfproof-ci-scratch:test "$d"
+          docker pull -q node:18.0.0-alpine
+
+      - id: trivy-clean
+        uses: ./
+        with:
+          project: ${{ runner.temp }}/fixtures/webhook-sonnet-2
+          task-file: agent/fixtures/webhook-receiver-task.txt
+          trivy-image: wolfproof-ci-scratch:test
+
+      - id: trivy-blocked
+        continue-on-error: true
+        uses: ./
+        with:
+          project: ${{ runner.temp }}/fixtures/webhook-sonnet-2
+          task-file: agent/fixtures/webhook-receiver-task.txt
+          trivy-image: node:18.0.0-alpine
+
+      - id: trivy-missing
+        continue-on-error: true
+        uses: ./
+        with:
+          project: ${{ runner.temp }}/fixtures/webhook-sonnet-2
+          task-file: agent/fixtures/webhook-receiver-task.txt
+          trivy-image: wolfproof-no-such-image:ci
+
       - name: assert
         run: |
           fail=0
@@ -253,6 +287,9 @@ jobs:
           check "clean fixture"        "${{ steps.clean.outputs.outcome }}"      "clean"
           check "blocked fixture"      "${{ steps.blocked.outputs.outcome }}"    "blocked"
           check "unreachable control"  "${{ steps.incomplete.outputs.outcome }}" "incomplete"
+          check "image, nothing in it" "${{ steps.trivy-clean.outputs.outcome }}"   "clean"
+          check "image, fixable vulns" "${{ steps.trivy-blocked.outputs.outcome }}" "blocked"
+          check "image, not found"     "${{ steps.trivy-missing.outputs.outcome }}" "incomplete"
           # A blocked run and an incomplete run must not report the same thing. That confusion is the
           # silent pass this control set exists to remove, and at CI scale it is invisible.
           if [ "${{ steps.blocked.outputs.outcome }}" = "${{ steps.incomplete.outputs.outcome }}" ]; then

@@ -76,6 +76,19 @@ inputs:
       own list is .wolfproof-reviewed.json.
     required: false
     default: ""
+  trivy-image:
+    description: >-
+      A container image to scan with Trivy, usually one an earlier step built ("myapp:ci"). Its
+      vulnerabilities join the verdict: one at trivy-severity or above with a fixed version blocks,
+      the rest are advisories, and a scan that could not run makes the run incomplete. Trivy is
+      installed by this action at a pinned version, checked against its published SHA-256. Linux
+      runners only. Empty, the default, skips it.
+    required: false
+    default: ""
+  trivy-severity:
+    description: "The lowest severity that blocks when a fix exists: CRITICAL, HIGH, MEDIUM or LOW."
+    required: false
+    default: "HIGH"
 
 outputs:
   outcome:
@@ -102,6 +115,40 @@ runs:
       shell: bash
       run: npm ci --ignore-scripts --prefix "$GITHUB_ACTION_PATH"
 
+    # Trivy, only when an image is named. Not aquasecurity/trivy-action and not a tag: in March 2026
+    # 76 of that action's 77 version tags were force-pushed to credential-stealing code and a
+    # malicious Trivy release was published (CVE-2026-33634). A tag says what someone last pointed
+    # it at; a SHA-256 fixed here says what was checked. v0.76.0's checksums file is signed by
+    # Trivy's release workflow at that tag, and these two lines are from it.
+    #
+    # A failed install does not stop the action: the gate is told where the binary should be, finds
+    # nothing there, and says the image was not scanned, which makes the run incomplete. A trivy
+    # already on the runner is never used in its place.
+    - name: install trivy
+      if: inputs.trivy-image != ''
+      shell: bash
+      env:
+        TRIVY_VERSION: "0.76.0"
+      run: |
+        set +e
+        dir="${RUNNER_TEMP}/wolfproof-trivy"
+        rm -rf "$dir" && mkdir -p "$dir"
+        case "${RUNNER_OS}/${RUNNER_ARCH}" in
+          Linux/X64)   asset="Linux-64bit"; sum="e24b1c51293c1b15e4ba8d45bbc7891ba053f90278ec2698f3562c993e145fe7" ;;
+          Linux/ARM64) asset="Linux-ARM64"; sum="aab21e677a7b7071fc79f1711480840754c18a1b9d9cefa7ccd06af63a0e8f4c" ;;
+          *) echo "::error title=wolfproof: trivy not installed::trivy-image is supported on Linux runners only, not ${RUNNER_OS}/${RUNNER_ARCH}."; exit 0 ;;
+        esac
+        url="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_${asset}.tar.gz"
+        if ! curl -fsSL -o "$dir/trivy.tar.gz" "$url"; then
+          echo "::error title=wolfproof: trivy not installed::could not download $url"; exit 0
+        fi
+        if ! echo "$sum  $dir/trivy.tar.gz" | sha256sum -c --quiet -; then
+          echo "::error title=wolfproof: trivy not installed::$url does not match the SHA-256 pinned in this action. It was not installed."
+          rm -f "$dir/trivy.tar.gz"; exit 0
+        fi
+        tar -xzf "$dir/trivy.tar.gz" -C "$dir" trivy && rm -f "$dir/trivy.tar.gz"
+        echo "trivy ${TRIVY_VERSION} installed and verified: $("$dir/trivy" --version 2>&1 | head -1)"
+
     - id: gate
       shell: bash
       env:
@@ -121,6 +168,9 @@ runs:
         REVIEW_PROJECT: ${{ inputs.project }}
         PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         PUSH_BEFORE: ${{ github.event.before }}
+        # Not TRIVY_*: the scan passes few of those on to Trivy, and says so of the rest.
+        SCAN_IMAGE: ${{ inputs.trivy-image }}
+        SCAN_SEVERITY: ${{ inputs.trivy-severity }}
       run: |
         # GitHub runs composite `run:` steps as `bash --noprofile --norc -e -o pipefail`, and
         # `set -uo pipefail` does NOT clear that inherited -e. The gate's exit code is this action's
@@ -201,6 +251,11 @@ runs:
         if [ -n "$REVIEWED" ]; then
           printf '%s\n' "$REVIEWED" > "${RUNNER_TEMP:-/tmp}/wolfproof-reviewed.json"
           ARGS+=("--reviewed=${RUNNER_TEMP:-/tmp}/wolfproof-reviewed.json")
+        fi
+        # The image scan, with the trivy the step above installed and verified, and no other.
+        if [ -n "$SCAN_IMAGE" ]; then
+          export WOLFPROOF_TRIVY="${RUNNER_TEMP}/wolfproof-trivy/trivy"
+          ARGS+=("--trivy-image=$SCAN_IMAGE" "--trivy-severity=${SCAN_SEVERITY:-HIGH}")
         fi
 
         # Once, not twice. terraform plan and checkov dominate the runtime here, and running the

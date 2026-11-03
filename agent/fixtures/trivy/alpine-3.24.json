@@ -1,0 +1,71 @@
+{
+ "SchemaVersion": 2,
+ "Trivy": {
+  "Version": "0.74.0"
+ },
+ "ArtifactName": "alpine:latest",
+ "ArtifactType": "container_image",
+ "Metadata": {
+  "OS": {
+   "Family": "alpine",
+   "Name": "3.24.1"
+  }
+ },
+ "Results": [
+  {
+   "Target": "alpine:latest (alpine 3.24.1)",
+   "Class": "os-pkgs",
+   "Type": "alpine",
+   "Vulnerabilities": [
+    {
+     "VulnerabilityID": "CVE-2026-14456",
+     "PkgName": "libcrypto3",
+     "InstalledVersion": "3.5.7-r0",
+     "FixedVersion": "3.5.8-r0",
+     "Status": "fixed",
+     "Severity": "HIGH"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-18798",
+     "PkgName": "libcrypto3",
+     "InstalledVersion": "3.5.7-r0",
+     "FixedVersion": "3.5.8-r0",
+     "Status": "fixed",
+     "Severity": "MEDIUM"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-63072",
+     "PkgName": "libcrypto3",
+     "InstalledVersion": "3.5.7-r0",
+     "FixedVersion": "3.5.8-r0",
+     "Status": "fixed",
+     "Severity": "MEDIUM"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-63076",
+     "PkgName": "libcrypto3",
+     "InstalledVersion": "3.5.7-r0",
+     "FixedVersion": "3.5.8-r0",
+     "Status": "fixed",
+     "Severity": "MEDIUM"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-14457",
+     "PkgName": "libcrypto3",
+     "InstalledVersion": "3.5.7-r0",
+     "FixedVersion": "3.5.8-r0",
+     "Status": "fixed",
+     "Severity": "LOW"
+    },
+    {
+     "VulnerabilityID": "CVE-2026-54874",
+     "PkgName": "libcrypto3",
+     "InstalledVersion": "3.5.7-r0",
+     "FixedVersion": "3.5.8-r0",
+     "Status": "fixed",
+     "Severity": "LOW"
+    }
+   ]
+  }
+ ]
+}

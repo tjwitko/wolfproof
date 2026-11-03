@@ -1,0 +1,9 @@
+{
+ "SchemaVersion": 2,
+ "Trivy": {
+  "Version": "0.74.0"
+ },
+ "ArtifactName": "wolfproof-trivy-scratch:test",
+ "ArtifactType": "container_image",
+ "Metadata": {}
+}
