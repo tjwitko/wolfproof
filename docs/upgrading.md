@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.14.2
+wolfproof 1.15.0
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.14.2
-- uses: tjwitko/wolfproof@v1.14.2
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.15.0
+- uses: tjwitko/wolfproof@v1.15.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.14.2
+npm install --save-dev github:tjwitko/wolfproof#v1.15.0
 ```
 
 ## 3. Refresh what setup wrote
@@ -325,9 +325,9 @@ is skipped. Each is now examined, so a minified bundle can report one it did not
 projects, three more comparisons are examined, all in CTFd and none of them a credential, and no
 finding or verdict moves.
 
-### After v1.14.2
+### In v1.15.0
 
-**After v1.14.2: a credential compared with one character is not counted.** Jellyfin's header
+**In v1.15.0: a credential compared with one character is not counted.** Jellyfin's header
 parser reads the `Authorization` header a character at a time into a variable named `token`, and
 `token == '"'`, `token == ','` and `token == '='` were each read as a token compared with `==`. A
 comparison with one quoted character, or one escape such as `'\''`, is no longer counted: in C#,
@@ -336,7 +336,7 @@ character tells an attacker nothing a guess would not. A literal with more after
 is still read. On the same projects, 5 of 90 matches drop, all Jellyfin's, and none is added. No
 finding or verdict moves: Jellyfin's report already named its QuickConnect `secret` comparison.
 
-**After v1.14.2: the built image can be scanned.** Name it — `trivy-image: myapp:ci` in the Action,
+**In v1.15.0: the built image can be scanned.** Name it — `trivy-image: myapp:ci` in the Action,
 `--trivy-image=myapp:ci` on the command line — and Trivy scans its OS and language packages. A
 vulnerability at `HIGH` or above with a fixed version blocks (`trivy-severity` moves the line); the
 rest are advisories. Nothing changes for a run that names no image. Expect a first run to block:
@@ -344,7 +344,7 @@ each of seven images on one machine with packages Trivy could check had at least
 `alpine:latest` to 298 in `node:22`. A scan that cannot run makes the run incomplete (exit 3). The
 Action installs Trivy v0.76.0 itself, checked against its SHA-256.
 
-**After v1.14.2: the source can be analysed with CodeQL.** Turn it on — `codeql: true` in the
+**In v1.15.0: the source can be analysed with CodeQL.** Turn it on — `codeql: true` in the
 Action, `--codeql` on the command line — and CodeQL's code-scanning suite runs for each language it
 finds; a result at error level blocks, the rest are advisories, and a language it could not analyse
 makes the run incomplete. Nothing changes for a run that does not ask for it. Without GitHub
@@ -354,7 +354,7 @@ the 13 corpus fixtures it took 10 to 18 seconds each and found one error-level r
 installs the CodeQL bundle 2.27.3 itself, checked against its SHA-256. A CodeQL finding is reviewed
 like any other, by ID: `wolfproof review <project> --codeql` lists them.
 
-**After v1.14.2: decorators no longer stall the authentication check.** The pattern for a NestJS
+**In v1.15.0: decorators no longer stall the authentication check.** The pattern for a NestJS
 controller-wide guard backtracked exponentially on a guard followed by decorators with spaces after
 them and no class: twelve held the gate past 30 seconds, and each one more took eleven times longer.
 It now takes linear time and matches the same text. On the same projects no route count, finding or

@@ -1115,7 +1115,7 @@ fixture markers exempt directories, not findings. That is the open question this
 Not covered: Rocket, Warp and other Rust frameworks; ASP.NET WebForms; insecure deserialization
 (dvcsharp-api's "Generic import entities"); and memory safety in C/C++ beyond `gets()`.
 
-### 17. Opt-in CI integrations: Trivy and CodeQL — fixed after v1.14.2
+### 17. Opt-in CI integrations: Trivy and CodeQL — fixed in v1.15.0
 
 Trivy for the packages inside a built image, and CodeQL for taint that crosses functions and files, both
 as optional Action steps. Neither belongs in the core gate: one needs a build, the other a database and,
@@ -2224,7 +2224,7 @@ projects pinned in `calibration/routes.json`, the four control repositories and 
 nothing was hidden that the rule reports; the fix is for the next minified bundle that hides a real
 one. No project's finding moves.
 
-### 35. A credential compared with one character — fixed after v1.14.2
+### 35. A credential compared with one character — fixed in v1.15.0
 
 The last of the wrong matches #30 listed. Jellyfin's `AuthorizationContext.GetParts` parses the
 `Authorization` header a character at a time, into a variable named `token`, and its five tests of
