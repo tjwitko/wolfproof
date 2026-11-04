@@ -27,7 +27,7 @@
 // languages are not analysed at all.
 
 import { spawnSync } from "child_process";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "fs";
 import os from "os";
 import path from "path";
 
@@ -272,17 +272,44 @@ function lastLines(text, n = 3) {
 }
 
 /**
- * Why `codeql database create` failed: the build's own last error line when there is one -- "Could
- * not detect a suitable build command" says more than "Exit status 1 from autobuild.sh" -- and
- * otherwise CodeQL's last lines.
+ * Lines a build prints around its error that do not say what went wrong: CodeQL's own "Spawned
+ * process exited abnormally" (the build's exit, again), a heading that introduces the next lines
+ * (Swift's autobuilder ends "failed to run the build command:"), Maven's help footer, stack frames.
  */
-export function createFailure(text) {
-  const lines = String(text || "").split("\n");
-  const build = lines
-    .filter((l) => /\[build-std(?:err|out)\]/.test(l) && /\b(?:ERROR|error|FATAL|fatal|failed)\b/.test(l))
-    .map((l) => l.replace(/^.*?\[build-std(?:err|out)\]\s*/, "").trim())
-    .filter(Boolean);
-  return (build.length ? build.at(-1) : lastLines(text)).slice(0, 500);
+const NOT_A_CAUSE = [
+  /Spawned process exited abnormally/,
+  /:$/,
+  /^(?:To see the full stack trace|Re-run Maven using|For more information about the errors|\[Help \d+\])/,
+  /^at\s/,
+];
+
+/**
+ * Why `codeql database create` failed: the build's own last line that names a cause -- "Could not
+ * detect a suitable build command", "xcodebuild requires Xcode", a refused connection -- and
+ * otherwise CodeQL's last lines. The scratch copy's path is taken out, so a file is named as it is
+ * in the project.
+ */
+export function createFailure(text, src = null) {
+  let all = String(text || "");
+  for (const dir of src ? [...new Set([src, realpathOr(src)])] : []) all = all.split(`${dir}/`).join("").split(dir).join(".");
+  const build = all
+    .split("\n")
+    .filter((l) => /\[build-std(?:err|out)\]/.test(l))
+    // The build's line, without CodeQL's prefix or the timestamp and [autobuild] tag it nests.
+    .map((l) => l.replace(/^.*?\[build-std(?:err|out)\]\s*/, "").replace(/^(?:\[[^\]]*\d{2}:\d{2}:\d{2}[^\]]*\]\s*)?(?:\[autobuild\]\s*)?/, ""))
+    .filter((l) => /\b(?:ERROR|error|FATAL|fatal|failed)\b|Exception\b/.test(l))
+    // Maven's level tag and its pointer to a help page are not part of the cause.
+    .map((l) => l.replace(/^\[(?:ERROR|FATAL)\]\s*/, "").replace(/\s*-> \[Help \d+\]$/, "").trim())
+    .filter((l) => l && !NOT_A_CAUSE.some((re) => re.test(l)));
+  return (build.length ? build.at(-1) : lastLines(all)).slice(0, 500);
+}
+
+function realpathOr(p) {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
 }
 
 /**
@@ -357,7 +384,7 @@ export function scanSource(projectDir, { env = process.env, reviews = [], platfo
         { cwd: mode === "autobuild" ? src : empty, encoding: "utf8", env: runEnv, timeout: CREATE_TIMEOUT_MS, killSignal: "SIGKILL", maxBuffer: 64 * 1024 * 1024 }
       );
       if (created.error || created.status !== 0) {
-        const why = created.error ? created.error.code || created.error.message : createFailure(`${created.stdout || ""}\n${created.stderr || ""}`) || `exit ${created.status}`;
+        const why = created.error ? created.error.code || created.error.message : createFailure(`${created.stdout || ""}\n${created.stderr || ""}`, src) || `exit ${created.status}`;
         const build = mode === "autobuild" ? "build and " : "";
         out.couldNotRun.push(`${label}: CodeQL could not ${build}extract the ${name} source, so it was not analysed — ${why}`);
         continue;

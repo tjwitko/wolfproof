@@ -194,6 +194,47 @@ test("a failed build is reported by the build's own error, not by the exit statu
   assert.equal(createFailure("A fatal error occurred: no python"), "A fatal error occurred: no python");
 });
 
+// What CodeQL 2.27.3 printed for three builds that failed in the calibration run, trimmed. In each,
+// the last line with an error word is a heading or CodeQL's own exit line, not the cause.
+test("a failed build is reported by the line that names the cause, not a heading or CodeQL's exit line", () => {
+  const swift = [
+    "[2026-11-03 17:04:51] [build-stderr] xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory '/Library/Developer/CommandLineTools' is a command line tools instance",
+    "[2026-11-03 17:04:51] [build-stderr] 2026-11-04 00:04:51.290562000 ERRO [autobuilder/build] [build-command-failed] `autobuild` failed to run the build command:",
+    "[2026-11-03 17:04:51] [build-stderr] ```",
+    "[2026-11-03 17:04:51] [build-stderr] /usr/bin/xcodebuild build -project /tmp/w/src/iosApp.xcodeproj -target iosApp CODE_SIGNING_REQUIRED=NO",
+    "[2026-11-03 17:04:51] [build-stderr] ``` (BuildRunner.cpp:61)",
+    "[2026-11-03 17:04:51] [ERROR] Spawned process exited abnormally (code 1; tried to run: [/c/tools/osx64/preload_tracer, /c/swift/tools/autobuild.sh])",
+    "A fatal error occurred: Exit status 1 from command: [/c/swift/tools/autobuild.sh]",
+  ].join("\n");
+  assert.equal(createFailure(swift, "/tmp/w/src"), "xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory '/Library/Developer/CommandLineTools' is a command line tools instance");
+
+  const gradle = [
+    "[2026-11-03 17:05:20] [build-stdout] [2026-11-03 17:05:20] [autobuild] Downloading https://services.gradle.org/distributions/gradle-4.10-all.zip",
+    '[2026-11-03 17:05:20] [build-stdout] [2026-11-03 17:05:20] [autobuild] Exception in thread "main" java.net.SocketException: Operation not permitted (connect failed)',
+    "[2026-11-03 17:05:20] [build-stdout] [2026-11-03 17:05:20] [autobuild] \tat org.gradle.wrapper.Download.downloadInternal(Download.java:66)",
+    "[2026-11-03 17:05:20] [build-stdout] [2026-11-03 17:05:20] [ERROR] Spawned process exited abnormally (code 1; tried to run: [./gradlew, --no-daemon, clean])",
+    "[2026-11-03 17:05:20] [ERROR] Spawned process exited abnormally (code 1; tried to run: [/c/tools/osx64/preload_tracer, /c/java/tools/autobuild.sh])",
+  ].join("\n");
+  assert.equal(createFailure(gradle), 'Exception in thread "main" java.net.SocketException: Operation not permitted (connect failed)');
+
+  // The scratch copy's path is the project's root, so a file in it is named as the project names it.
+  const maven = [
+    "[2026-11-03 17:05:28] [build-stdout] [2026-11-03 17:05:28] [autobuild] [ERROR]   The project io.realworld:api:0.0.1-SNAPSHOT (/tmp/w/src/pom.xml) has 1 error",
+    "[2026-11-03 17:05:28] [build-stdout] [2026-11-03 17:05:28] [autobuild] [ERROR]     Non-resolvable parent POM for io.realworld:api:0.0.1-SNAPSHOT: The following artifacts could not be resolved: org.springframework.boot:spring-boot-starter-parent:pom:3.0.6 (absent): Operation not permitted -> [Help 2]",
+    "[2026-11-03 17:05:28] [build-stdout] [2026-11-03 17:05:28] [autobuild] [ERROR] ",
+    "[2026-11-03 17:05:28] [build-stdout] [2026-11-03 17:05:28] [autobuild] [ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.",
+    "[2026-11-03 17:05:28] [build-stdout] [2026-11-03 17:05:28] [autobuild] [ERROR] Re-run Maven using the -X switch to enable full debug logging.",
+    "[2026-11-03 17:05:28] [build-stdout] [2026-11-03 17:05:28] [autobuild] [ERROR] For more information about the errors and possible solutions, please read the following articles:",
+    "[2026-11-03 17:05:28] [build-stdout] [2026-11-03 17:05:28] [autobuild] [ERROR] [Help 2] http://cwiki.apache.org/confluence/display/MAVEN/UnresolvableModelException",
+    "[2026-11-03 17:05:28] [build-stdout] [2026-11-03 17:05:28] [ERROR] Spawned process exited abnormally (code 1; tried to run: [mvn, -N, org.apache.maven.plugins:maven-wrapper-plugin:3.3.0:wrapper, -Dtype=bin])",
+  ].join("\n");
+  assert.equal(
+    createFailure(maven, "/tmp/w/src"),
+    "Non-resolvable parent POM for io.realworld:api:0.0.1-SNAPSHOT: The following artifacts could not be resolved: org.springframework.boot:spring-boot-starter-parent:pom:3.0.6 (absent): Operation not permitted"
+  );
+  assert.match(createFailure(maven.split("\n")[0], "/tmp/w/src"), /\(pom\.xml\) has 1 error$/);
+});
+
 test("Swift off macOS is could-not-run", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wolfproof-codeql-"));
   try {
