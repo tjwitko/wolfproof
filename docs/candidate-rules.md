@@ -1211,10 +1211,13 @@ Measured on the calibration checkouts (2026-11-03, after v1.15.0): the 34 cloned
 (loopback allowed). Median 32 seconds, Bitwarden the longest at 522; 31 minutes in all.
 
 - **19 block, 10 are clean, 5 are incomplete.** The five are every project whose code needed a
-  build that could not fetch what it needed offline: Gitea's Go (a newer toolchain and its modules),
-  the Kotlin of `kotlin-ktor-realworld`, `kotlin-spring-realworld`, `ktor-samples` and
-  `petclinic-kotlin` (a Gradle or Maven wrapper that downloads itself), and `ktor-samples`' Swift.
-  None was reported clean. With network, some of these would be analysed; that was not measured.
+  build, and each build failed here. Four could not fetch what they needed offline: Gitea's Go (its
+  modules, from the Go proxy) and the Kotlin of `kotlin-ktor-realworld`, `kotlin-spring-realworld`,
+  `ktor-samples` and `petclinic-kotlin` (Gradle downloading itself, or Maven its parent POM).
+  `ktor-samples`' Swift failed for another reason: `xcodebuild` needs Xcode, and this machine has
+  only the command line tools. None was reported clean. With network, some of these would be
+  analysed; that was not measured. The run's messages did not say why, which led to a fix after
+  v1.15.0: a failed build is now reported by the line that names its cause.
 - **The six deliberately vulnerable apps:** PyGoat and RailsGoat 11 rules each, Juice Shop 8,
   WebGoat 3, `dvcsharp-api` 1. DVWA is clean, because its vulnerable code is PHP, which CodeQL does
   not read; only its JavaScript, Python and workflows were analysed. Symfony Demo and BookStack are

@@ -360,6 +360,15 @@ them and no class: twelve held the gate past 30 seconds, and each one more took 
 It now takes linear time and matches the same text. On the same projects no route count, finding or
 verdict moves.
 
+### After v1.15.0
+
+**After v1.15.0: a CodeQL build that fails says why.** When CodeQL's autobuild cannot build a
+language, the incomplete line now quotes the build's own cause: `xcodebuild` needing Xcode, Gradle
+unable to download itself, Maven unable to resolve a dependency. Before, it often quoted a heading
+that ended in a colon, or CodeQL's "Spawned process exited abnormally". The verdict is unchanged:
+the run is still incomplete (exit 3). Go's extractor can still end on its own summary,
+"Extraction failed for all discovered Go projects".
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
