@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.15.0
+wolfproof 1.15.1
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.15.0
-- uses: tjwitko/wolfproof@v1.15.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.15.1
+- uses: tjwitko/wolfproof@v1.15.1
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.15.0
+npm install --save-dev github:tjwitko/wolfproof#v1.15.1
 ```
 
 ## 3. Refresh what setup wrote
@@ -360,9 +360,9 @@ them and no class: twelve held the gate past 30 seconds, and each one more took 
 It now takes linear time and matches the same text. On the same projects no route count, finding or
 verdict moves.
 
-### After v1.15.0
+### In v1.15.1
 
-**After v1.15.0: a CodeQL build that fails says why.** When CodeQL's autobuild cannot build a
+**In v1.15.1: a CodeQL build that fails says why.** When CodeQL's autobuild cannot build a
 language, the incomplete line now quotes the build's own cause: `xcodebuild` needing Xcode, Gradle
 unable to download itself, Maven unable to resolve a dependency. Before, it often quoted a heading
 that ended in a colon, or CodeQL's "Spawned process exited abnormally". The verdict is unchanged:

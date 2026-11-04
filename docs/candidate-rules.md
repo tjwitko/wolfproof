@@ -1216,8 +1216,8 @@ Measured on the calibration checkouts (2026-11-03, after v1.15.0): the 34 cloned
   `ktor-samples` and `petclinic-kotlin` (Gradle downloading itself, or Maven its parent POM).
   `ktor-samples`' Swift failed for another reason: `xcodebuild` needs Xcode, and this machine has
   only the command line tools. None was reported clean. With network, some of these would be
-  analysed; that was not measured. The run's messages did not say why, which led to a fix after
-  v1.15.0: a failed build is now reported by the line that names its cause.
+  analysed; that was not measured. The run's messages did not say why, which led to a fix in
+  v1.15.1: a failed build is now reported by the line that names its cause.
 - **The six deliberately vulnerable apps:** PyGoat and RailsGoat 11 rules each, Juice Shop 8,
   WebGoat 3, `dvcsharp-api` 1. DVWA is clean, because its vulnerable code is PHP, which CodeQL does
   not read; only its JavaScript, Python and workflows were analysed. Symfony Demo and BookStack are
