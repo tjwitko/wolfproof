@@ -2279,6 +2279,134 @@ redash 1). No project's finding or verdict moves. Each part of the rule, switche
 the skip itself, either side's concatenation guard, the left side, and reading the literal from the
 source rather than the operand.
 
+### 36. Only new findings block, for legacy repositories — open
+
+On a repository with history, the gate blocks on the first day, for code no change touched. The
+calibration set shows how often: with CodeQL, 14 of the 28 apps that are not deliberately vulnerable
+block; without it, the authentication check alone blocks 27 of 34. A team adopting wolfproof there
+has two choices today: fix everything before the gate can be required, or not require it. Neither
+gets it adopted.
+
+The wanted shape is a **snapshot** of a project's current findings, after which a finding in the
+snapshot is listed and does not block, and a finding not in it blocks as now. A separate project, a
+comment-only code-review Action (working name wolfproof-review, its own repository, not part of this
+item), would read the gate's `--json` and comment only on lines a pull request changed; it needs the
+same thing from this side, a per-finding record it can match to a diff.
+
+**What exists, and why it is not this.**
+
+- **Reviews** (`.wolfproof-reviewed.json`, or `--reviewed=<file>` from outside the workspace; #24)
+  are the nearest mechanism: a named finding is listed on every run and does not block. But each
+  entry needs a reason a person wrote, a legacy repository has hundreds, and only three checks have
+  IDs to name.
+- **IDs exist for three checks** (`REVIEWABLE_CHECKS` in `lib/reviewed.mjs`), and not for all of
+  their findings:
+  - `sast:<rule>:<file>:<hash>` and `codeql:<rule>:<file>:<hash>`, where the hash is
+    `lineFingerprint()` of the flagged line (sast adds the helper's line for a finding through a
+    project helper), whitespace collapsed. Two identical lines in one file are told apart by order,
+    `#2`.
+  - `authentication:<METHOD> <route>:<file>`, for open routes only. It names the route, not a line.
+    The authentication check's other findings, a credential compared in non-constant time, have no
+    ID.
+  - Everything else is a message string: the four controls' findings, checkov, Trivy, the
+    Dockerfile, Kubernetes and manifest checks, iac templates, the build check and the task-gated
+    checks. The controls return JSON with structured fields (`terraform_plan` reports `violations`),
+    and the gate flattens them; `terraform_plan`'s failure is one string per directory, cut at 1,500
+    characters.
+- **The JSON carries no structured locations.** `findings` and `advisories` are
+  `{severity, message}`; a location is only inside the text, and one sast or CodeQL message lists
+  every location of a rule (`file:line, file:line, ... +7 more`). The IDs are in a separate
+  `reviewable` list of strings, not tied to the message they belong to.
+- **"Baseline" is taken.** `--baseline=<file>` and the Action's `baseline` input are requirement
+  sentences a project is held to whatever its task file says (#8). The snapshot needs another name;
+  "known findings" is used below as a placeholder (`.wolfproof-known.json`, `--known=<file>`).
+
+**Shape, if taken up.**
+
+1. **An ID for every finding, stable across unrelated edits.** Built from what the finding is about,
+   never a line number. This is most of the work, and it touches every check that produces a
+   blocking finding. By difficulty:
+   - *Natural keys, easiest.* Trivy and dep-audit: package and advisory ID, not the version (an
+     upgrade that leaves the advisory open is the same finding). terraform-guard and checkov: rule
+     and resource address. The Dockerfile check: file, stage and base image name. Kubernetes and
+     manifest checks: file, kind/name and field.
+   - *Line-based, like sast.* The credential-timing finding and secrets. identity-guard's findings
+     name a file and a message, and would need the line added. A secret's hash must not become an
+     oracle for the secret: hash the line with the matched value masked.
+   - *Hardest: findings about the project, not a line.* Immutability, retention, secret rotation,
+     the IAM contract, artifact presence, tests, code quality and the build check judge whether the
+     project meets a stated requirement, or whether it builds. There is no line to hash. The key
+     would be the check, the requirement sentence and the subject (a store, a bucket, a role).
+     Whether these may be snapshotted at all is open (below).
+   - *Never.* A check that could not run, or an advisory meaning nothing was checked, is not a
+     finding and cannot enter a snapshot. Exit 3 stays exit 3.
+
+   The existing IDs need two fixes to be stable enough. The `#2` order shifts when an identical line
+   is added above. A sast finding through a helper changes ID in every caller's file when the
+   helper's line changes, though the diff touched none of them. Renaming a file changes every ID in
+   it; that one is probably right.
+2. **A structured record per finding in the JSON**: `id`, `check`, `file`, `line` (null for a
+   project-level finding), `blocking`, and `known` (whether the snapshot matched it), beside the
+   existing message. One record per location, so a sast message with nine locations is nine records.
+   This is what wolfproof-review reads. `reviewable` becomes derivable from it.
+3. **The snapshot.**
+   - *Made by one explicit command* (`wolfproof known <project>`), never as a side effect of a run,
+     as a review is written only by `wolfproof review <project> <id> --reason`.
+   - *Where it lives.* In the project (`.wolfproof-known.json`, committed, a record and not a
+     control, like the review file), or outside it (`--known=<file>`, and an Action input kept
+     outside the workspace, as `reviewed` and `allowlist` are).
+   - *An entry that matches no finding is an advisory*, as `staleReviewsLine` reports a stale
+     review: the finding was fixed or its line changed, and the entry should go.
+   - *It only shrinks.* The command removes entries that match nothing. It never adds a finding to
+     an existing snapshot; a new finding blocks until it is fixed or reviewed with a reason. Without
+     this, re-running the command after each red build turns the snapshot into a mute button.
+   - Each entry keeps the finding's message as recorded, so a reader can see what was accepted
+     without running anything.
+4. **Trust.** A snapshot inside the project can be edited by whoever writes the code, the same
+   question the task file (#8) and reviews (#24) raised, and answered the same way:
+   - *Default mode, and `--pre-commit`:* the in-project snapshot is honoured. A person reviews the
+     change, and an edit to `.wolfproof-known.json` is in the diff they read.
+   - *`--factory`:* an entry is honoured only if it existed at `--base` or the `--allowlist`
+     approves it, as factory mode treats a review added by the change (`reviewed-finding` grants). A
+     change that adds its own new finding to the snapshot blocks.
+   - *The Action:* the same two rules, by mode. A snapshot passed as an input from outside the
+     workspace is honoured in both modes, like `reviewed`.
+5. **Reporting.** A known finding is listed, not blocking: one count line in the human output ("N
+   findings known from the snapshot, not blocking; --json lists them") and each record in the JSON
+   with `known: true`. It is not an advisory, as a reviewed finding is not; it sits beside
+   `reviewed`. Open: whether `--policy` may still block on a known finding by ID family, so that a
+   pipeline can refuse to accept, say, `secret:` or `trivy:` findings from a snapshot. Factory mode
+   leaves known findings alone unless the policy says so, since the trust question is answered by
+   point 4.
+
+**How to measure** (not yet run):
+
+- *Nothing new blocks after a snapshot.* For each of the 53 calibration projects (the 48 pinned in
+  `calibration/routes.json`, the four control repositories and this one), at the v1.15.0 checkouts:
+  generate a snapshot, run again with nothing changed, and expect 0 blocking findings from
+  snapshotted findings on all 53, and the same exit 3s as before. The snapshot command run a second
+  time changes nothing.
+- *IDs are stable.* Run two commits of the same checkout and count IDs that changed for code the
+  diff did not touch; expect zero. The checkouts are shallow, so this needs the parent commit
+  fetched, or a project with history. Count the known causes separately: a helper's line edited, an
+  identical line added above, a file renamed.
+- *A new finding blocks.* Add one known-bad line to a snapshotted project; expect exactly one
+  blocking finding, with `known: false`, at that file and line.
+
+**Open.**
+
+- The name. "Known findings" is a placeholder.
+- Whether project-level findings (the task-gated checks, the build check) may be snapshotted at all.
+  The task-gated checks exist because advice did not work and refusal did; a snapshot is a way to
+  turn refusal back into advice. A legacy repository rarely states those requirements in a task
+  file, so excluding them may cost little.
+- Whether a known finding is listed on every run, as reviews are, or only counted. Listing is the
+  rule elsewhere ("a check that does not run says so"), but on a legacy repository it is hundreds of
+  lines.
+- Whether entries expire, as reviews may.
+- Whether a hardcoded secret may be snapshotted. It stays exposed in history whether or not the gate
+  blocks on it.
+
 ### 12. Considered and deferred
 
 - **Split-string secrets** (`"abc" + "def"`). Missed, as the review says. The rest of its claim did not
