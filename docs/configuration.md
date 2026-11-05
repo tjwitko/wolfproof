@@ -310,6 +310,7 @@ A finding enters a snapshot only if it blocks and has an ID that survives unrela
 | authentication: a credential compared with `==` | the file, a hash of the line | an edit elsewhere in the file |
 | authentication: a loose signature check, an unset credential | the language; the variable's name | any edit that keeps it |
 | dependencies | the ecosystem, the package, the advisory | an upgrade that leaves the advisory open |
+| a `package.json` with no lockfile | its path | any edit to it |
 | workload identity | identity-guard's rule, the file, a hash of the line | an edit elsewhere in the file |
 | Dockerfile base images past end of life | the file, the stage, the image, the product | another release of the same image |
 | empty files | the path | — |
@@ -324,7 +325,10 @@ Everything else keeps blocking, whatever the snapshot says:
   checked. A snapshot can hold neither: there is no finding to hold. A snapshot made while a check
   could not run (a semgrep timeout, say) does not hold that check's findings, and since it never
   adds, they block once the check runs; delete it and make it again on a run where every check
-  finishes.
+  finishes. A `package.json` with no
+  lockfile is the exception, because its direct dependencies are
+  [scanned anyway](checks.md#dependencies): the snapshot can hold the missing lockfile, which is then
+  an advisory on every run, saying the transitive dependencies are not checked.
 - **The build, and the checks gated on the task:** immutability, retention, secret rotation, the IAM
   contract, required artifacts, tests. They judge whether the project meets a stated requirement, and
   they exist because advice did not work where refusal did.
@@ -337,15 +341,33 @@ has to be fixed before the gate can be required.
 - **It only shrinks.** Run against an existing snapshot, the command removes entries that match no
   finding and never adds one. A finding that appears later blocks until it is fixed or
   [reviewed](#reviewed-findings) with a reason; re-running the command after a red build does not
-  clear it.
+  clear it. One exception: when a lockfile is committed for a `package.json` the snapshot held as
+  having none, the command adds that lockfile's findings, once — they could not be seen before, and
+  committing a lockfile should not turn the build red. The entry for the missing lockfile goes, so it
+  cannot happen twice for that manifest. The entry records the packages the `package.json` declared
+  when it was written (`declared`), and the exception holds only while it declares nothing else: a
+  dependency declared since, in the same change as the lockfile or an earlier one, is not one the
+  snapshot held, so the command adds nothing for that lockfile, says why, and keeps the entry. Its
+  findings block until fixed or reviewed; to have them added, commit the lockfile in a change that
+  declares only what the entry lists and run the command again. An entry with no `declared` list,
+  one written by hand, adds nothing. Even then, only findings for packages the `package.json` does
+  not declare directly are added. A direct dependency was scanned before the lockfile existed, at the
+  lowest version its range allows, so a finding it had then is already an entry; one it did not have
+  is the change's own (a range lowered in the same change) or a vulnerability only in versions above
+  the range's lower bound, and either way it blocks. If the lockfile's scan fails, nothing is added
+  and the entry is kept; the command says so, and running it again once the scan works adds them. In
+  [factory mode](factory-mode.md) committing the lockfile does turn the build red: the base has a
+  snapshot, so the entries the command adds are added grants, and block whatever the allowlist says.
+  A pipeline that keeps its own snapshot (`--known=<file>`, or the Action's `known` input) avoids it.
 - **A run that did not finish changes nothing.** When part of the gate could not run (exit 3), the
   command leaves an existing snapshot as it is and lists the entries it would have removed: an entry
   matching nothing may only mean the scan that finds it did not finish. The first snapshot is still
   written, holding what the checks that ran found.
 - **Nothing goes quiet.** An entry that matches no finding of a check that ran to the end is an
   advisory: the finding was fixed, or the line it names changed. An entry for a check that could not
-  run is kept, since that check could still hold the finding. A dependency advisory's entry is judged
-  only when the dependency scan ran and every manifest of its ecosystem was read.
+  run is kept, since that check could still hold the finding. Dependency findings come from two
+  scans, the lockfile scan and the scan of a `package.json` with no lockfile, and an advisory's entry
+  is judged only when the lockfile scan ran and every manifest of its ecosystem was read.
 - **A fixed finding stays covered until the command runs.** Its entry matches nothing, and the gate
   says so on every run, but it stays in the file until `wolfproof known` removes it; until then, a
   change that brings the same finding back — the same ID — is set aside like the original. Run the
@@ -379,6 +401,7 @@ location, reason, reviewer, expiry and the list it came from; and `reviewable`: 
 blocking findings a review could name, the ones `wolfproof review` lists as `BLOCKING`.
 
 `known` lists each finding the [snapshot](#known-findings) set aside: its ID, where it is, and the
-snapshot it came from. `records` has one entry per finding with an ID — `id`, `check`, `file`,
+snapshot it came from, and for a `package.json` with no lockfile the packages it declares
+(`declared`). `records` has one entry per finding with an ID — `id`, `check`, `file`,
 `line` (null when the finding has no line), `blocking`, `known` and `reviewed` — so a tool can match
 findings to the lines a change touched. A finding without an ID is only in `findings`.

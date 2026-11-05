@@ -70,9 +70,9 @@
       "name": "webhook-haiku",
       "path": "corpus/fixtures/webhook-haiku",
       "taskFile": "agent/fixtures/webhook-receiver-task.txt",
-      "expectedBlocking": 6,
+      "expectedBlocking": 7,
       "expectedFindings": {
-        "check_dependencies": 1,
+        "check_dependencies": 2,
         "dockerfile": 1,
         "immutability": 1,
         "tests": 1,
@@ -81,16 +81,17 @@
       "upstreamHead": "3e38a405925f",
       "digest": "6aa3d8e808764530",
       "upstream": "../webhook-haiku",
-      "asDelivered": 6,
+      "asDelivered": 7,
       "asDeliveredMeasured": "against the original deliverable, same gate",
       "remeasured": [
         "check_dependencies 0 -> 1 on 2026-10-13: a control change, not the advisory database. This deliverable's package.json declares dependencies and it has no lockfile, which osv-scanner does not read on its own -- so its dependencies were never scanned, and the gate reported a check that ran and found nothing (candidate-rules #7). The original at ../webhook-haiku has no lockfile either, so the as-delivered verdict moves with it. Measured locally with a responsive Docker: the other eleven fixtures matched exactly.",
-        "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
+        "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out.",
+        "check_dependencies 1 -> 2 on 2026-11-04: a control change, not the advisory database. A package.json with no lockfile now has its direct dependencies scanned at the lowest version each range allows (candidate-rules #36), and uuid ^9.0.1 is 9.0.1, inside GHSA-w5hq-g745-h8pq (fixed in 11.1.1; CVSS 3.1 7.5, so high in dep-audit's bands although GitHub rates it moderate), published 2026-04-22, before `measured`. The missing lockfile still blocks as well, so check_dependencies reports two. The original at ../webhook-haiku has no lockfile either and blocks on 7 measured the same way. Applied by hand: the other twelve fixtures matched exactly in both modes, and a local --update would also re-date every end-of-life verdict."
       ],
       "factory": {
-        "expectedBlocking": 7,
+        "expectedBlocking": 8,
         "expectedFindings": {
-          "check_dependencies": 1,
+          "check_dependencies": 2,
           "dockerfile": 1,
           "factory: nothing checked (secret rotation)": 1,
           "immutability": 1,

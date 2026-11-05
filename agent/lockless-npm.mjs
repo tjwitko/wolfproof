@@ -1,0 +1,242 @@
+// A package.json with no lockfile, scanned anyway. docs/candidate-rules.md #36.
+//
+// osv-scanner reads npm dependencies only through a lockfile (agent/unscanned-manifests.mjs), so a
+// package.json without one was reported as declaring dependencies nothing scanned -- true, and on a
+// legacy repository the one finding a snapshot could not hold. This reads the dependencies the
+// manifest declares, takes for each the lowest version its range allows, writes them to a lockfile
+// in a directory of its own, and has osv-scanner scan that.
+//
+// What that checks is narrower than a lockfile scan, and every finding and advisory says so:
+//   - Direct dependencies only. Nothing names the transitive ones without a lockfile.
+//   - The lowest version a range allows, not the one an install picks. `^4.17.4` is checked as
+//     4.17.4 when an install would take the newest 4.x, so a finding may be fixed in what actually
+//     installs; raising the range's lower bound is the fix either way.
+// Nothing from the project is run: the versions are read from the manifest's text.
+
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "fs";
+import { spawnSync } from "child_process";
+import { tmpdir } from "os";
+import path from "path";
+import { pathToFileURL } from "url";
+
+// The sections an install reads. peerDependencies are the host's to install, not this package's.
+const SECTIONS = ["dependencies", "devDependencies", "optionalDependencies"];
+
+const VERSION = /^v?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/** A partial version as numbers, a wildcard part as null: "1.x" -> [1, null, null]. */
+function parts(v) {
+  const m = VERSION.exec(v);
+  if (!m) return null;
+  const n = (p) => (p === undefined || /^[xX*]$/.test(p) ? null : Number(p));
+  return { major: n(m[1]), minor: n(m[2]), patch: n(m[3]), pre: m[4] || "" };
+}
+
+const fmt = (p) => `${p.major ?? 0}.${p.minor ?? 0}.${p.patch ?? 0}${p.pre}`;
+
+function compare(a, b) {
+  const x = a.split(/[.-]/);
+  const y = b.split(/[.-]/);
+  for (let i = 0; i < 3; i++) if (Number(x[i]) !== Number(y[i])) return Number(x[i]) - Number(y[i]);
+  // A prerelease sorts before its release.
+  const pa = a.includes("-");
+  const pb = b.includes("-");
+  return pa === pb ? a.localeCompare(b) : pa ? -1 : 1;
+}
+
+/** The lowest version one comparator allows, or undefined for one that sets no lower bound. */
+function lower(comparator) {
+  const m = /^(\^|~|>=|>|<=|<|=)?\s*(.+)$/.exec(comparator);
+  if (!m) return null;
+  const [, op = "", v] = m;
+  const p = parts(v);
+  if (!p) return null;
+  if (op === "<" || op === "<=") return undefined;
+  if (op === ">") {
+    // The next version past it: a patch past a full version, the next minor or major past a partial.
+    if (p.patch !== null) return `${p.major}.${p.minor}.${p.patch + 1}`;
+    if (p.minor !== null) return `${p.major}.${p.minor + 1}.0`;
+    return p.major !== null ? `${p.major + 1}.0.0` : null;
+  }
+  if (p.major === null) return undefined;
+  return fmt(p);
+}
+
+/**
+ * The lowest version an npm range allows, or null when the range names no version: `*`, a tag like
+ * `latest`, a URL, a path, `workspace:`. `||` takes the lowest of its alternatives.
+ */
+export function lowestVersion(range) {
+  const r = String(range ?? "").trim();
+  if (!r || /[:/]/.test(r)) return null;
+  let best = null;
+  for (const alt of r.split("||")) {
+    const a = alt.trim();
+    let low;
+    const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(a);
+    if (hyphen) {
+      low = lower(hyphen[1]);
+    } else {
+      const comparators = a.replace(/(\^|~|>=|>|<=|<|=)\s+/g, "$1").split(/\s+/).filter(Boolean);
+      if (!comparators.length) return null;
+      low = undefined;
+      for (const c of comparators) {
+        const l = lower(c);
+        if (l === null) return null;
+        if (l !== undefined && (low === undefined || compare(l, low) > 0)) low = l;
+      }
+    }
+    if (low === null || low === undefined) continue;
+    if (best === null || compare(low, best) < 0) best = low;
+  }
+  return best;
+}
+
+/** What a package.json declares: [{ name, range, version }], version null where none is named. */
+export function npmDeclared(text) {
+  let pkg;
+  try {
+    pkg = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const out = [];
+  const seen = new Set();
+  for (const s of SECTIONS) {
+    for (const [name, spec] of Object.entries(pkg?.[s] && typeof pkg[s] === "object" ? pkg[s] : {})) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      // `npm:other@^1` installs `other`: an alias is checked as the package it names.
+      const alias = /^npm:((?:@[^/@]+\/)?[^@]+)@(.+)$/.exec(String(spec));
+      const real = alias ? alias[1] : name;
+      const range = alias ? alias[2] : String(spec);
+      out.push({ name: real, range, version: lowestVersion(range) });
+    }
+  }
+  return out;
+}
+
+/**
+ * The names a package.json declares directly, sorted, or null when it cannot be read. What a
+ * snapshot's entry for a package.json with no lockfile records, so that the lockfile committed for it
+ * later adds only findings of what was declared then (bin/known.mjs).
+ */
+export function declaredNames(text) {
+  const deps = npmDeclared(text);
+  return deps ? [...new Set(deps.map((d) => d.name))].sort() : null;
+}
+
+/** A package-lock.json, version 3, holding exactly these packages at these versions. */
+export function lockfileFor(deps) {
+  const packages = { "": { name: "wolfproof-lockless", version: "0.0.0", dependencies: {} } };
+  for (const d of deps) {
+    packages[""].dependencies[d.name] = d.version;
+    packages[`node_modules/${d.name}`] = { version: d.version };
+  }
+  return { name: "wolfproof-lockless", version: "0.0.0", lockfileVersion: 3, requires: true, packages };
+}
+
+/**
+ * Scan each package.json in `manifests` (paths relative to the project) as described above.
+ * `summarize` is dep-audit's summarizeFindings, so severities are banded exactly as the control
+ * bands them. Returns { error } when osv-scanner could not run, or
+ * { scanned: [{ manifest, checked, unresolved, declared, findings }] }, findings at or above
+ * `threshold`, `declared` the names the manifest declares (declaredNames).
+ */
+export function scanWithoutLockfile(projectDir, manifests, { summarize, threshold = "high", run = spawnSync } = {}) {
+  const work = mkdtempSync(path.join(tmpdir(), "wolfproof-lockless-"));
+  try {
+    const scanned = [];
+    manifests.forEach((manifest, i) => {
+      let deps = null;
+      try {
+        deps = npmDeclared(readFileSync(path.join(projectDir, manifest), "utf8"));
+      } catch {
+        /* unreadable: reported below as nothing checked */
+      }
+      const resolved = (deps || []).filter((d) => d.version);
+      const entry = {
+        manifest,
+        checked: resolved.length,
+        unresolved: (deps || []).filter((d) => !d.version).map((d) => `${d.name}@${d.range}`),
+        declared: [...new Set((deps || []).map((d) => d.name))].sort(),
+        findings: [],
+      };
+      scanned.push(entry);
+      if (!resolved.length) return;
+      const dir = path.join(work, String(i));
+      mkdirSync(dir);
+      writeFileSync(path.join(dir, "package-lock.json"), JSON.stringify(lockfileFor(resolved)));
+      entry.lock = path.join(dir, "package-lock.json");
+    });
+    if (!scanned.some((s) => s.lock)) return { scanned };
+    const r = scanLockfiles(scanned.filter((s) => s.lock).map((s) => s.lock), { summarize, threshold, run });
+    if (r.error) return { error: r.error };
+    let k = 0;
+    for (const s of scanned) {
+      if (!s.lock) continue;
+      s.findings = r.findings[k++];
+      delete s.lock;
+    }
+    return { scanned };
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
+/**
+ * dep-audit's summarizeFindings, run in a node process of its own. Never import dep-audit's entry
+ * into the gate: as it loads, it deletes every environment variable but PATH, HOME and SCAN_ROOT
+ * (the guardrail of an MCP server, which it is), and in the gate's process that took TMPDIR, every
+ * WOLFPROOF_ setting and the test runner's own variables away from everything that ran after it.
+ *
+ * The returned function summarizes one osv-scanner result; its `many` summarizes several in one
+ * process. Both throw when dep-audit could not be run or has no summarizeFindings.
+ */
+export function childSummarizer(entry, { run = spawnSync } = {}) {
+  // The entry is written into the script rather than passed as an argument: dep-audit starts its
+  // server when argv[1] is its own path, and a server would wait on stdin for ever.
+  const script =
+    `const { summarizeFindings } = await import(${JSON.stringify(pathToFileURL(entry).href)});` +
+    `if (typeof summarizeFindings !== "function") { process.stderr.write("this dep-audit has no summarizeFindings"); process.exit(3); }` +
+    `let s = ""; for await (const c of process.stdin) s += c;` +
+    `process.stdout.write(JSON.stringify(JSON.parse(s).map((r) => summarizeFindings(r))));`;
+  const many = (results) => {
+    const r = run(process.execPath, ["--input-type=module", "-e", script], { input: JSON.stringify(results), encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
+    if (r.error || r.status !== 0) throw new Error(`dep-audit's severity bands could not be read (${r.error?.message || `exit ${r.status}`}): ${String(r.stderr || "").trim().split("\n").slice(-1)[0] || "no output"}`);
+    return JSON.parse(r.stdout);
+  };
+  const one = (result) => many([result])[0];
+  one.many = many;
+  return one;
+}
+
+/**
+ * osv-scanner over these lockfiles, in one run, and each one's findings at or above `threshold`,
+ * banded by `summarize` (dep-audit's summarizeFindings, or childSummarizer's): { findings: [[...],
+ * ...] } in the order given, or { error } when it did not scan or could not be banded.
+ */
+export function scanLockfiles(locks, { summarize, threshold = "high", run = spawnSync } = {}) {
+  const args = ["scan", "source", "--format", "json", ...locks.flatMap((l) => ["-L", l])];
+  const r = run("osv-scanner", args, { encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
+  // 0 nothing found, 1 vulnerabilities found; anything else, or no JSON, is not a scan.
+  if (r.error || (r.status !== 0 && r.status !== 1)) {
+    return { error: `osv-scanner did not scan them (${r.error?.message || `exit ${r.status}`}): ${String(r.stderr || "").trim().split("\n").slice(-1)[0] || "no output"}` };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(r.stdout);
+  } catch {
+    return { error: "osv-scanner's output could not be parsed" };
+  }
+  const bands = ["low", "moderate", "high", "critical"];
+  const included = bands.slice(Math.max(0, bands.indexOf(threshold)));
+  const each = locks.map((lock) => ({ results: (parsed.results || []).filter((x) => path.resolve(x.source?.path || "") === path.resolve(lock)) }));
+  let summaries;
+  try {
+    summaries = summarize.many ? summarize.many(each) : each.map((e) => summarize(e));
+  } catch (err) {
+    return { error: err.message };
+  }
+  return { findings: summaries.map((summary) => included.flatMap((b) => summary[b] || [])) };
+}

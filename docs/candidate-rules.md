@@ -2382,7 +2382,7 @@ same thing from this side, a per-finding record it can match to a diff.
    leaves known findings alone unless the policy says so, since the trust question is answered by
    point 4.
 
-**How to measure** (not yet run):
+**How to measure** (run; the results are under Done below):
 
 - *Nothing new blocks after a snapshot.* For each of the 53 calibration projects (the 48 pinned in
   `calibration/routes.json`, the four control repositories and this one), at the v1.15.0 checkouts:
@@ -2410,9 +2410,9 @@ same thing from this side, a per-finding record it can match to a diff.
 - Whether a hardcoded secret may be snapshotted. It stays exposed in history whether or not the gate
   blocks on it.
 
-**Done** (`lib/known.mjs`, `bin/known.mjs`, 2026-11-05). Named `known`: `wolfproof known <project>`,
-`.wolfproof-known.json`, `--known=<file>`, and the Action's `known` input. As designed above, with
-these decisions:
+**Done** (`lib/known.mjs`, `bin/known.mjs`, `agent/lockless-npm.mjs`, 2026-11-05). Named `known`:
+`wolfproof known <project>`, `.wolfproof-known.json`, `--known=<file>`, and the Action's `known`
+input. As designed above, with these decisions:
 
 - *Eight ID families:* `sast`, `codeql`, `authentication` (open routes, every credential
   compared in non-constant time, a missing signature check, an unset credential), `dependencies`,
@@ -2420,27 +2420,105 @@ these decisions:
   identity-guard's findings by rule, file and a hash of the line.
 - *Never snapshotted:* a hardcoded secret, a manifest no scanner read, the build, the checks gated on
   the task, terraform-guard, checkov, Trivy, and anything that could not run.
-- *Stale only when judged:* an entry is removed only when the scan that could produce its ID ran to
-  the end. A dependency advisory's entry needs the dependency scan and every manifest of its
-  ecosystem read. A run where part of the gate could not run (exit 3) changes an existing snapshot
-  not at all, and lists what it would have removed.
+- *A `package.json` with no lockfile is scanned anyway*: its direct dependencies at the lowest version
+  each range allows, with dep-audit's severity bands. What that finds blocks and can be snapshotted;
+  the missing lockfile itself can be held, and is then an advisory on every run. When a lockfile is
+  later committed for it, `wolfproof known` adds that lockfile's findings once, for the packages
+  the `package.json` does not declare directly, provided it declares nothing its entry's `declared`
+  list does not (below).
+- *Stale only when judged:* an entry is removed only when every scan that could produce its ID ran
+  to the end. Dependency IDs come from two scans, so an advisory's entry needs the lockfile scan and
+  every manifest of its ecosystem read, and a `dependencies:unlocked:` entry needs its manifest
+  settled. A run where part of the gate could not run (exit 3) changes an existing snapshot not at
+  all, and lists what it would have removed.
 - *Listed or counted:* counted in the human report, one record each in `--json` (`records`, with
   `known`), since a legacy repository has hundreds.
 - *Factory mode:* an entry a change adds is a `known-finding` grant, and blocks. The allowlist can
   approve only the change that writes the first snapshot (no snapshot at the base); an approval left
   in place cannot approve a later addition.
 
+Changed after a review of the first version, which reproduced three holes on throwaway projects:
+
+- *The first-snapshot approval was standing.* `allowlisted()` matches on kind and path, so the
+  documented `known-finding` entry approved every entry any later change added. Now it applies only
+  when the base has no snapshot, and a `*` entry the same.
+- *Committing a lockfile could add a dependency the same change declared.* The project held lodash
+  and the missing lockfile; a change added minimist to `package.json` and committed the lockfile,
+  and the command would have added minimist's advisory. The entry now records what the
+  `package.json` declared (`declared`); a lockfile committed while it declares anything else adds
+  nothing, the command says why, and the entry is kept so the lockfile can go in a change of its
+  own. An entry with no list adds nothing.
+- *One dependency scan failing made the other's entries stale.* With the lockfile scan unable to run,
+  a held lodash advisory was reported stale; with osv-scanner failing on the `package.json` with no
+  lockfile, its `unlocked` entry was. The command would have removed both for good.
+
+Changed after a second review, which reproduced two more on throwaway projects:
+
+- *A range lowered in the same change was added.* The names matched, so a change that committed the
+  lockfile and lowered lodash from `^4.17.21` to `4.17.4` had lodash's advisory added. Now only
+  findings for packages the `package.json` does not declare directly are added: a direct dependency
+  was scanned before the lockfile, at its range's lower bound, so a finding it had then is already
+  an entry, and one it did not have is the change's own or only above that bound. The transitive
+  packages, which nothing saw, are still added.
+- *A failed lockfile scan dropped the hand-off silently.* The entry was removed and nothing added.
+  Now a failed scan refuses every manifest it covered: the entry is kept, and the command says the
+  scan failed and to run it again once it works.
+
+Measured on the 34 calibration checkouts and the four control repositories, at their pinned
+commits: the snapshot command, the same command again, then the gate with the snapshot. Measured
+twice, on the first version and again after the changes above (2026-11-05); the figures are the
+second run's where they differ.
+
+- *Nothing it can hold still blocks.* 33 projects got a snapshot, 4 to 768 entries, 2,982 in all
+  (1,830 authentication, 613 dependencies, 298 quality, 141 identity, 80 sast, 12 presence, 8
+  dockerfile). The two runs gave the same 33 snapshots, ID for ID. In the gate runs that followed,
+  3,553 findings were known and 2 blocking records were not: CTFd's two path-traversal findings,
+  which semgrep found in the gate run after timing out in both snapshot runs (see Still open). The
+  other five, spring-realworld and the four controls, had nothing a snapshot can hold.
+- *The command is idempotent.* Run a second time, it left all 33 files unchanged: 27 reported every
+  entry still matching, and the 6 where part of the gate could not run changed nothing and listed no
+  entry they would have removed.
+- *No entry went stale.* 0 stale entries in all 38 gate runs.
+- *What still blocks is what a snapshot never holds.* 6 of the 33 pass with their snapshot (express,
+  fastify-demo, hono-examples, and the node-express, react-redux and vue realworld apps). Of the
+  other 27, a hardcoded secret blocks 22, and is the only thing blocking 14; the build check blocks
+  5; a Gradle or Maven manifest with no lockfile 4; immutability 2; terraform_plan 1 (juice-shop);
+  sast 1 (CTFd, above). The snapshot does not make most legacy repositories pass; it leaves them
+  blocked only on findings that need a person.
+- *Could not run,* every cause one the gate names: semgrep's 300-second limit on flaskbb in every
+  run, on CTFd in both snapshot runs, and on gitea and Jellyfin in one run each with two large
+  projects measured at once; ruff, not installed, on netbox; osv-scanner on ktor-samples,
+  spring-petclinic and kotlin-spring-realworld, where Maven Central answered 429 (rate limited) for
+  the parent POM. No run that could not finish removed an entry.
+- *IDs survive lines moving.* On copies of eight apps (redash, outline, dvwa, pygoat, railsgoat,
+  juice-shop, webgoat, eshop; 692 entries), a blank line added at the top of every file a snapshot
+  names: 0 IDs moved.
+- *A new finding blocks.* One open route added to a copy of express: exactly one blocking record,
+  `known: false`, at `examples/auth/index.js:135`.
+- *Found while measuring:* importing dep-audit's entry to band severities deleted the gate's own
+  environment, `WOLFPROOF_TODAY` included, because dep-audit clears every variable but PATH, HOME and
+  SCAN_ROOT as it loads. Its banding now runs in a process of its own. Measured before and after the
+  fix, all 33 snapshots were identical, ID for ID.
+
 **Still open.**
 
-- IDs across real history. The `#2` order of identical lines and a sast finding through a helper
-  whose line changed still change ID.
+- IDs across real history. The test above moves lines; it does not edit code. The `#2` order of
+  identical lines and a sast finding through a helper whose line changed still change ID.
 - Whether `--policy` may block on a known finding by family, and whether entries expire.
 - A snapshot made while a check could not run never holds that check's findings, since it never
-  adds. The command says to delete the snapshot and make it again on a run where every check
-  finishes.
+  adds: CTFd's two path-traversal findings blocked once semgrep finished. The command now says to
+  delete the snapshot and make it again on a run where every check finishes.
 - When there is nothing to hold, `wolfproof known --file <f>` writes nothing, and `--known=<f>` is
   then a usage error (exit 2). A pipeline set up before the first snapshot needs the file to exist.
+- A `requirements.txt` with no lockfile still reports its vulnerabilities as advisories, while a
+  `package.json` with none now blocks on them.
 - Terraform, checkov, Trivy and the Kubernetes and manifest checks have no IDs.
+- The `declared` list is fixed when the entry is written. A dependency declared after the snapshot,
+  even in a change that passed, makes the lockfile's findings block when it is committed, until the
+  dependency is removed for that change or the findings are fixed or reviewed.
+- A direct dependency's finding is never added, so one present only above its range's lower bound
+  blocks when the lockfile is committed, though nothing about it changed. Telling it from a range
+  lowered in the same change would need the range recorded in the snapshot.
 - A dependency advisory's ID has no file, so a held advisory covers the same advisory in any
   lockfile, a new service's included. Documented rather than changed.
 

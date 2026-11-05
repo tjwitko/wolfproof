@@ -423,6 +423,15 @@ Control: dep-audit (`osv-scanner`).
 **Blocks on:** high or critical CVEs; a manifest that declares dependencies with no lockfile the
 scanner can read.
 
+A `package.json` with no lockfile is scanned anyway, at the lowest version each range allows its
+direct dependencies (`^4.17.4` is checked as 4.17.4). A high or critical CVE found that way blocks;
+an install may pick a later, fixed version, and raising the range's lower bound past the fix settles
+it either way. Its transitive dependencies are not checked at all, so the missing lockfile still
+blocks. A [snapshot](configuration.md#known-findings) can hold both; held, the missing lockfile is
+an advisory on every run. Other manifests that need a lockfile (Gradle, Cargo, Bundler, Composer,
+Pipenv) are not read without one: their versions mostly come from the build, which the gate does not
+run.
+
 **Reports without blocking:** CVEs in an unlocked `requirements.txt`, `go.mod` or `pom.xml`, which
 the scanner resolves to minimum-satisfying versions no real install produces.
 

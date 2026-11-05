@@ -161,7 +161,10 @@ The snapshot of known findings is approved differently. A `known-finding` entry 
 `.wolfproof-known.json` lets the change that writes the first snapshot through, and nothing else:
 once the snapshot exists at the base, an entry a change adds is that change setting its own finding
 aside, and blocks whatever the allowlist says, a `*` entry included. The approval can stay in place.
-The pipeline can instead keep the snapshot itself, `--known=<file>` or the Action's `known` input.
+That includes the entries `wolfproof known` adds once when a lockfile is committed for a
+`package.json` the snapshot held as having none, so in factory mode that change blocks too. The
+pipeline can instead keep the snapshot itself, `--known=<file>` or the Action's `known` input, which
+avoids this.
 
 ### The policy
 

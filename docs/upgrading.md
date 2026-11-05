@@ -380,6 +380,13 @@ project; in factory mode, an entry a change adds to the project's file blocks, a
 (`known-finding`) can approve only the change that writes the first snapshot. See
 [Known findings](configuration.md#known-findings).
 
+**After v1.15.1: a `package.json` with no lockfile is scanned anyway.** Its direct dependencies
+are checked at the lowest version each range allows, and a high or critical CVE found that way
+blocks; the missing lockfile still blocks, as before, because transitive dependencies are not
+checked. A project with no lockfile was blocked already, so no verdict moves from clean to blocked,
+but the report can list CVEs it did not before. Raising a range's lower bound past the fix clears one.
+Other manifests that need a lockfile are unchanged.
+
 **After v1.15.1: every credential compared with `==` has an ID.** The authentication check names the
 first credential a project compares with an ordinary equality operator, and now gives every one it
 finds an ID, as it does an open route. They can be reviewed by ID, so the report's `reviewable`

@@ -203,7 +203,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
     knownMode === "every"
       ? { every: true }
       : knownMode === "file"
-        ? { pipeline: knownFile ? parseKnownAt(knownFile) : null, ignoreProject: true }
+        ? { pipeline: knownFile ? parseKnownAt(knownFile) : null, ignoreProject: true, relock: true }
         : { pipeline: readKnownFile(projectDir, knownFile) };
 
   // Factory mode needs to know what existed before the change. Resolved first, because the
@@ -325,7 +325,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         clients.push(client);
         for (const t of tools) {
           if (t.name === "terraform_apply") continue; // never reachable from a validation pass
-          registry.set(t.name, { kind: "mcp", server: client, toolName: t.name });
+          registry.set(t.name, { kind: "mcp", server: client, toolName: t.name, entry: c.entry });
         }
       } catch (err) {
         unreachable.push({ name: c.name, provides: c.provides, why: `${c.source}: ${err && err.message}` });
@@ -497,6 +497,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       staleKnown: r.staleKnown || [],
       judgedKnown: r.judgedKnown || [],
       records: r.records || [],
+      relocked: r.relocked || [],
       incomplete,
       exitCode: incomplete ? EXIT.INCOMPLETE : r.failures.length ? EXIT.BLOCKED : EXIT.CLEAN,
     };

@@ -284,7 +284,9 @@ there are no wildcards.
 it is committed, those findings are counted and do not block, and anything a later change adds
 blocks as before. The snapshot only shrinks: running the command again removes entries for fixed
 findings and never adds new ones. A hardcoded secret, a manifest no scanner read, the build and the
-checks gated on the task are never snapshotted, so they still block.
+checks gated on the task are never snapshotted, so they still block. Measured on 33 open-source
+apps, a snapshot held every finding it could; 6 then passed, and a hardcoded secret was the most
+common thing still blocking the rest (22).
 
 → [Known findings](docs/configuration.md#known-findings)
 

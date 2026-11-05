@@ -6,8 +6,8 @@
 // With no snapshot yet, runs the gate and writes every blocking finding that has an ID to the
 // project's .wolfproof-known.json, or to --file (one kept outside the project, for --known). With
 // one, runs the gate against it and removes the entries that match nothing, unless part of the gate
-// could not run: then it changes nothing. It never adds an entry to an existing snapshot: a finding
-// that appears later blocks until it is fixed or reviewed.
+// could not run: then it changes nothing. It never adds an entry to an existing snapshot, with one
+// exception (below): a finding that appears later blocks until it is fixed or reviewed.
 //
 // What it cannot take keeps blocking and is listed: a hardcoded secret, a manifest no scanner read,
 // the build, the checks gated on the task, and anything from a check that could not run.
@@ -55,7 +55,7 @@ function byFamily(ids) {
 }
 
 function document(entries) {
-  const one = ({ id, where }) => ({ id, ...(where ? { where } : {}) });
+  const one = ({ id, where, declared }) => ({ id, ...(where ? { where } : {}), ...(declared ? { declared } : {}) });
   return `${JSON.stringify({ known: entries.map(one) }, null, 2)}\n`;
 }
 
@@ -133,7 +133,7 @@ export async function runKnown(args, { env = process.env, gate = null } = {}) {
     for (const k of result.known) {
       if (seen.has(k.id)) continue;
       seen.add(k.id);
-      after.push({ id: k.id, where: k.where });
+      after.push({ id: k.id, where: k.where, ...(k.declared ? { declared: k.declared } : {}) });
     }
     after.sort((a, b) => a.id.localeCompare(b.id));
     if (!after.length) {
@@ -155,12 +155,50 @@ export async function runKnown(args, { env = process.env, gate = null } = {}) {
       out.push("Run it again once every check runs.");
     }
   } else {
-    // Shrink only: an entry stays unless a check that ran to the end no longer finds it.
-    const stale = new Set(result.staleKnown.map((e) => e.id));
+    // Shrink only: an entry stays unless a check that ran to the end no longer finds it. The one
+    // exception: a package.json held as having no lockfile that has one now. Its lockfile's findings
+    // could not be seen before, so they are added once, and the entry that allowed it is removed --
+    // unless the package.json declares a package its entry does not list, which is the change's own.
+    const relocked = (result.relocked || []).filter((r) => result.staleKnown.some((e) => e.id === `dependencies:unlocked:${r.manifest}`));
+    // A refused entry is kept, so the lockfile can still be added once the package.json declares
+    // only what it lists.
+    const kept = new Set(relocked.filter((r) => r.refused).map((r) => `dependencies:unlocked:${r.manifest}`));
+    const stale = new Set(result.staleKnown.map((e) => e.id).filter((id) => !kept.has(id)));
     after = before.filter((e) => !stale.has(e.id));
+    const blocking = new Map(result.records.filter((r) => r.blocking && !r.known && !r.reviewed).map((r) => [r.id, r]));
+    const added = [];
+    for (const { manifest, ids, refused } of relocked) {
+      if (refused) continue;
+      for (const id of ids) {
+        if (blocking.has(id) && !after.some((e) => e.id === id) && !added.some((e) => e.id === id)) added.push({ id, where: `${manifest}'s new lockfile` });
+      }
+    }
+    for (const { manifest, refused, scanFailed } of relocked.filter((r) => r.refused)) {
+      out.push(
+        scanFailed
+          ? `not added: the findings of the lockfile committed for ${manifest}, because ${refused}. Nothing was added for it, and ` +
+              `the entry for ${manifest} is kept (the gate lists it as matching nothing): run this again once the scan works.`
+          : `not added: the findings of the lockfile committed for ${manifest}, because ${refused}. A dependency declared since the ` +
+              `snapshot is not one it held, so the lockfile's findings block until fixed or reviewed. The entry for ${manifest} is kept ` +
+              `(the gate lists it as matching nothing): declare only what it lists, commit the lockfile, and run this again; or delete it.`
+      );
+    }
     const gone = before.filter((e) => stale.has(e.id));
-    if (!gone.length) {
-      out.push(`unchanged: all ${entries(before.length)} still match a finding, or name one a check that did not run could still hold.`);
+    if (added.length) {
+      after = [...after, ...added].sort((a, b) => a.id.localeCompare(b.id));
+      writeFileSync(file, document(after));
+      const manifests = [...new Set(relocked.filter((r) => !r.refused).map((r) => r.manifest))];
+      out.push(
+        `added ${added.length} finding${added.length === 1 ? "" : "s"} from the lockfile${manifests.length === 1 ? "" : "s"} committed for ` +
+          `${manifests.join(", ")}, which the snapshot held as having none — once: ${byFamily(added.map((e) => e.id))}.`
+      );
+      if (gone.length) out.push(`removed ${entries(gone.length)} matching no finding (${byFamily(gone.map((e) => e.id))}); ${after.length} remain.`);
+    } else if (!gone.length) {
+      out.push(
+        kept.size
+          ? `unchanged: no entry was removed.`
+          : `unchanged: all ${entries(before.length)} still match a finding, or name one a check that did not run could still hold.`
+      );
     } else {
       writeFileSync(file, document(after));
       out.push(`removed ${entries(gone.length)} matching no finding (${byFamily(gone.map((e) => e.id))}); ${after.length} remain.`);
@@ -174,7 +212,8 @@ export async function runKnown(args, { env = process.env, gate = null } = {}) {
   if (result.failures.length) {
     out.push("");
     out.push(
-      `still blocking: ${result.failures.length} finding${result.failures.length === 1 ? "" : "s"} the snapshot ${exists ? "does not hold" : "cannot hold"} —`
+      `still blocking: ${result.failures.length} finding${result.failures.length === 1 ? "" : "s"} the snapshot ${exists ? "does not hold" : "cannot hold"}` +
+        `${exists && after.length > before.filter((e) => after.some((a) => a.id === e.id)).length ? " (in this run; the findings just added stop blocking from the next)" : ""} —`
     );
     for (const f of result.failures) out.push(`  - ${f.split("\n")[0].slice(0, 200)}`);
     if (!exists) out.push("A hardcoded secret, a manifest no scanner read, the build and the checks gated on the task are never snapshotted.");
