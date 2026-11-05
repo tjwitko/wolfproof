@@ -49,7 +49,8 @@ import { AUTOHOOKS_FILE, autohookCredit } from "./authentication-fastify.mjs";
 import { csharpAdapter } from "./authentication-csharp.mjs";
 import { phpAdapter } from "./authentication-php.mjs";
 import { kotlinAdapter } from "./authentication-kotlin.mjs";
-import { withIds, applyReviews } from "../lib/reviewed.mjs";
+import { withIds, applyReviews, lineFingerprint } from "../lib/reviewed.mjs";
+import { locate, splitAt } from "../lib/known.mjs";
 
 // Endpoints that are conventionally open, and should be: a liveness probe that requires a
 // credential is a liveness probe that fails.
@@ -1580,6 +1581,52 @@ function locateComparisons(files, names) {
 }
 
 // The project's files, and its source files grouped by the adapter that reads them, in walk order.
+// Every comparison the credential rule accepts in one language's files, with where it is: the file,
+// the line, the column, the line's text (cut short on a minified line) and the whole line, which the
+// finding's ID hashes. The check and credentialComparisons() both read them here.
+function* comparisonsIn(adapterFiles, language) {
+  const starts = [];
+  let offset = 0;
+  for (const f of adapterFiles) {
+    starts.push(offset);
+    offset += f.text.length + 1; // the "\n" each language's files are joined with
+  }
+  const all = adapterFiles.map((f) => f.text).join("\n");
+  // Each file's line starts, found once and searched, rather than counted from the top for every
+  // comparison: a minified bundle can hold hundreds of them.
+  const lineStarts = new Map();
+  const lineAt = (fi, offset) => {
+    if (!lineStarts.has(fi)) {
+      const t = adapterFiles[fi].text;
+      const at = [0];
+      for (let k = t.indexOf("\n"); k !== -1; k = t.indexOf("\n", k + 1)) at.push(k + 1);
+      lineStarts.set(fi, at);
+    }
+    const at = lineStarts.get(fi);
+    let lo = 0;
+    let hi = at.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (at[mid] <= offset) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo + 1;
+  };
+  for (const { name, index } of acceptedCredentialComparisons(all)) {
+    let i = starts.length - 1;
+    while (starts[i] > index) i--;
+    const f = adapterFiles[i];
+    const local = index - starts[i];
+    const lineStart = f.text.lastIndexOf("\n", local - 1) + 1;
+    const lineEnd = f.text.indexOf("\n", local) === -1 ? f.text.length : f.text.indexOf("\n", local);
+    const line = lineAt(i, lineStart);
+    const column = local - lineStart + 1;
+    const whole = f.text.slice(lineStart, lineEnd);
+    const text = whole.length <= 200 ? whole.trim() : `…${whole.slice(Math.max(0, column - 81), column + 119).trim()}…`;
+    yield { name, language, file: f.rel.split(path.sep).join("/"), line, column, text, whole };
+  }
+}
+
 // One function for the check and for credentialComparisons(), so the two cannot see different files.
 function sourcesByAdapter(projectDir) {
   const walked = walk(projectDir);
@@ -1603,27 +1650,7 @@ function sourcesByAdapter(projectDir) {
 export function credentialComparisons(projectDir) {
   const out = [];
   for (const [adapter, adapterFiles] of sourcesByAdapter(projectDir).byAdapter) {
-    const starts = [];
-    let offset = 0;
-    for (const f of adapterFiles) {
-      starts.push(offset);
-      offset += f.text.length + 1; // the "\n" each language's files are joined with
-    }
-    const all = adapterFiles.map((f) => f.text).join("\n");
-    for (const { name, index } of acceptedCredentialComparisons(all)) {
-      let i = starts.length - 1;
-      while (starts[i] > index) i--;
-      const f = adapterFiles[i];
-      const local = index - starts[i];
-      const lineStart = f.text.lastIndexOf("\n", local - 1) + 1;
-      const lineEnd = f.text.indexOf("\n", local) === -1 ? f.text.length : f.text.indexOf("\n", local);
-      let line = 1;
-      for (let k = f.text.indexOf("\n"); k !== -1 && k < lineStart; k = f.text.indexOf("\n", k + 1)) line++;
-      const column = local - lineStart + 1;
-      const whole = f.text.slice(lineStart, lineEnd);
-      const text = whole.length <= 200 ? whole.trim() : `…${whole.slice(Math.max(0, column - 81), column + 119).trim()}…`;
-      out.push({ name, language: adapter.name, file: f.rel.split(path.sep).join("/"), line, column, text });
-    }
+    for (const { whole, ...c } of comparisonsIn(adapterFiles, adapter.name)) out.push(c);
   }
   return out;
 }
@@ -1647,7 +1674,11 @@ export function checkAuthentication(projectDir) {
   // what went unchecked rather than leaving it out.
   const unread = [];
   let leakySignature = false;
+  const leakySignatureLanguages = [];
   let leakyCredential = false;   // { name, language, at } once found
+  // Every comparison the credential rule accepts, not only the first: the finding names the first,
+  // and a snapshot (lib/known.mjs) that covers it must not hide the next one.
+  const credentials = [];
   const vacuous = new Map();     // env name -> { language, at }
   for (const [adapter, adapterFiles] of byAdapter) {
     // `texts` is the same source file by file, for an adapter that has to index the project before it
@@ -1661,8 +1692,14 @@ export function checkAuthentication(projectDir) {
       configs: walked.filter((f) => f.config && f.adapter === adapter),
     };
     const global = adapter.globalAuth(all, texts, ctx);
-    if (leakySignatureCheck(all)) leakySignature = true;
-    const leakyCred = leakyCredentialCheck(all);
+    if (leakySignatureCheck(all)) {
+      leakySignature = true;
+      leakySignatureLanguages.push(adapter.name);
+    }
+    // Every accepted comparison, read once; the first is the one leakyCredentialCheck would name.
+    const compared = [...comparisonsIn(adapterFiles, adapter.name)];
+    credentials.push(...compared);
+    const leakyCred = compared.length ? compared[0].name : false;
     if (leakyCred && !leakyCredential) {
       leakyCredential = { name: leakyCred, language: adapter.name, at: locateComparisons(adapterFiles, [leakyCred]) };
     }
@@ -1724,7 +1761,14 @@ export function checkAuthentication(projectDir) {
   // What the comparisons found is reported whether or not any route was read. These were left out
   // of the no-route report, so when Rails routing stopped being read a Ruby app with no other routes
   // lost a credential compared with `==`: the finding was computed above and then dropped.
-  const comparisons = { leakySignature, leakyCredential, vacuousCredentials: [...vacuous.keys()], vacuousAt: Object.fromEntries(vacuous) };
+  const comparisons = {
+    leakySignature,
+    leakySignatureLanguages,
+    leakyCredential,
+    credentials: withIds(credentials, (c) => `authentication:timing:${c.file}:${lineFingerprint(c.whole)}`).map(({ whole, ...c }) => c),
+    vacuousCredentials: [...vacuous.keys()],
+    vacuousAt: Object.fromEntries(vacuous),
+  };
   if (routes.length === 0) {
     return {
       ran: true,
@@ -1766,12 +1810,27 @@ const where = (at) =>
 const exemptList = (exempt) =>
   exempt.map((r) => `${r.method} ${r.route} (${r.file}:${r.line}, ${r.why})`).join(", ");
 
-/** The comparison findings: blocking whether or not any route was read or is open. */
-function comparisonFindings(report) {
+/**
+ * The comparison findings: blocking whether or not any route was read or is open. Each has an ID, so
+ * a review or the snapshot can name it: a signature compared loosely by language, a credential by
+ * the line it is compared on, an unset variable by its name. Returns { failures, reviewed, located }.
+ */
+function comparisonFindings(report, reviews = []) {
+  const items = [
+    ...(report.leakySignatureLanguages || []).map((language) => ({ kind: "signature", id: `authentication:signature:${language}`, language, where: `a signature compared with == (${language})` })),
+    ...(report.credentials || []).map((c) => ({ kind: "credential", ...c, where: `${c.file}:${c.line} (${c.name})` })),
+    ...(report.vacuousCredentials || []).map((name) => {
+      const { language, at } = report.vacuousAt[name];
+      return { kind: "unset", id: `authentication:unset:${name}`, name, language, at, where: `${name}${at.length ? ` (${at[0]})` : ""}`, ...(at.length ? splitAt(at[0]) : {}) };
+    }),
+  ];
+  const { kept, reviewed } = applyReviews(items, reviews);
+  const located = locate("authentication", items);
+
   // Reported whether or not any route is open, and separately from the open-route finding: a
   // service can authenticate every endpoint and still have a leaky comparison in the one control
   // that matters. Conflating the two would let a fix for one hide the other.
-  const timing = report.leakySignature
+  const timing = kept.some((i) => i.kind === "signature")
     ? [
         `authentication: a request signature is verified with an ordinary equality comparison ` +
           `rather than a constant-time one. \`==\` returns as soon as it finds a differing byte, so ` +
@@ -1783,8 +1842,15 @@ function comparisonFindings(report) {
       ]
     : [];
 
-  if (report.leakyCredential) {
-    const { name, language, at } = report.leakyCredential;
+  // The first credential still counted, named once with where it is compared. When nothing was set
+  // aside that is the first the rule accepts, with every line that compares it.
+  const credential = kept.find((i) => i.kind === "credential");
+  if (credential) {
+    const { name, language } = credential;
+    const untouched = !reviewed.some((r) => r.kind === "credential") && report.leakyCredential?.name === name;
+    const at = untouched
+      ? report.leakyCredential.at
+      : [...new Set(kept.filter((i) => i.kind === "credential" && i.name === name).map((i) => `${i.file}:${i.line}`))];
     timing.push(
       `authentication: the credential \`${name}\` is compared with an ordinary equality operator ` +
         `rather than a constant-time one${where(at)}. The leak is the same as for a signature, and ` +
@@ -1797,8 +1863,7 @@ function comparisonFindings(report) {
   // One finding per language rather than per name: two unset credentials in one service are one
   // mistake made twice, and the words for it differ by language, not by variable.
   const byLanguage = new Map();
-  for (const name of report.vacuousCredentials || []) {
-    const { language, at } = report.vacuousAt[name];
+  for (const { name, language, at } of kept.filter((i) => i.kind === "unset")) {
     if (!byLanguage.has(language)) byLanguage.set(language, { names: [], at: [] });
     byLanguage.get(language).names.push(name);
     byLanguage.get(language).at.push(...at);
@@ -1815,7 +1880,7 @@ function comparisonFindings(report) {
         `as well as non-vacuous.`
     );
   }
-  return timing;
+  return { failures: timing, reviewed, located, blockingIds: kept.map((i) => i.id) };
 }
 
 /** Blocking failures for the gate. */
@@ -1835,7 +1900,15 @@ export function authenticationFailures(projectDir, { reviews = [] } = {}) {
   // identified", so it replaces it rather than repeating it.
   if (report.unknown) {
     const general = unreadAdvisories.length && !report.exempt?.length ? [] : [`authentication: ${report.unknown}`];
-    return { failures: comparisonFindings(report), advisories: [...unreadAdvisories, ...general] };
+    const cmp = comparisonFindings(report, reviews);
+    return {
+      failures: cmp.failures,
+      advisories: [...unreadAdvisories, ...general],
+      reviewed: cmp.reviewed,
+      ids: cmp.located.map((r) => r.id),
+      blockingIds: cmp.blockingIds,
+      located: cmp.located,
+    };
   }
 
   const exempt = report.exempt || [];
@@ -1863,7 +1936,8 @@ export function authenticationFailures(projectDir, { reviews = [] } = {}) {
     );
   }
 
-  const timing = comparisonFindings(report);
+  const cmp = comparisonFindings(report, reviews);
+  const timing = cmp.failures;
 
   // An open route a review covers -- a webhook that checks its own signature, a public page -- is set
   // aside and listed, not counted. The ID names the route, not a line: the review holds until the
@@ -1871,9 +1945,13 @@ export function authenticationFailures(projectDir, { reviews = [] } = {}) {
   const allOpen = withIds(report.routes.filter((r) => !r.protectedBy), (r) => `authentication:${r.method} ${r.route}:${r.file}`).map(
     (r) => ({ ...r, where: `${r.method} ${r.route} (${r.file}:${r.line})` })
   );
-  const { kept: open, reviewed } = applyReviews(allOpen, reviews);
-  const ids = allOpen.map((r) => r.id);
-  if (open.length === 0) return { failures: timing, advisories: exemptAdvisories, reviewed, ids, blockingIds: [] };
+  const { kept: open, reviewed: routesAside } = applyReviews(allOpen, reviews);
+  const reviewed = [...cmp.reviewed, ...routesAside];
+  const located = [...locate("authentication", allOpen), ...cmp.located];
+  const ids = located.map((r) => r.id);
+  if (open.length === 0) return { failures: timing, advisories: exemptAdvisories, reviewed, ids, blockingIds: cmp.blockingIds, located };
+  const byReview = routesAside.filter((r) => r.review.kind !== "known").length;
+  const byKnown = routesAside.length - byReview;
 
   // A route declared anonymous was opened on purpose, and says so: the reader's question there is
   // whether it should be, not where the [Authorize] went.
@@ -1893,7 +1971,8 @@ export function authenticationFailures(projectDir, { reviews = [] } = {}) {
       `authentication: ${open.length} of ${report.routes.length} endpoint(s) accept requests from ` +
         `anyone who can reach the service — ${list}.` +
         (exempt.length ? ` ${exempt.length} more ${exempt.length === 1 ? "is" : "are"} exempt by name and listed separately.` : "") +
-        (reviewed.length ? ` ${reviewed.length} more ${reviewed.length === 1 ? "is" : "are"} open and reviewed, listed separately.` : "") +
+        (byReview ? ` ${byReview} more ${byReview === 1 ? "is" : "are"} open and reviewed, listed separately.` : "") +
+        (byKnown ? ` ${byKnown} more ${byKnown === 1 ? "is" : "are"} open and known from the snapshot.` : "") +
         `\n` +
         (someProtected
           ? `Other routes here are authenticated, so this is a gap rather than an omission: an ` +
@@ -1908,6 +1987,7 @@ export function authenticationFailures(projectDir, { reviews = [] } = {}) {
     advisories: exemptAdvisories,
     reviewed,
     ids,
-    blockingIds: open.map((r) => r.id),
+    blockingIds: [...open.map((r) => r.id), ...cmp.blockingIds],
+    located,
   };
 }

@@ -17,6 +17,8 @@ import path from "path";
 import { taskMatcher } from "./task-phrases.mjs";
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
+import { applyReviews } from "../lib/reviewed.mjs";
+import { locate } from "../lib/known.mjs";
 
 // Extensions where an empty file is never deliberate work. Deliberately excludes .gitignore,
 // __init__.py and similar, which are legitimately empty.
@@ -147,16 +149,21 @@ export function checkArtifactPresence(projectDir, taskText = "") {
 }
 
 /** Blocking failures for the gate. */
-export function artifactPresenceFailures(projectDir, taskText = "") {
+export function artifactPresenceFailures(projectDir, taskText = "", { reviews = [] } = {}) {
   const r = checkArtifactPresence(projectDir, taskText);
   if (!r.ran) return { failures: [], advisories: [`artifact presence: not checked — ${r.unknown}`] };
 
   const failures = [];
 
-  if (r.empty.length > 0) {
-    const list = r.empty.map((f) => f.rel).join(", ");
+  // An empty file is named by its path, so a snapshot (lib/known.mjs) can hold it. A missing
+  // artifact cannot: it is what the task asks for, and the checks gated on the task keep blocking.
+  const identified = r.empty.map((f) => ({ ...f, id: `presence:empty:${f.rel}`, file: f.rel, where: f.rel }));
+  const located = locate("artifact_presence", identified);
+  const { kept: empty, reviewed } = applyReviews(identified, reviews);
+  if (empty.length > 0) {
+    const list = empty.map((f) => f.rel).join(", ");
     failures.push(
-      `artifact presence: ${r.empty.length} file(s) exist but are empty — ${list}.\n` +
+      `artifact presence: ${empty.length} file(s) exist but are empty — ${list}.\n` +
         `An empty file is not a smaller version of the work; it is the absence of the work wearing ` +
         `its filename. Every check that reads these passes, because there is nothing to read — ` +
         `which is why this is reported here rather than by any of them. If a file's content was ` +
@@ -185,7 +192,7 @@ export function artifactPresenceFailures(projectDir, taskText = "") {
           `deployment artifacts, so none is required.`,
       ]
     : [];
-  return { failures, advisories };
+  return { failures, advisories, reviewed, ids: located.map((x) => x.id), located };
 }
 
 /**

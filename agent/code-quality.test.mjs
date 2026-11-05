@@ -174,6 +174,26 @@ test("a patch target the module does not define is reported", () => {
   assert.match(f, /AttributeError at run time/);
 });
 
+// docs/candidate-rules.md #36: named by test file and target, so a snapshot can hold one.
+test("each missing patch target has an ID, and one a snapshot names is set aside", () => {
+  const files = {
+    "app/main.py": "SIGNING = os.environ['S']\n" + APP,
+    "tests/test_sig.py":
+      'from unittest.mock import patch\ndef test_x():\n    with patch("app.main.SECRET_KEY", "s"):\n        assert True\n' +
+      'def test_y():\n    with patch("app.main.TOKEN", "t"):\n        assert True\n',
+  };
+  const all = run(files, (d) => codeQualityFailures(d, WANTS));
+  assert.deepEqual(all.located.map((r) => [r.id, r.file]), [
+    ["quality:patch:tests/test_sig.py:app.main.SECRET_KEY", "tests/test_sig.py"],
+    ["quality:patch:tests/test_sig.py:app.main.TOKEN", "tests/test_sig.py"],
+  ]);
+  const known = [{ id: "quality:patch:tests/test_sig.py:app.main.SECRET_KEY", kind: "known", source: "k" }];
+  const r = run(files, (d) => codeQualityFailures(d, WANTS, { reviews: known }));
+  assert.deepEqual(r.reviewed.map((x) => x.id), ["quality:patch:tests/test_sig.py:app.main.SECRET_KEY"]);
+  const f = r.failures.find((x) => /patch target/.test(x));
+  assert.match(f, /^code quality: 1 test patch target\(s\) do not exist — tests\/test_sig\.py patches app\.main\.TOKEN, but/);
+});
+
 test("a patch target that does exist is clean", () => {
   const { failures } = run(
     {

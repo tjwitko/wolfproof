@@ -26,6 +26,8 @@ import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { EOL, PRODUCTS, EOL_FETCHED } from "./eol-data.mjs";
 import { setting } from "../lib/settings.mjs";
+import { withIds, applyReviews } from "../lib/reviewed.mjs";
+import { locate } from "../lib/known.mjs";
 
 const isDockerfile = (name) =>
   name === "Dockerfile" || name === "Containerfile" || /^Dockerfile\.[\w.-]+$/.test(name) || /\.[Dd]ockerfile$/.test(name);
@@ -199,13 +201,19 @@ function checkovDockerfiles(projectDir, files) {
   );
 }
 
-export function dockerfileFailures(projectDir, { env = process.env, checkov = true } = {}) {
+// The image a FROM names, without its tag or digest: an upgrade to another release past end of life
+// is the same finding, as a dependency's advisory survives a version bump that does not fix it.
+const imageName = (ref) => ref.replace(/@.*$/, "").replace(/:[^/:]*$/, "");
+
+export function dockerfileFailures(projectDir, { env = process.env, checkov = true, reviews = [] } = {}) {
   const files = findDockerfiles(projectDir);
   if (files.length === 0) return { failures: [], advisories: [] };
   const now = today(env);
   const failures = [];
   const advisories = [];
   const unresolved = [];
+  const located = [];
+  const reviewed = [];
 
   for (const f of files) {
     let text;
@@ -217,20 +225,28 @@ export function dockerfileFailures(projectDir, { env = process.env, checkov = tr
     // One finding per Dockerfile, however many FROMs it has: two stages on node:20 are one mistake
     // made twice, and counting them twice inflates the blocking total the way one finding per
     // route would for authentication.
-    const hits = [];
-    const repos = new Set();
-    let buildStage = false;
+    // One ID per image past end of life: the file, the stage, the image and the product. No line
+    // number, so an edit above the FROM keeps it.
+    const found = [];
     for (const img of baseImages(text)) {
       if (img.unresolved) {
         unresolved.push(`${f}:${img.line} ${img.ref}`);
         continue;
       }
-      for (const e of imageEol(img.ref, now)) {
-        const when = e.eol === true ? "has reached end of life" : `reached end of life on ${e.eol}`;
-        hits.push(`line ${img.line} FROM ${img.ref}${img.stage ? ` (stage ${img.stage})` : ""}: ${e.label} ${when}`);
-        repos.add(e.repo);
-        if (!img.final) buildStage = true;
-      }
+      for (const e of imageEol(img.ref, now)) found.push({ img, e, file: f, line: img.line });
+    }
+    const identified = withIds(found, ({ img, e }) => `dockerfile:${f}:${img.stage || "-"}:${imageName(img.ref)}:${e.repo}`);
+    located.push(...locate("dockerfile", identified));
+    const aside = applyReviews(identified, reviews);
+    reviewed.push(...aside.reviewed.map((r) => ({ ...r, where: `${f}:${r.line} FROM ${r.img.ref}` })));
+    const hits = [];
+    const repos = new Set();
+    let buildStage = false;
+    for (const { img, e } of aside.kept) {
+      const when = e.eol === true ? "has reached end of life" : `reached end of life on ${e.eol}`;
+      hits.push(`line ${img.line} FROM ${img.ref}${img.stage ? ` (stage ${img.stage})` : ""}: ${e.label} ${when}`);
+      repos.add(e.repo);
+      if (!img.final) buildStage = true;
     }
     if (hits.length) {
       const use = [...repos]
@@ -255,5 +271,5 @@ export function dockerfileFailures(projectDir, { env = process.env, checkov = tr
     const ckv = checkovDockerfiles(projectDir, files);
     if (ckv) advisories.push(ckv);
   }
-  return { failures, advisories };
+  return { failures, advisories, reviewed, ids: located.map((r) => r.id), located };
 }

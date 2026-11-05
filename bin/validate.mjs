@@ -42,6 +42,7 @@ import {
   isInside,
 } from "../lib/factory.mjs";
 import { parseReviews, reviewableLine, reviewedRecord, staleReviewsLine, REVIEW_FILE } from "../lib/reviewed.mjs";
+import { parseKnown, knownRecord, knownLine, staleKnownLine, KNOWN_FILE } from "../lib/known.mjs";
 import { classifyAdvisory, actionFor, ACTIONS, COULD_NOT_RUN, NOT_CHECKED } from "../lib/advisory-classes.mjs";
 
 const EXIT = { CLEAN: 0, BLOCKED: 1, USAGE: 2, INCOMPLETE: 3 };
@@ -155,7 +156,42 @@ function readReviewedFile(projectDir, file) {
   return parseReviews(value, `--reviewed ${file}`);
 }
 
-export async function runGate(projectDirArg, taskFile, { env = process.env, preCommit = false, baselineFile = null, factory = null, reviewedFile = null, trivy = null, codeql = false } = {}) {
+/** A snapshot file read wherever it is -- `wolfproof known` reads the project's own this way. */
+function parseKnownAt(file) {
+  try {
+    return parseKnown(JSON.parse(readFileSync(file, "utf8")), path.basename(file) === KNOWN_FILE ? KNOWN_FILE : `--known ${file}`);
+  } catch (err) {
+    throw new UsageError(`the known-findings file ${file} could not be parsed as JSON: ${err.message.split("\n")[0]}`);
+  }
+}
+
+/**
+ * The pipeline's snapshot of known findings (lib/known.mjs), or null. Outside the project, in any
+ * mode, for the reviewed list's reason: the project's own snapshot is .wolfproof-known.json.
+ */
+function readKnownFile(projectDir, file) {
+  if (!file) return null;
+  const abs = path.resolve(file);
+  if (!existsSync(abs) || !statSync(abs).isFile()) throw new UsageError(`the known-findings file ${file} does not exist or is not a file`);
+  if (isInside(projectDir, abs)) {
+    throw new UsageError(
+      `the known-findings file ${file} is inside the project, where the code under test could edit it. ` +
+        `Keep --known outside the project; the project's own snapshot is ${KNOWN_FILE}`
+    );
+  }
+  let value;
+  try {
+    value = JSON.parse(readFileSync(abs, "utf8"));
+  } catch (err) {
+    throw new UsageError(`the known-findings file ${file} could not be parsed as JSON: ${err.message}`);
+  }
+  return parseKnown(value, `--known ${file}`);
+}
+
+// `knownFile` is the pipeline's snapshot. `knownMode` is for `wolfproof known` alone: "every" sets
+// aside every blocking finding with an ID, and "file" reads the snapshot at `knownFile` in place of
+// the project's own (which may be that same file), so the command sees what each entry matches.
+export async function runGate(projectDirArg, taskFile, { env = process.env, preCommit = false, baselineFile = null, factory = null, reviewedFile = null, knownFile = null, knownMode = null, trivy = null, codeql = false } = {}) {
   const projectDir = path.resolve(projectDirArg);
   checkInputs(projectDir, taskFile, baselineFile);
   if (trivy && (!trivy.image || !TRIVY_SEVERITIES.includes(trivy.severity))) {
@@ -163,6 +199,12 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
   }
   const { allowlist, policy } = checkFactoryInputs(projectDir, factory);
   const pipelineReviews = readReviewedFile(projectDir, reviewedFile);
+  const known =
+    knownMode === "every"
+      ? { every: true }
+      : knownMode === "file"
+        ? { pipeline: knownFile ? parseKnownAt(knownFile) : null, ignoreProject: true }
+        : { pipeline: readKnownFile(projectDir, knownFile) };
 
   // Factory mode needs to know what existed before the change. Resolved first, because the
   // requirements are read as they were there. A base that cannot be established leaves nothing to
@@ -290,7 +332,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       }
     }
 
-    const r = await validateProject(projectDir, registry, taskText, { preCommit, reviews: pipelineReviews });
+    const r = await validateProject(projectDir, registry, taskText, { preCommit, reviews: pipelineReviews, known });
     r.failures.unshift(...requirements.failures);
     r.advisories.unshift(...requirements.advisories);
     if (configNote) r.advisories.unshift(`config: ${configNote}`);
@@ -315,17 +357,25 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
     // reviews the other checks applied; a review naming a CodeQL finding that no longer exists is
     // stale only when every language was analysed, since one that was not could still hold it.
     if (codeql) {
-      const q = scanSource(projectDir, { env, reviews: r.activeReviews || [] });
+      const q = scanSource(projectDir, { env, reviews: r.aside || r.activeReviews || [] });
       if (q.ran.length) r.ran.push(`codeql(${q.ran.join(",")})`);
       r.failures.push(...q.failures);
       r.advisories.push(...q.advisories);
       r.couldNotRun = [...(r.couldNotRun || []), ...q.couldNotRun];
-      r.reviewed = [...(r.reviewed || []), ...q.reviewed.map(reviewedRecord)];
+      const byKnown = q.reviewed.filter((x) => x.review.kind === "known");
+      r.reviewed = [...(r.reviewed || []), ...q.reviewed.filter((x) => x.review.kind !== "known").map(reviewedRecord)];
+      r.known = [...(r.known || []), ...byKnown.map(knownRecord)];
       r.reviewable = [...(r.reviewable || []), ...q.blockingIds];
+      const kindOf = new Map(q.reviewed.map((x) => [x.id, x.review.kind === "known" ? "known" : "reviewed"]));
+      r.records = [...(r.records || []), ...(q.located || []).map((x) => ({ ...x, known: kindOf.get(x.id) === "known", reviewed: kindOf.get(x.id) === "reviewed" }))];
       if (q.ids) {
         const found = new Set(q.ids);
         const stale = (r.activeReviews || []).filter((e) => e.id.startsWith("codeql:") && !found.has(e.id));
         if (stale.length) r.advisories.push(staleReviewsLine(stale));
+        const staleKnown = (r.knownEntries || []).filter((e) => e.id.startsWith("codeql:") && !found.has(e.id));
+        if (staleKnown.length) r.advisories.push(staleKnownLine(staleKnown));
+        r.staleKnown = [...(r.staleKnown || []), ...staleKnown];
+        r.judgedKnown = [...(r.judgedKnown || []), "codeql"];
       }
     }
 
@@ -441,6 +491,12 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       exempt: r.exempt || [],
       reviewed: r.reviewed || [],
       reviewable: r.reviewable || [],
+      known: r.known || [],
+      knownSources: [...new Set((r.known || []).map((k) => k.source))],
+      knownEntries: r.knownEntries || [],
+      staleKnown: r.staleKnown || [],
+      judgedKnown: r.judgedKnown || [],
+      records: r.records || [],
       incomplete,
       exitCode: incomplete ? EXIT.INCOMPLETE : r.failures.length ? EXIT.BLOCKED : EXIT.CLEAN,
     };
@@ -521,7 +577,9 @@ function human(result) {
   for (const r of result.reviewed || []) {
     out.push(`reviewed        : ${r.line}`);
   }
-  if ((result.inapplicable || []).length || (result.exempt || []).length || (result.reviewed || []).length) out.push("");
+  // Known findings are counted, not listed: a legacy repository's snapshot holds hundreds.
+  if ((result.known || []).length) out.push(`known           : ${knownLine(result.known.length, result.knownSources)}`);
+  if ((result.inapplicable || []).length || (result.exempt || []).length || (result.reviewed || []).length || (result.known || []).length) out.push("");
 
   // What factory mode compared against and what it decided, above the verdict for the same reason as
   // everything else here. The decisions themselves are in BLOCKING and in the could-not-run list.
@@ -596,6 +654,11 @@ function machine(result) {
       reviewed: (result.reviewed || []).map(({ line, ...r }) => r),
       // The IDs of the blocking findings a review can name: what `wolfproof review` lists as BLOCKING.
       reviewable: result.reviewable || [],
+      // Findings the snapshot set aside, each with where it is (lib/known.mjs).
+      known: result.known || [],
+      // One record per finding with an ID: check, file, line, whether it blocks, and whether a
+      // review or the snapshot set it aside. A finding without an ID is only in `findings`.
+      records: result.records || [],
       findings: result.failures.map((f) => ({ severity: "blocking", message: f })),
       advisories: result.advisories.map((a) => ({ severity: "advisory", message: a })),
     },
@@ -608,6 +671,7 @@ const USAGE = `usage: wolfproof <project-dir> [task-file] [--baseline=<file>] [-
        wolfproof <project-dir> [task-file] --factory --base=<ref> [--allowlist=<file>] [--policy=<file>] ...
        wolfproof init [project-dir] [--hook] [--task <file>] ...   set a project up (--upgrade refreshes it)
        wolfproof review <project-dir> [<finding-id> --reason "..."]   list findings by ID, or mark one reviewed
+       wolfproof known <project-dir> [task-file]   snapshot the findings that exist now, so only new ones block
        wolfproof --version     this release, its four controls, and the scanners on PATH
        wolfproof --help
 
@@ -623,6 +687,9 @@ honoured only if it existed at --base or the --allowlist approves it, and an adv
 
 --reviewed=<file> names findings that have been reviewed, outside the project; the project's own
 list is ${REVIEW_FILE}. Each reviewed finding is listed on every run and does not block.
+
+--known=<file> is a snapshot of findings that existed before, outside the project; the project's
+own is ${KNOWN_FILE}, written by \`wolfproof known\`. A finding in it is counted and does not block.
 
 --trivy-image=<ref> also scans that container image with the trivy on PATH. A vulnerability at
 --trivy-severity (${TRIVY_SEVERITIES.join(", ")}; default HIGH) or above with a fixed version blocks;
@@ -709,6 +776,8 @@ async function main() {
     : null;
   const reviewedFile = optionValue(args, "reviewed");
   if (reviewedFile === null) usageExit("--reviewed takes a file: --reviewed=<file>");
+  const knownFile = optionValue(args, "known");
+  if (knownFile === null) usageExit("--known takes a file: --known=<file>");
   const trivyImage = optionValue(args, "trivy-image");
   const trivySeverity = optionValue(args, "trivy-severity");
   if (trivyImage === null) usageExit("--trivy-image takes an image: --trivy-image=<ref>");
@@ -734,7 +803,7 @@ async function main() {
   if (json) console.log = (...a) => console.error(...a);
   let result;
   try {
-    result = await runGate(positional[0], positional[1], { preCommit, baselineFile, factory, reviewedFile: reviewedFile || null, trivy, codeql });
+    result = await runGate(positional[0], positional[1], { preCommit, baselineFile, factory, reviewedFile: reviewedFile || null, knownFile: knownFile || null, trivy, codeql });
   } catch (err) {
     if (!(err instanceof UsageError)) throw err;
     console.log = narrate;
@@ -781,6 +850,9 @@ if (invokedDirectly() && process.argv[2] === "init") {
 } else if (invokedDirectly() && process.argv[2] === "review") {
   const { runReview } = await import("./review.mjs");
   process.exit(await runReview(process.argv.slice(3)));
+} else if (invokedDirectly() && process.argv[2] === "known") {
+  const { runKnown } = await import("./known.mjs");
+  process.exit(await runKnown(process.argv.slice(3), { gate: { runGate, UsageError } }));
 } else if (invokedDirectly()) {
   const json = process.argv.includes("--json");
   const crash = (err) => {

@@ -72,9 +72,14 @@ function list(projectDir, out, given = projectDir, codeql = false) {
     out.push(`${reviewed.has(r.id) ? "reviewed" : r.blocking ? "BLOCKING" : "advisory"}  ${r.id}`);
     out.push(`    ${r.where} — ${r.what}`);
   }
+  const where = new Map((auth.located || []).map((r) => [r.id, r.file ? `${r.file}${r.line ? `:${r.line}` : ""}` : null]));
   for (const id of authIds) {
     out.push(`${reviewed.has(id) ? "reviewed" : "BLOCKING"}  ${id}`);
-    out.push(`    an endpoint that accepts requests from anyone who can reach the service`);
+    const at = where.get(id) ? `${where.get(id)} — ` : "";
+    if (id.startsWith("authentication:timing:")) out.push(`    ${at}a credential compared with an ordinary equality operator rather than a constant-time one`);
+    else if (id.startsWith("authentication:signature:")) out.push(`    a request signature verified with an ordinary equality comparison rather than a constant-time one`);
+    else if (id.startsWith("authentication:unset:")) out.push(`    ${at}a credential read from the environment and compared for equality, which succeeds when it is unset`);
+    else out.push(`    an endpoint that accepts requests from anyone who can reach the service`);
   }
   if (rows.length || authIds.length) {
     out.push("");

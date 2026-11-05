@@ -74,6 +74,9 @@ Each of these is confirmed to loosen a check:
 - `.tfguard-fixture` and `.identity-exception` — a whole directory out of every source check
 - an entry in `.wolfproof-reviewed.json` — one named finding out of the verdict
   ([reviewed findings](configuration.md#reviewed-findings)); a later `expires` on the same finding is a new entry
+- an entry in `.wolfproof-known.json` — one named finding out of the verdict, as a
+  [known finding](configuration.md#known-findings). The change that writes the first snapshot adds
+  every entry in it, and is the only one the allowlist can approve; removing an entry grants nothing
 - `# identity-guard:allow <rule> <reason>`
 - `gitleaks:allow` on a line, and `.gitleaksignore` at the project root
 - `osv-scanner.toml` beside a lockfile — an `[[IgnoredVulns]]` or `[[PackageOverrides]]` entry
@@ -130,7 +133,7 @@ inputs, written outside the workspace.
 
 An entry approves its `kind` at its `path` or anywhere under it, and needs a `reason`; one without
 is ignored and reported. The kinds are the exemptions above plus `changed-under-exemption`,
-`skipped-location`, `moved-to-unchecked`, `server-in-test`, `reviewed-finding` and `workflow-change`, which covers both
+`skipped-location`, `moved-to-unchecked`, `server-in-test`, `reviewed-finding`, `known-finding` and `workflow-change`, which covers both
 `.github/workflows/` and `.github/actions/`.
 
 A `workflow-change` path is from the repository root, where GitHub reads workflows, even when the
@@ -153,6 +156,12 @@ only where a person reviews that file's changes — a CODEOWNERS rule on it, for
 
 Otherwise leave the project's file unapproved and pass reviews from the pipeline's own list,
 `--reviewed=<file>`, which the change cannot edit ([Reviewed findings](configuration.md#reviewed-findings)).
+
+The snapshot of known findings is approved differently. A `known-finding` entry for
+`.wolfproof-known.json` lets the change that writes the first snapshot through, and nothing else:
+once the snapshot exists at the base, an entry a change adds is that change setting its own finding
+aside, and blocks whatever the allowlist says, a `*` entry included. The approval can stay in place.
+The pipeline can instead keep the snapshot itself, `--known=<file>` or the Action's `known` input.
 
 ### The policy
 

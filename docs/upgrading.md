@@ -369,6 +369,26 @@ that ended in a colon, or CodeQL's "Spawned process exited abnormally". The verd
 the run is still incomplete (exit 3). Go's extractor can still end on its own summary,
 "Extraction failed for all discovered Go projects".
 
+### After v1.15.1
+
+**After v1.15.1: only new findings block, with a snapshot.** `wolfproof known .` writes the blocking
+findings a project has now to `.wolfproof-known.json`; committed, those are counted and do not
+block, and a finding a later change adds blocks as before. Nothing changes for a project without
+one. A hardcoded secret, a manifest no scanner read, the build and the checks gated on the task are
+never snapshotted. `--known=<file>` and the Action's `known` input take one from outside the
+project; in factory mode, an entry a change adds to the project's file blocks, and the allowlist
+(`known-finding`) can approve only the change that writes the first snapshot. See
+[Known findings](configuration.md#known-findings).
+
+**After v1.15.1: every credential compared with `==` has an ID.** The authentication check names the
+first credential a project compares with an ordinary equality operator, and now gives every one it
+finds an ID, as it does an open route. They can be reviewed by ID, so the report's `reviewable`
+count includes them and `wolfproof review .` lists them. The finding and the verdict are unchanged.
+
+**After v1.15.1: `--json` lists findings one per location.** `records` has one entry per finding
+with an ID — `id`, `check`, `file`, `line`, `blocking`, `known`, `reviewed` — and `known` lists the
+findings a snapshot set aside. `findings` and `advisories` are unchanged.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

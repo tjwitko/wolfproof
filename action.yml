@@ -76,6 +76,15 @@ inputs:
       own list is .wolfproof-reviewed.json.
     required: false
     default: ""
+  known:
+    description: >-
+      A snapshot of findings that predate the gate, as {"known": [{"id", "where"?}]}, in either mode,
+      as `wolfproof known <project> --file <path>` writes it. Written outside the workspace, so the
+      change cannot edit it. A finding in it is counted and does not block. The project's own
+      snapshot is .wolfproof-known.json; in factory mode, an entry a change adds to that one blocks,
+      and the allowlist can approve only the change that writes it first.
+    required: false
+    default: ""
   trivy-image:
     description: >-
       A container image to scan with Trivy, usually one an earlier step built ("myapp:ci"). Its
@@ -212,6 +221,7 @@ runs:
         FACTORY_ALLOWLIST: ${{ inputs.allowlist }}
         FACTORY_POLICY: ${{ inputs.policy }}
         REVIEWED: ${{ inputs.reviewed }}
+        KNOWN: ${{ inputs.known }}
         REVIEW_PROJECT: ${{ inputs.project }}
         PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         PUSH_BEFORE: ${{ github.event.before }}
@@ -301,6 +311,11 @@ runs:
           printf '%s\n' "$REVIEWED" > "${RUNNER_TEMP:-/tmp}/wolfproof-reviewed.json"
           ARGS+=("--reviewed=${RUNNER_TEMP:-/tmp}/wolfproof-reviewed.json")
         fi
+        # Known findings, in either mode, outside the workspace for the same reason.
+        if [ -n "$KNOWN" ]; then
+          printf '%s\n' "$KNOWN" > "${RUNNER_TEMP:-/tmp}/wolfproof-known.json"
+          ARGS+=("--known=${RUNNER_TEMP:-/tmp}/wolfproof-known.json")
+        fi
         # The image scan, with the trivy the step above installed and verified, and no other.
         if [ -n "$SCAN_IMAGE" ]; then
           export WOLFPROOF_TRIVY="${RUNNER_TEMP}/wolfproof-trivy/trivy"
@@ -357,6 +372,9 @@ runs:
           // The same line the CLI prints (lib/reviewed.mjs reviewedLine): a reviewed finding is out of
           // the verdict, never out of sight.
           for (const v of r.reviewed || []) console.log(`reviewed      : ${v.id} — ${v.where} — ${v.reason}${v.reviewer ? `, ${v.reviewer}` : ""}${v.expires ? `, until ${v.expires}` : ""} (${v.source})`);
+          // The same line the CLI prints (lib/known.mjs knownLine): counted, not listed.
+          const kn = r.known || [];
+          if (kn.length) console.log(`known         : ${kn.length} finding${kn.length === 1 ? "" : "s"} known from the snapshot (${[...new Set(kn.map((k) => k.source))].join(", ")}), not blocking — the JSON lists ${kn.length === 1 ? "it" : "them"}`);
           // The same factory lines the CLI prints, so the two renderers agree about what factory
           // mode compared with and decided. The decisions are in the findings and could-not-run lines.
           if (r.factory) {

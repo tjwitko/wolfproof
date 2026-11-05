@@ -35,6 +35,7 @@ import { setting } from "../lib/settings.mjs";
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { lineFingerprint, withIds, applyReviews } from "../lib/reviewed.mjs";
+import { locate } from "../lib/known.mjs";
 
 export const SUITE = "code-scanning";
 
@@ -255,6 +256,7 @@ export function judgeCodeqlRuns({ runs, lineOf = () => "", reviews = [] }) {
     reviewed,
     ids: identified.map((f) => f.id),
     blockingIds: kept.filter((f) => f.blocking).map((f) => f.id),
+    located: locate("codeql", identified),
     // Every result with its ID, for `wolfproof review --codeql`.
     findings: identified.map(({ id, rule, title, level, blocking, where }) => ({ id, rule, title, level, blocking, where })),
     files,
@@ -319,7 +321,7 @@ function realpathOr(p) {
  */
 export function scanSource(projectDir, { env = process.env, reviews = [], platform = process.platform } = {}) {
   const command = setting(env, "CODEQL") || "codeql";
-  const out = { ran: [], failures: [], advisories: [], couldNotRun: [], reviewed: [], ids: null, blockingIds: [], findings: [] };
+  const out = { ran: [], failures: [], advisories: [], couldNotRun: [], reviewed: [], ids: null, blockingIds: [], findings: [], located: [] };
   const { env: runEnv, dropped } = codeqlEnv(env);
   if (dropped.length) {
     out.advisories.push(
@@ -433,6 +435,7 @@ export function scanSource(projectDir, { env = process.env, reviews = [], platfo
     out.ids = out.couldNotRun.length ? null : judged.ids;
     out.blockingIds = judged.blockingIds;
     out.findings = judged.findings;
+    out.located = judged.located;
     return out;
   } finally {
     rmSync(work, { recursive: true, force: true });

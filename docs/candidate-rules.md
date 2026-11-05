@@ -2282,7 +2282,7 @@ redash 1). No project's finding or verdict moves. Each part of the rule, switche
 the skip itself, either side's concatenation guard, the left side, and reading the literal from the
 source rather than the operand.
 
-### 36. Only new findings block, for legacy repositories — open
+### 36. Only new findings block, for legacy repositories — done
 
 On a repository with history, the gate blocks on the first day, for code no change touched. The
 calibration set shows how often: with CodeQL, 14 of the 28 apps that are not deliberately vulnerable
@@ -2409,6 +2409,40 @@ same thing from this side, a per-finding record it can match to a diff.
 - Whether entries expire, as reviews may.
 - Whether a hardcoded secret may be snapshotted. It stays exposed in history whether or not the gate
   blocks on it.
+
+**Done** (`lib/known.mjs`, `bin/known.mjs`, 2026-11-05). Named `known`: `wolfproof known <project>`,
+`.wolfproof-known.json`, `--known=<file>`, and the Action's `known` input. As designed above, with
+these decisions:
+
+- *Eight ID families:* `sast`, `codeql`, `authentication` (open routes, every credential
+  compared in non-constant time, a missing signature check, an unset credential), `dependencies`,
+  `identity`, `dockerfile`, `presence`, `quality`. Package and advisory ID without the version;
+  identity-guard's findings by rule, file and a hash of the line.
+- *Never snapshotted:* a hardcoded secret, a manifest no scanner read, the build, the checks gated on
+  the task, terraform-guard, checkov, Trivy, and anything that could not run.
+- *Stale only when judged:* an entry is removed only when the scan that could produce its ID ran to
+  the end. A dependency advisory's entry needs the dependency scan and every manifest of its
+  ecosystem read. A run where part of the gate could not run (exit 3) changes an existing snapshot
+  not at all, and lists what it would have removed.
+- *Listed or counted:* counted in the human report, one record each in `--json` (`records`, with
+  `known`), since a legacy repository has hundreds.
+- *Factory mode:* an entry a change adds is a `known-finding` grant, and blocks. The allowlist can
+  approve only the change that writes the first snapshot (no snapshot at the base); an approval left
+  in place cannot approve a later addition.
+
+**Still open.**
+
+- IDs across real history. The `#2` order of identical lines and a sast finding through a helper
+  whose line changed still change ID.
+- Whether `--policy` may block on a known finding by family, and whether entries expire.
+- A snapshot made while a check could not run never holds that check's findings, since it never
+  adds. The command says to delete the snapshot and make it again on a run where every check
+  finishes.
+- When there is nothing to hold, `wolfproof known --file <f>` writes nothing, and `--known=<f>` is
+  then a usage error (exit 2). A pipeline set up before the first snapshot needs the file to exist.
+- Terraform, checkov, Trivy and the Kubernetes and manifest checks have no IDs.
+- A dependency advisory's ID has no file, so a held advisory covers the same advisory in any
+  lockfile, a new service's included. Documented rather than changed.
 
 ### 12. Considered and deferred
 

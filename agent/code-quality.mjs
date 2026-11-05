@@ -14,6 +14,8 @@ import { taskMatcher } from "./task-phrases.mjs";
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { isTestFile } from "./source-files.mjs";
+import { withIds, applyReviews } from "../lib/reviewed.mjs";
+import { locate } from "../lib/known.mjs";
 
 const MAX_FILE_BYTES = 512 * 1024;
 const CODE_EXT = [".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".go", ".rb", ".java", ".kt", ".cs", ".rs", ".php"];
@@ -227,7 +229,7 @@ export function checkCodeQuality(projectDir, taskText = "") {
 }
 
 /** Blocking when the task asks for the property; silent otherwise. */
-export function codeQualityFailures(projectDir, taskText = "") {
+export function codeQualityFailures(projectDir, taskText = "", { reviews = [] } = {}) {
   const r = checkCodeQuality(projectDir, taskText);
   if (!r.ran) return { failures: [], advisories: [`code quality: not checked — ${r.unknown}`] };
 
@@ -289,15 +291,20 @@ export function codeQualityFailures(projectDir, taskText = "") {
     );
   }
 
-  if ((r.badPatches || []).length > 0) {
-    const list = r.badPatches.map((b) => `${b.test} patches ${b.target}, but ${b.module} defines no ${b.attr}`).join("; ");
+  // A patch target is named by the test file and the target, so a snapshot (lib/known.mjs) can hold
+  // it. The findings gated on the task -- no tests, tests that reach nothing -- cannot.
+  const identified = withIds(r.badPatches || [], (b) => `quality:patch:${b.test}:${b.target}`).map((b) => ({ ...b, file: b.test, where: `${b.test} patches ${b.target}` }));
+  const located = locate("code_quality", identified);
+  const { kept: badPatches, reviewed } = applyReviews(identified, reviews);
+  if (badPatches.length > 0) {
+    const list = badPatches.map((b) => `${b.test} patches ${b.target}, but ${b.module} defines no ${b.attr}`).join("; ");
     failures.push(
-      `code quality: ${r.badPatches.length} test patch target(s) do not exist — ${list}.\n` +
+      `code quality: ${badPatches.length} test patch target(s) do not exist — ${list}.\n` +
         `unittest.mock.patch raises AttributeError at run time when the attribute is absent, so ` +
         `these tests fail the moment anyone runs them while reading as thorough coverage. Either ` +
         `the name is wrong, or the test was written against an interface the module never had.`
     );
   }
 
-  return { failures, advisories };
+  return { failures, advisories, reviewed, ids: located.map((x) => x.id), located };
 }

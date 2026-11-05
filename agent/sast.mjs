@@ -34,6 +34,7 @@ import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { taskWantsErrorDistinction } from "./code-quality.mjs";
 import { lineFingerprint, withIds, applyReviews } from "../lib/reviewed.mjs";
+import { locate, splitAt } from "../lib/known.mjs";
 import { MAX_HOPS, LANG_OF_EXT, loadTaintRules, summaryRules, hopRules, toSummary, definitionsIn, qualifierOf, writeRules } from "./sast-hops.mjs";
 
 const RULES = fileURLToPath(new URL("./sast-rules/", import.meta.url));
@@ -439,5 +440,12 @@ export function sastFailures(projectDir, { taskText = "" , reviews = [] } = {}) 
   }
   // The blocking findings by ID, for the report's pointer to `wolfproof review`. Not in `failures`:
   // the agent loop reads those, and a model is not the one to decide a finding is acceptable.
-  return { failures, advisories, reviewed, ids: scan.findings.map((f) => f.id), blockingIds: kept.filter((f) => f.blocking).map((f) => f.id) };
+  return {
+    failures,
+    advisories,
+    reviewed,
+    ids: scan.findings.map((f) => f.id),
+    blockingIds: kept.filter((f) => f.blocking).map((f) => f.id),
+    located: locate("sast", scan.findings.map((f) => ({ ...f, ...splitAt(f.at) }))),
+  };
 }

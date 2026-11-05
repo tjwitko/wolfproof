@@ -265,6 +265,108 @@ entry the change adds blocks unless the pipeline's allowlist approves it (`revie
 in either mode — see [Reviewed findings from outside the workspace](action-reference.md#reviewed-findings-from-outside-the-workspace),
 and [factory mode's allowlist](factory-mode.md#the-allowlist) for approving the project's file.
 
+## Known findings
+
+A repository with history blocks on the first day, for code no change touched: across 34 open-source
+applications the gate blocked or was incomplete on every one. Fixing all of it before the gate can be
+required is how a gate stays unadopted. A snapshot records what is already there, after which a finding
+in the snapshot is counted and does not block, and a finding not in it blocks as before.
+
+```bash
+wolfproof known .            # writes .wolfproof-known.json; commit it
+```
+
+An Express app with two open routes and an empty file:
+
+```text
+$ wolfproof known .
+snapshot: .wolfproof-known.json
+
+wrote 3 findings: 2 authentication, 1 empty files.
+
+Commit .wolfproof-known.json. The gate counts these findings and does not block on them; in factory mode, the pipeline's allowlist has to approve this first snapshot, and an entry a later change adds blocks.
+
+$ wolfproof .
+known           : 3 findings known from the snapshot (.wolfproof-known.json), not blocking — --json lists them
+BLOCKING        : none
+```
+
+A change that adds a route blocks on that route alone:
+
+```text
+BLOCKING        : 1
+
+  - authentication: 1 of 3 endpoint(s) accept requests from anyone who can reach the service — DELETE /orders/:id (app.js:4). 2 more are open and known from the snapshot.
+```
+
+### What a snapshot holds
+
+A finding enters a snapshot only if it blocks and has an ID that survives unrelated edits:
+
+| check | the finding's ID is | survives |
+|---|---|---|
+| injection (`sast`), CodeQL | the rule, the file, a hash of the line | an edit elsewhere in the file |
+| authentication: open routes | the method, the path, the file | any edit that keeps the route |
+| authentication: a credential compared with `==` | the file, a hash of the line | an edit elsewhere in the file |
+| authentication: a loose signature check, an unset credential | the language; the variable's name | any edit that keeps it |
+| dependencies | the ecosystem, the package, the advisory | an upgrade that leaves the advisory open |
+| workload identity | identity-guard's rule, the file, a hash of the line | an edit elsewhere in the file |
+| Dockerfile base images past end of life | the file, the stage, the image, the product | another release of the same image |
+| empty files | the path | — |
+| test patch targets that do not exist | the test file, the target | an edit elsewhere in the test |
+
+Everything else keeps blocking, whatever the snapshot says:
+
+- **A hardcoded secret.** It stays exposed in the repository's history whether or not the gate blocks
+  on it, so it is rotated and removed rather than recorded.
+- **What was not checked.** A check that could not run makes the run incomplete (exit 3), and a
+  manifest no scanner read — a Gradle build or a `Cargo.toml` with no lockfile — says nothing was
+  checked. A snapshot can hold neither: there is no finding to hold. A snapshot made while a check
+  could not run (a semgrep timeout, say) does not hold that check's findings, and since it never
+  adds, they block once the check runs; delete it and make it again on a run where every check
+  finishes.
+- **The build, and the checks gated on the task:** immutability, retention, secret rotation, the IAM
+  contract, required artifacts, tests. They judge whether the project meets a stated requirement, and
+  they exist because advice did not work where refusal did.
+
+`wolfproof known` lists what still blocks after it writes the snapshot, so it is clear at once what
+has to be fixed before the gate can be required.
+
+### The rules
+
+- **It only shrinks.** Run against an existing snapshot, the command removes entries that match no
+  finding and never adds one. A finding that appears later blocks until it is fixed or
+  [reviewed](#reviewed-findings) with a reason; re-running the command after a red build does not
+  clear it.
+- **A run that did not finish changes nothing.** When part of the gate could not run (exit 3), the
+  command leaves an existing snapshot as it is and lists the entries it would have removed: an entry
+  matching nothing may only mean the scan that finds it did not finish. The first snapshot is still
+  written, holding what the checks that ran found.
+- **Nothing goes quiet.** An entry that matches no finding of a check that ran to the end is an
+  advisory: the finding was fixed, or the line it names changed. An entry for a check that could not
+  run is kept, since that check could still hold the finding. A dependency advisory's entry is judged
+  only when the dependency scan ran and every manifest of its ecosystem was read.
+- **A fixed finding stays covered until the command runs.** Its entry matches nothing, and the gate
+  says so on every run, but it stays in the file until `wolfproof known` removes it; until then, a
+  change that brings the same finding back — the same ID — is set aside like the original. Run the
+  command after fixing findings to close that.
+- **A dependency advisory is held for the whole project.** Its ID is the ecosystem, the package and
+  the advisory, with no file, so one entry covers that advisory in every lockfile, including the
+  lockfile of a service added after the snapshot. A different advisory, or a different package,
+  blocks.
+- **Known findings are counted, not listed.** A legacy repository's snapshot holds hundreds. The
+  report prints one line; `--json` lists each under `known`, with where it is.
+- **A review wins.** A finding both reviewed and in the snapshot is listed as reviewed, with its
+  reason.
+
+Like the review file, `.wolfproof-known.json` is a record, not a control: whoever writes the code
+can edit it, the edit is in the diff a reviewer reads, and the agent loop refuses to let a model
+write it. In [factory mode](factory-mode.md), each entry a change adds blocks. The pipeline's
+allowlist (`known-finding`) can approve the change that writes the first snapshot, and only that
+one: once a snapshot exists, nothing approves an entry added to it.
+`--known=<file>` and the Action's `known` input take a snapshot from outside the project, in either
+mode: `wolfproof known . --file <path>` writes one there.
+
 ## JSON output
 
 `--json` writes one machine-readable document. Even when the gate crashes it exits 3, never Node's
@@ -275,3 +377,8 @@ The report also carries `toolchain` — each scanner on `PATH` and its version �
 time the run started, and `reviewed`: each [reviewed finding](#reviewed-findings) with its ID,
 location, reason, reviewer, expiry and the list it came from; and `reviewable`: the IDs of the
 blocking findings a review could name, the ones `wolfproof review` lists as `BLOCKING`.
+
+`known` lists each finding the [snapshot](#known-findings) set aside: its ID, where it is, and the
+snapshot it came from. `records` has one entry per finding with an ID — `id`, `check`, `file`,
+`line` (null when the finding has no line), `blocking`, `known` and `reviewed` — so a tool can match
+findings to the lines a change touched. A finding without an ID is only in `findings`.

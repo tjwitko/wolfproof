@@ -278,6 +278,16 @@ there are no wildcards.
 
 → [Reviewed findings](docs/configuration.md#reviewed-findings)
 
+#### A codebase that already has findings
+
+`wolfproof known .` writes the blocking findings a project has now to `.wolfproof-known.json`. Once
+it is committed, those findings are counted and do not block, and anything a later change adds
+blocks as before. The snapshot only shrinks: running the command again removes entries for fixed
+findings and never adds new ones. A hardcoded secret, a manifest no scanner read, the build and the
+checks gated on the task are never snapshotted, so they still block.
+
+→ [Known findings](docs/configuration.md#known-findings)
+
 ---
 
 ## What it checks

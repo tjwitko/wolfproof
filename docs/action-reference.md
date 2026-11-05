@@ -19,6 +19,7 @@ For setting the gate up as a required check, start with the README's
 | `allowlist` | *(none)* | Factory mode: JSON approving specific exemptions |
 | `policy` | *(none)* | Factory mode: JSON choosing what each advisory class does |
 | `reviewed` | *(none)* | JSON naming [reviewed findings](configuration.md#reviewed-findings), from outside the workspace; either mode |
+| `known` | *(none)* | JSON holding a [snapshot of known findings](configuration.md#known-findings), from outside the workspace; either mode |
 | `trivy-image` | *(none)* | A container image to scan with Trivy, built or pulled by an earlier step — see [the built image](checks.md#the-built-image-opt-in). Linux runners only |
 | `trivy-severity` | `HIGH` | The lowest severity that blocks when a fix exists: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW` |
 | `codeql` | `false` | `true` to analyse the source with [CodeQL](checks.md#codeql-opt-in) too. Needs a GitHub Advanced Security licence unless the code is open source on GitHub.com. Linux and macOS runners |
@@ -106,6 +107,11 @@ Action writes it outside the workspace, where the change cannot edit it:
 The variable holds the same JSON as the file, `{"reviewed": [{"id", "reason", ...}]}`. Both lists
 apply, and each reviewed finding says which one it came from. See
 [Reviewed findings](configuration.md#reviewed-findings) for the format and a worked example.
+
+A snapshot of [known findings](configuration.md#known-findings) can come from outside the workspace
+the same way, through the `known` input: `wolfproof known . --file known.json` writes one, and the
+variable holds its JSON, `{"known": [{"id", "where"}]}`. The project's own `.wolfproof-known.json`
+applies beside it.
 
 ## Environment
 
