@@ -2519,6 +2519,11 @@ second run's where they differ.
 - A direct dependency's finding is never added, so one present only above its range's lower bound
   blocks when the lockfile is committed, though nothing about it changed. Telling it from a range
   lowered in the same change would need the range recorded in the snapshot.
+- The transitive findings are added on trust: whatever packages the committed lockfile lists. A
+  direct dependency's range lowered in the same change can pull in an older, vulnerable package
+  underneath it, and that finding is added. Recording ranges would not close it, since the lockfile
+  decides the packages underneath. Factory mode is not affected (added entries block there), and
+  elsewhere the change to `.wolfproof-known.json` shows in review.
 - A dependency advisory's ID has no file, so a held advisory covers the same advisory in any
   lockfile, a new service's included. Documented rather than changed.
 

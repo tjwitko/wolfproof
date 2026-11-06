@@ -341,6 +341,10 @@ So that a clean verdict is read for what it is:
   helper, blocks. Not covered by these rules: cross-site scripting, template injection, LDAP
   injection, open redirect and insecure deserialization. CodeQL's code-scanning suites, when you
   turn CodeQL on, have queries for each.
+- **Transitive npm dependencies without a lockfile.** A `package.json` with none has its direct
+  dependencies checked at the lowest version each range allows, and the missing lockfile blocks.
+  Once a [snapshot](docs/configuration.md#known-findings) holds it, it is an advisory, and the
+  packages underneath stay unchecked until a lockfile is committed.
 - **Memory safety in C and C++**, beyond `gets()`.
 - **Authorisation** — what an authenticated caller may then do.
 - **The packages inside a built image**, unless you name the image: `trivy-image` in the Action,

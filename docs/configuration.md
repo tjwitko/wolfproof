@@ -354,8 +354,12 @@ has to be fixed before the gate can be required.
   not declare directly are added. A direct dependency was scanned before the lockfile existed, at the
   lowest version its range allows, so a finding it had then is already an entry; one it did not have
   is the change's own (a range lowered in the same change) or a vulnerability only in versions above
-  the range's lower bound, and either way it blocks. If the lockfile's scan fails, nothing is added
-  and the entry is kept; the command says so, and running it again once the scan works adds them. In
+  the range's lower bound, and either way it blocks. The transitive findings are added on trust,
+  whatever packages the committed lockfile lists: a direct dependency's range lowered in the same
+  change can pull in an older, vulnerable package underneath it, and that finding is added. The
+  added entries show in the change to `.wolfproof-known.json`, so read it in review. If the
+  lockfile's scan fails, nothing is added and the entry is kept; the command says so, and running it
+  again once the scan works adds them. In
   [factory mode](factory-mode.md) committing the lockfile does turn the build red: the base has a
   snapshot, so the entries the command adds are added grants, and block whatever the allowlist says.
   A pipeline that keeps its own snapshot (`--known=<file>`, or the Action's `known` input) avoids it.

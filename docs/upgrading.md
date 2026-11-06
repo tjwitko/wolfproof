@@ -385,12 +385,17 @@ are checked at the lowest version each range allows, and a high or critical CVE 
 blocks; the missing lockfile still blocks, as before, because transitive dependencies are not
 checked. A project with no lockfile was blocked already, so no verdict moves from clean to blocked,
 but the report can list CVEs it did not before. Raising a range's lower bound past the fix clears one.
-Other manifests that need a lockfile are unchanged.
+In the regression corpus, webhook-haiku gains one: uuid 9.0.1 (GHSA-w5hq-g745-h8pq). A snapshot can
+hold the missing lockfile; when one is later committed, `wolfproof known` adds its transitive
+findings once ([Known findings](configuration.md#known-findings)). Other manifests that need a lockfile
+are unchanged.
 
 **After v1.15.1: every credential compared with `==` has an ID.** The authentication check names the
 first credential a project compares with an ordinary equality operator, and now gives every one it
 finds an ID, as it does an open route. They can be reviewed by ID, so the report's `reviewable`
-count includes them and `wolfproof review .` lists them. The finding and the verdict are unchanged.
+count includes them and `wolfproof review .` lists them. The finding and the verdict are unchanged:
+on the 53 calibration projects, no authentication finding or verdict moved against v1.15.1, and the
+rule accepts the same 85 comparisons.
 
 **After v1.15.1: `--json` lists findings one per location.** `records` has one entry per finding
 with an ID — `id`, `check`, `file`, `line`, `blocking`, `known`, `reviewed` — and `known` lists the
