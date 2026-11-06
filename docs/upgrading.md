@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.15.1
+wolfproof 1.16.0
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.15.1
-- uses: tjwitko/wolfproof@v1.15.1
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.0
+- uses: tjwitko/wolfproof@v1.16.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.15.1
+npm install --save-dev github:tjwitko/wolfproof#v1.16.0
 ```
 
 ## 3. Refresh what setup wrote
@@ -369,9 +369,9 @@ that ended in a colon, or CodeQL's "Spawned process exited abnormally". The verd
 the run is still incomplete (exit 3). Go's extractor can still end on its own summary,
 "Extraction failed for all discovered Go projects".
 
-### After v1.15.1
+### In v1.16.0
 
-**After v1.15.1: only new findings block, with a snapshot.** `wolfproof known .` writes the blocking
+**In v1.16.0: only new findings block, with a snapshot.** `wolfproof known .` writes the blocking
 findings a project has now to `.wolfproof-known.json`; committed, those are counted and do not
 block, and a finding a later change adds blocks as before. Nothing changes for a project without
 one. A hardcoded secret, a manifest no scanner read, the build and the checks gated on the task are
@@ -380,7 +380,7 @@ project; in factory mode, an entry a change adds to the project's file blocks, a
 (`known-finding`) can approve only the change that writes the first snapshot. See
 [Known findings](configuration.md#known-findings).
 
-**After v1.15.1: a `package.json` with no lockfile is scanned anyway.** Its direct dependencies
+**In v1.16.0: a `package.json` with no lockfile is scanned anyway.** Its direct dependencies
 are checked at the lowest version each range allows, and a high or critical CVE found that way
 blocks; the missing lockfile still blocks, as before, because transitive dependencies are not
 checked. A project with no lockfile was blocked already, so no verdict moves from clean to blocked,
@@ -390,18 +390,18 @@ hold the missing lockfile; when one is later committed, `wolfproof known` adds i
 findings once ([Known findings](configuration.md#known-findings)). Other manifests that need a lockfile
 are unchanged.
 
-**After v1.15.1: every credential compared with `==` has an ID.** The authentication check names the
+**In v1.16.0: every credential compared with `==` has an ID.** The authentication check names the
 first credential a project compares with an ordinary equality operator, and now gives every one it
 finds an ID, as it does an open route. They can be reviewed by ID, so the report's `reviewable`
 count includes them and `wolfproof review .` lists them. The finding and the verdict are unchanged:
 on the 53 calibration projects, no authentication finding or verdict moved against v1.15.1, and the
 rule accepts the same 85 comparisons.
 
-**After v1.15.1: `--json` lists findings one per location.** `records` has one entry per finding
+**In v1.16.0: `--json` lists findings one per location.** `records` has one entry per finding
 with an ID — `id`, `check`, `file`, `line`, `blocking`, `known`, `reviewed` — and `known` lists the
 findings a snapshot set aside. `findings` and `advisories` are unchanged.
 
-**After v1.15.1: the licence is AGPL-3.0-only.** wolfproof is under the GNU Affero General Public
+**In v1.16.0: the licence is AGPL-3.0-only.** wolfproof is under the GNU Affero General Public
 License v3.0 from this release; v1.15.1 and every release before it stay under Apache-2.0. Running
 it on your own projects, as a CLI, hook or Action, asks nothing of you. If you ship wolfproof, or run
 a modified version as a service for others, the AGPL asks you to publish that source under the AGPL
