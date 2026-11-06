@@ -401,6 +401,12 @@ rule accepts the same 85 comparisons.
 with an ID — `id`, `check`, `file`, `line`, `blocking`, `known`, `reviewed` — and `known` lists the
 findings a snapshot set aside. `findings` and `advisories` are unchanged.
 
+**After v1.15.1: the licence is AGPL-3.0-only.** wolfproof is under the GNU Affero General Public
+License v3.0 from this release; v1.15.1 and every release before it stay under Apache-2.0. Running
+it on your own projects, as a CLI, hook or Action, asks nothing of you. If you ship wolfproof, or run
+a modified version as a service for others, the AGPL asks you to publish that source under the AGPL
+too.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

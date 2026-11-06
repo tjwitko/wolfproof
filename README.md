@@ -438,4 +438,4 @@ check that never ran is a straw wall with a green tick on it.
 
 ## License
 
-[Apache License 2.0](LICENSE) © 2026 Tom Witkowski
+[GNU Affero General Public License v3.0](LICENSE) © 2026 Tom Witkowski, from v1.16.0. Releases up to and including v1.15.1 remain under Apache-2.0.

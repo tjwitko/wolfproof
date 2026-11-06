@@ -39,7 +39,7 @@
     "corpus:check": "node corpus/vendor.mjs --check",
     "test:factory": "node --test test/*.e2e.mjs"
   },
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "dependencies": {
     "@tjwitko/dep-audit-mcp": "git+https://github.com/tjwitko/dep-audit-mcp.git#v1.0.2",
     "@tjwitko/identity-guard-mcp": "git+https://github.com/tjwitko/identity-guard-mcp.git#v1.0.3",

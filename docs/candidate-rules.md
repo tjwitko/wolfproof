@@ -1133,8 +1133,9 @@ sinks, inside open-source Semgrep) and #23 (Semgrep's Pro engine, opt-in).
   run in CI on one only when it is hosted and maintained on GitHub.com. Private and closed-source
   code, and CI anywhere else, need the paid licence. The terms turn on the licence and the host,
   not on whether a repository is public.
-- **For this project:** wolfproof and the four control repositories are Apache 2.0 on GitHub.com,
-  so both steps can run in their own CI. A project wolfproof gates may be private or hosted
+- **For this project:** wolfproof (AGPL-3.0-only from v1.16.0, Apache 2.0 before) and the four
+  control repositories (Apache 2.0) are under OSI-approved licences on GitHub.com, so both steps can
+  run in their own CI. A project wolfproof gates may be private or hosted
   elsewhere, so the CodeQL step must be opt-in, and its option must say it needs that licence
   unless the project is open source on GitHub.com. wolfproof cannot tell whether a project is
   licensed, so the option's description is the only safeguard.
