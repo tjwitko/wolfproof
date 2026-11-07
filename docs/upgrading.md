@@ -7,9 +7,9 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.16.0
+wolfproof 1.16.1
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
-  dep-audit        v1.0.2  node_modules @tjwitko/dep-audit-mcp
+  dep-audit        v1.0.3  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
   identity-guard   v1.0.3  node_modules @tjwitko/identity-guard-mcp
 tools on PATH
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.0
-- uses: tjwitko/wolfproof@v1.16.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.1
+- uses: tjwitko/wolfproof@v1.16.1
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.16.0
+npm install --save-dev github:tjwitko/wolfproof#v1.16.1
 ```
 
 ## 3. Refresh what setup wrote
@@ -407,9 +407,9 @@ it on your own projects, as a CLI, hook or Action, asks nothing of you. If you s
 a modified version as a service for others, the AGPL asks you to publish that source under the AGPL
 too.
 
-### After v1.16.0
+### In v1.16.1
 
-**After v1.16.0: the dep-audit control is v1.0.3.** Importing dep-audit no longer clears the
+**In v1.16.1: the dep-audit control is v1.0.3.** Importing dep-audit no longer clears the
 importer's environment; up to v1.0.2 it deleted every variable but PATH, HOME and SCAN_ROOT as it
 loaded, and now does so only when its server starts. Verdicts do not change: the gate already ran
 dep-audit's severity bands in a process of its own, and still does, for a project that hands it an
