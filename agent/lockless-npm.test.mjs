@@ -8,8 +8,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { lowestVersion, npmDeclared, lockfileFor, scanWithoutLockfile, scanLockfiles, childSummarizer } from "./lockless-npm.mjs";
 
-// dep-audit's own banding, run as the gate runs it. Importing dep-audit here instead would delete
-// this process's environment as it loaded (see childSummarizer), the test runner's variables too.
+// dep-audit's own banding, run as the gate runs it, in a process of its own. dep-audit up to v1.0.2
+// deletes the importer's environment as it loads (see childSummarizer), the test runner's variables
+// too, and the gate runs whichever version a project hands it.
 const DEP_AUDIT = fileURLToPath(import.meta.resolve("@tjwitko/dep-audit-mcp"));
 const summarizeFindings = childSummarizer(DEP_AUDIT);
 
@@ -109,6 +110,33 @@ test("each package.json is scanned at its lowest versions, in one osv-scanner ru
     const failed = scanWithoutLockfile(dir, ["package.json"], { summarize: summarizeFindings, run: () => ({ status: 127, stdout: "", stderr: "network unreachable" }) });
     assert.match(failed.error, /^osv-scanner did not scan them \(exit 127\): network unreachable$/);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The pinned dep-audit (v1.0.3 on) no longer clears the environment on import, so the test below
+// would pass in-process too. A project can still hand the gate v1.0.2 or older, which does: this
+// stand-in deletes every variable but PATH, HOME and SCAN_ROOT as it loads, as those versions did.
+test("a dep-audit that clears the environment as it loads clears only its own process's", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "old-dep-audit-"));
+  process.env.WOLFPROOF_LOCKLESS_SENTINEL = "kept";
+  try {
+    const entry = path.join(dir, "index.mjs");
+    writeFileSync(
+      entry,
+      'for (const k of Object.keys(process.env)) if (!["PATH", "HOME", "SCAN_ROOT"].includes(k)) delete process.env[k];\n' +
+        'export function summarizeFindings(r) { return [{ id: "banded", left: Object.keys(process.env).sort().join(",") }]; }\n'
+    );
+    const before = Object.keys(process.env).sort();
+    const banded = childSummarizer(entry)({ results: [] });
+    // It ran, and cleared its own environment...
+    assert.equal(banded[0].id, "banded");
+    assert.ok(!banded[0].left.includes("WOLFPROOF_LOCKLESS_SENTINEL"), banded[0].left);
+    // ...and not this one.
+    assert.deepEqual(Object.keys(process.env).sort(), before);
+    assert.equal(process.env.WOLFPROOF_LOCKLESS_SENTINEL, "kept");
+  } finally {
+    delete process.env.WOLFPROOF_LOCKLESS_SENTINEL;
     rmSync(dir, { recursive: true, force: true });
   }
 });

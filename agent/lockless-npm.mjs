@@ -186,9 +186,12 @@ export function scanWithoutLockfile(projectDir, manifests, { summarize, threshol
 
 /**
  * dep-audit's summarizeFindings, run in a node process of its own. Never import dep-audit's entry
- * into the gate: as it loads, it deletes every environment variable but PATH, HOME and SCAN_ROOT
- * (the guardrail of an MCP server, which it is), and in the gate's process that took TMPDIR, every
- * WOLFPROOF_ setting and the test runner's own variables away from everything that ran after it.
+ * into the gate: dep-audit up to v1.0.2 deletes every environment variable but PATH, HOME and
+ * SCAN_ROOT as it loads (the guardrail of an MCP server, which v1.0.3 applies only when the server
+ * starts), and in the gate's process that took TMPDIR, every WOLFPROOF_ setting and the test
+ * runner's own variables away from everything that ran after it. The gate pins a later dep-audit,
+ * but a project can hand it its own (an env var, .wolfproof.json or its node_modules), so the child
+ * process stays for those versions.
  *
  * The returned function summarizes one osv-scanner result; its `many` summarizes several in one
  * process. Both throw when dep-audit could not be run or has no summarizeFindings.

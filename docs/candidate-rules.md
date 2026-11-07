@@ -2497,8 +2497,10 @@ second run's where they differ.
 - *A new finding blocks.* One open route added to a copy of express: exactly one blocking record,
   `known: false`, at `examples/auth/index.js:135`.
 - *Found while measuring:* importing dep-audit's entry to band severities deleted the gate's own
-  environment, `WOLFPROOF_TODAY` included, because dep-audit clears every variable but PATH, HOME and
-  SCAN_ROOT as it loads. Its banding now runs in a process of its own. Measured before and after the
+  environment, `WOLFPROOF_TODAY` included, because dep-audit up to v1.0.2 clears every variable but
+  PATH, HOME and SCAN_ROOT as it loads (v1.0.3 does it only when its server starts). Its banding now
+  runs in a process of its own, and stays there for a project that hands the gate an older
+  dep-audit. Measured before and after the
   fix, all 33 snapshots were identical, ID for ID.
 
 **Still open.**

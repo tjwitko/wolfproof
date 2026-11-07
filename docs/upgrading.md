@@ -407,6 +407,14 @@ it on your own projects, as a CLI, hook or Action, asks nothing of you. If you s
 a modified version as a service for others, the AGPL asks you to publish that source under the AGPL
 too.
 
+### After v1.16.0
+
+**After v1.16.0: the dep-audit control is v1.0.3.** Importing dep-audit no longer clears the
+importer's environment; up to v1.0.2 it deleted every variable but PATH, HOME and SCAN_ROOT as it
+loaded, and now does so only when its server starts. Verdicts do not change: the gate already ran
+dep-audit's severity bands in a process of its own, and still does, for a project that hands it an
+older dep-audit. Like wolfproof, dep-audit is AGPL-3.0-only from this version.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

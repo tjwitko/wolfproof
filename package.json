@@ -41,7 +41,7 @@
   },
   "license": "AGPL-3.0-only",
   "dependencies": {
-    "@tjwitko/dep-audit-mcp": "git+https://github.com/tjwitko/dep-audit-mcp.git#v1.0.2",
+    "@tjwitko/dep-audit-mcp": "git+https://github.com/tjwitko/dep-audit-mcp.git#v1.0.3",
     "@tjwitko/identity-guard-mcp": "git+https://github.com/tjwitko/identity-guard-mcp.git#v1.0.3",
     "@tjwitko/secret-guard-mcp": "git+https://github.com/tjwitko/secret-guard-mcp.git#v1.0.2",
     "@tjwitko/terraform-guard-mcp": "git+https://github.com/tjwitko/terraform-guard-mcp.git#v1.1.2",
