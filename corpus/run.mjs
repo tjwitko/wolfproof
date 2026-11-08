@@ -18,7 +18,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { toolchain, toolchainDrift } from "../lib/toolchain.mjs";
 import { setting } from "../lib/settings.mjs";
-import { findingId, factoryFindingId } from "../lib/corpus-keys.mjs";
+import { findingId, factoryFindingId, incompleteReasons } from "../lib/corpus-keys.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..");
@@ -170,7 +170,7 @@ for (const entry of manifest.entries) {
   }
   const keyOf = (message) => (FACTORY ? factoryFindingId(message) : { id: findingId(message), n: 1 });
   const counts = {};
-  for (const f of r.findings) {
+  for (const f of r.findings || []) {
     const { id, n } = keyOf(f.message);
     counts[id] = (counts[id] || 0) + n;
   }
@@ -178,7 +178,7 @@ for (const entry of manifest.entries) {
     if (r.incomplete) {
       entry.factory = {
         ...(entry.factory || {}),
-        unmeasured: { on: new Date().toISOString().slice(0, 10), why: (r.couldNotRun || []).concat((r.unreachable || []).map((u) => `${u.name}: ${u.why}`)) },
+        unmeasured: { on: new Date().toISOString().slice(0, 10), why: incompleteReasons(r) },
       };
       console.log(`  SKIPPED  ${entry.name} — the run was INCOMPLETE, expectations left unchanged`);
       for (const w of entry.factory.unmeasured.why) console.log(`      ${w}`);
@@ -199,7 +199,7 @@ for (const entry of manifest.entries) {
     if (r.incomplete) {
       entry.unmeasured = {
         on: new Date().toISOString().slice(0, 10),
-        why: (r.couldNotRun || []).concat((r.unreachable || []).map((u) => `${u.name}: ${u.why}`)),
+        why: incompleteReasons(r),
       };
       console.log(`  SKIPPED  ${entry.name} — the run was INCOMPLETE, expectations left unchanged`);
       for (const w of entry.unmeasured.why) console.log(`      ${w}`);
@@ -256,8 +256,8 @@ for (const entry of manifest.entries) {
 
   // A control that could not run makes the verdict meaningless, so it fails regardless of counts.
   if (r.incomplete) {
-    console.log(`  INCOMPLETE ${entry.name} — a control could not run; this verdict proves nothing`);
-    for (const c of r.controls.filter((c) => c.status !== "ran")) console.log(`      ${c.name}: ${c.error || "never called"}`);
+    console.log(`  INCOMPLETE ${entry.name} — part of the gate could not run; this verdict proves nothing`);
+    for (const w of incompleteReasons(r)) console.log(`      ${w}`);
     failed++;
   } else if (r.blocking !== expected.expectedBlocking || drift.length) {
     console.log(`  DRIFT    ${entry.name} — blocking ${expected.expectedBlocking} -> ${r.blocking}`);

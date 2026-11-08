@@ -632,6 +632,9 @@ function machine(result) {
       coverage: coverageLine(result.coverage),
       exitCode: result.exitCode,
       incomplete: result.incomplete,
+      // A configuration that could not be read makes the run incomplete on its own, and is said here
+      // as the human report says it: a reader of this document could not otherwise tell why.
+      configError: result.configError || null,
       blocking: result.failures.length,
       controls: result.controls.map((c) => ({
         name: c.name,
