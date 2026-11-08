@@ -14,7 +14,7 @@ import { lowestVersion, npmDeclared, lockfileFor, scanWithoutLockfile, scanLockf
 const DEP_AUDIT = fileURLToPath(import.meta.resolve("@tjwitko/dep-audit-mcp"));
 const summarizeFindings = childSummarizer(DEP_AUDIT);
 
-test("the lowest version a range allows, and none for a range that names no version", () => {
+test("the lowest version a range allows, and none for a range with no lower bound or no version", () => {
   const cases = {
     "^4.17.4": "4.17.4",
     "~1.2": "1.2.0",
@@ -33,6 +33,13 @@ test("the lowest version a range allows, and none for a range that names no vers
     "": null,
     latest: null,
     "<2.0.0": null,
+    "<=4.17.20": null,
+    // An alternative with no lower bound leaves the range none: its lowest is not the next
+    // alternative's bound. Both of these allow every version below the first bound.
+    "<2.0.0 || >=3.0.0": null,
+    "<1.0.0 || ^1.5.0": null,
+    "^1.5.0 || <1.0.0": null,
+    "^1.5.0 || *": null,
     "git+https://github.com/a/b.git": null,
     "file:../local": null,
     "workspace:*": null,
@@ -92,7 +99,7 @@ test("each package.json is scanned at its lowest versions, in one osv-scanner ru
   const dir = mkdtempSync(path.join(tmpdir(), "lockless-"));
   try {
     mkdirSync(path.join(dir, "web"));
-    writeFileSync(path.join(dir, "package.json"), JSON.stringify({ dependencies: { lodash: "^4.17.4", left: "latest" } }));
+    writeFileSync(path.join(dir, "package.json"), JSON.stringify({ dependencies: { lodash: "^4.17.4", left: "latest", split: "<2.0.0 || >=3.0.0" } }));
     writeFileSync(path.join(dir, "web/package.json"), JSON.stringify({ dependencies: { "@hapi/hoek": "~8.0.0" } }));
     writeFileSync(path.join(dir, "empty.json"), JSON.stringify({ dependencies: { only: "*" } }));
     const calls = [];
@@ -101,7 +108,8 @@ test("each package.json is scanned at its lowest versions, in one osv-scanner ru
     assert.deepEqual(
       r.scanned.map((s) => [s.manifest, s.checked, s.unresolved, s.findings.map((f) => `${f.package}@${f.version}:${f.id}:${f.fixedVersion}`)]),
       [
-        ["package.json", 1, ["left@latest"], ["lodash@4.17.4:GHSA-jf85-cpcp-j695:4.17.12"]],
+        // `split` allows every 1.x, so it is not scanned at 3.0.0: it is listed as not checked.
+        ["package.json", 1, ["left@latest", "split@<2.0.0 || >=3.0.0"], ["lodash@4.17.4:GHSA-jf85-cpcp-j695:4.17.12"]],
         ["web/package.json", 1, [], ["@hapi/hoek@8.0.0:GHSA-c429-5p7v-vgjp:8.5.1"]],
         ["empty.json", 0, ["only@*"], []],
       ]
