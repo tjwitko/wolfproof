@@ -415,6 +415,21 @@ loaded, and now does so only when its server starts. Verdicts do not change: the
 dep-audit's severity bands in a process of its own, and still does, for a project that hands it an
 older dep-audit. Like wolfproof, dep-audit is AGPL-3.0-only from this version.
 
+### After v1.16.1
+
+**After v1.16.1: a range with an `||` alternative that has no lower bound is not checked.** In a
+`package.json` with no lockfile, `<2.0.0 || >=3.0.0` was checked at 3.0.0, the lowest bound among
+the other alternatives, though it allows every 1.x, and the dependency counted as checked. It is
+now listed as not checked, as `<2.0.0` alone already was. The report's wording for these is now
+"have no lowest version and were not" (it said "name no version"). A finding that only the higher
+version had is no longer reported: raise the range's lower bound, or commit the lockfile, to have
+the dependency checked.
+
+**After v1.16.1: `wolfproof known` names its exception when it uses it.** After adding a committed
+lockfile's findings, it ended with "New findings are never added to an existing snapshot". That
+line now reads "No other new finding is added to an existing snapshot"; a run that adds nothing
+still prints the original.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

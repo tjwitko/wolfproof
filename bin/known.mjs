@@ -205,7 +205,11 @@ export async function runKnown(args, { env = process.env, gate = null } = {}) {
       for (const e of gone.slice(0, 20)) out.push(`  - ${e.id}`);
       if (gone.length > 20) out.push(`  … ${gone.length - 20} more`);
     }
-    out.push("New findings are never added to an existing snapshot: each blocks until it is fixed or reviewed.");
+    out.push(
+      added.length
+        ? "No other new finding is added to an existing snapshot: each blocks until it is fixed or reviewed."
+        : "New findings are never added to an existing snapshot: each blocks until it is fixed or reviewed."
+    );
   }
 
   // What still blocks: the findings no snapshot holds, and new ones when the snapshot existed.

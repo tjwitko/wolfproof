@@ -63,8 +63,10 @@ function lower(comparator) {
 }
 
 /**
- * The lowest version an npm range allows, or null when the range names no version: `*`, a tag like
- * `latest`, a URL, a path, `workspace:`. `||` takes the lowest of its alternatives.
+ * The lowest version an npm range allows, or null when it has none: a range with no lower bound
+ * (`*`, `<=4.17.20`) or one that names no version (a tag like `latest`, a URL, a path,
+ * `workspace:`). `||` takes the lowest of its alternatives, so one alternative with no lower bound
+ * leaves the whole range none: `<2.0.0 || >=3.0.0` allows every 1.x, and is not 3.0.0.
  */
 export function lowestVersion(range) {
   const r = String(range ?? "").trim();
@@ -86,13 +88,13 @@ export function lowestVersion(range) {
         if (l !== undefined && (low === undefined || compare(l, low) > 0)) low = l;
       }
     }
-    if (low === null || low === undefined) continue;
+    if (low === null || low === undefined) return null;
     if (best === null || compare(low, best) < 0) best = low;
   }
   return best;
 }
 
-/** What a package.json declares: [{ name, range, version }], version null where none is named. */
+/** What a package.json declares: [{ name, range, version }], version null where the range has no lowest version. */
 export function npmDeclared(text) {
   let pkg;
   try {
