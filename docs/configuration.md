@@ -359,7 +359,10 @@ has to be fixed before the gate can be required.
   change can pull in an older, vulnerable package underneath it, and that finding is added. The
   added entries show in the change to `.wolfproof-known.json`, so read it in review. If the
   lockfile's scan fails, nothing is added and the entry is kept; the command says so, and running it
-  again once the scan works adds them. In
+  again once the scan works adds them. A lockfile committed at a workspace root covers every member's
+  `package.json`, and holds every member's packages and the root's, so which of its findings are one
+  member's cannot be told: nothing is added for a member's entry, the command says so, and the entry
+  is kept for you to delete once the lockfile's findings are fixed or reviewed. In
   [factory mode](factory-mode.md) committing the lockfile does turn the build red: the base has a
   snapshot, so the entries the command adds are added grants, and block whatever the allowlist says.
   A pipeline that keeps its own snapshot (`--known=<file>`, or the Action's `known` input) avoids it.
