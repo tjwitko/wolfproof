@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.16.2
+wolfproof 1.16.3
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.3  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.2
-- uses: tjwitko/wolfproof@v1.16.2
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.3
+- uses: tjwitko/wolfproof@v1.16.3
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.16.2
+npm install --save-dev github:tjwitko/wolfproof#v1.16.3
 ```
 
 ## 3. Refresh what setup wrote
@@ -457,9 +457,9 @@ The JSON document has a `configError` field, the configuration error that made t
 runner prints, under an INCOMPLETE fixture, every control that did not run, every check that could
 not, and the configuration error, instead of a line with no reason.
 
-### After v1.16.2
+### In v1.16.3
 
-**After v1.16.2: `wolfproof known` counts a workspace's members' direct dependencies as direct when
+**In v1.16.3: `wolfproof known` counts a workspace's members' direct dependencies as direct when
 it adds a root lockfile's findings.** A root `package.json` with `workspaces` and a snapshot entry
 for its missing lockfile, once that lockfile was committed, had every finding added that the root
 did not declare directly, the members' direct dependencies among them, though those were scanned
