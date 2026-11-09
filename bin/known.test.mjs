@@ -140,6 +140,9 @@ test("when a lockfile is committed for a package.json held as having none, its f
   assert.deepEqual(doc.known.map((e) => e.id), [route, lodash, "dependencies:npm/minimist:GHSA-xvch-5gv4-984h"]);
   assert.match(out, /^added 1 finding from the lockfile committed for package\.json, which the snapshot held as having none — once: 1 dependency vulnerabilities\.$/m);
   assert.match(out, /^removed 1 entry matching no finding/m);
+  // It just added findings, so it does not also say findings are never added: it names the exception.
+  assert.doesNotMatch(out, /never added/);
+  assert.match(out, /^No other new finding is added to an existing snapshot: each blocks until it is fixed or reviewed\.$/m);
   // The new route is not added: only the lockfile's own findings are.
   assert.match(out, /^still blocking: 2 findings the snapshot does not hold \(in this run; the findings just added stop blocking from the next\) —/m);
 });
@@ -176,6 +179,8 @@ test("a lockfile committed with a dependency the entry does not list adds nothin
   assert.deepEqual(r.doc.known, [unlocked], "nothing added, nothing removed, and the declared list kept");
   assert.match(r.out, /^not added: the findings of the lockfile committed for package\.json, because it now declares 1 package its snapshot entry does not list: minimist\. /m);
   assert.match(r.out, /^unchanged: no entry was removed\.$/m);
+  // Nothing was added, so the rule is stated without its exception.
+  assert.match(r.out, /^New findings are never added to an existing snapshot: each blocks until it is fixed or reviewed\.$/m);
 });
 
 test("a lockfile whose scan failed adds nothing, and the entry is kept with the reason", async () => {
@@ -193,6 +198,28 @@ test("a lockfile whose scan failed adds nothing, and the entry is kept with the 
   );
   assert.doesNotMatch(r.out, /declared since the snapshot/);
   assert.match(r.out, /^unchanged: no entry was removed\.$/m);
+});
+
+test("a lockfile committed at the workspace root adds nothing for a member, and the member's entry is kept with the reason", async () => {
+  const unlocked = { id: "dependencies:unlocked:web/package.json", where: "web/package.json", declared: ["lodash"] };
+  const refused = "its lockfile is package-lock.json, at the workspace root, which holds every member's packages and the root's, and the findings that are this member's cannot be told apart";
+  const minimist = "dependencies:npm/minimist:GHSA-xvch-5gv4-984h";
+  const r = await known([unlocked], {
+    staleKnown: [{ id: unlocked.id }],
+    relocked: [{ manifest: "web/package.json", ids: [], refused, workspace: true }],
+    records: [{ id: minimist, blocking: true, known: false }],
+    failures: ["check_dependencies: 1 finding(s) at or above high severity"],
+  });
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.doc.known, [unlocked], "nothing added, nothing removed");
+  assert.match(
+    r.out,
+    /^not added: the findings of the lockfile committed for web\/package\.json, because its lockfile is package-lock\.json, at the workspace root, .*\. The lockfile's findings block until fixed or reviewed\. The entry for web\/package\.json is kept \(the gate lists it as matching nothing\): delete it once they are\.$/m
+  );
+  // Nothing about what the member declares: that is not why it was refused.
+  assert.doesNotMatch(r.out, /declared since the snapshot|declare only what it lists/);
+  assert.match(r.out, /^unchanged: no entry was removed\.$/m);
+  assert.match(r.out, /^New findings are never added to an existing snapshot/m);
 });
 
 test("with part of the gate not run, an existing snapshot loses nothing, and what would have gone is listed", async () => {

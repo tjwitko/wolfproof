@@ -169,21 +169,30 @@ function gradleDeclares(text) {
   return false;
 }
 
-// A lockfile in the manifest's directory or any directory above it, up to the project root:
-// workspaces (npm, Cargo) keep one lockfile at the root for every member.
-function covered(projectDir, dir, rule) {
+/**
+ * The lockfile that covers a manifest in `dir`: one in the manifest's directory or any directory
+ * above it, up to the project root (workspaces, npm and Cargo, keep one lockfile at the root for
+ * every member), as a path; or null when there is none. Whatever decides a manifest is covered must
+ * find the lockfile the same way: the relock step in lib/gate-core.mjs looked only in the manifest's
+ * own directory, so a member's entry went stale and was dropped without its lockfile being scanned.
+ */
+export function coveringLockfile(projectDir, dir, rule) {
   for (let d = dir; ; d = path.dirname(d)) {
-    if (rule.locks.some((l) => existsSync(path.join(d, l)))) return true;
+    const lock = rule.locks.find((l) => existsSync(path.join(d, l)));
+    if (lock) return path.join(d, lock);
     if (rule.coveredBy) {
       try {
-        if (readdirSync(d).some(rule.coveredBy)) return true;
+        const other = readdirSync(d).find(rule.coveredBy);
+        if (other) return path.join(d, other);
       } catch {
         /* unreadable directory; keep climbing */
       }
     }
-    if (path.relative(projectDir, d) === "" || d === path.dirname(d)) return false;
+    if (path.relative(projectDir, d) === "" || d === path.dirname(d)) return null;
   }
 }
+
+const covered = (projectDir, dir, rule) => coveringLockfile(projectDir, dir, rule) !== null;
 
 /**
  * Every manifest under projectDir that declares dependencies osv-scanner cannot read, with no

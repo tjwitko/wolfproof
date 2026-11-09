@@ -14,7 +14,7 @@ import { lowestVersion, npmDeclared, lockfileFor, scanWithoutLockfile, scanLockf
 const DEP_AUDIT = fileURLToPath(import.meta.resolve("@tjwitko/dep-audit-mcp"));
 const summarizeFindings = childSummarizer(DEP_AUDIT);
 
-test("the lowest version a range allows, and none for a range that names no version", () => {
+test("the lowest version a range allows, and none for a range with no lower bound or no version", () => {
   const cases = {
     "^4.17.4": "4.17.4",
     "~1.2": "1.2.0",
@@ -29,10 +29,27 @@ test("the lowest version a range allows, and none for a range that names no vers
     "=3.1.0": "3.1.0",
     "v2.1.0": "2.1.0",
     "2.0.0-beta.3": "2.0.0-beta.3",
+    // Prereleases in semver's order, not the text's: rc.9 is below rc.10, a numeric field is below
+    // an alphanumeric one, and a shorter list is below the one it is a prefix of.
+    "1.0.0-rc.9 || 1.0.0-rc.10": "1.0.0-rc.9",
+    "1.0.0-beta.2 || 1.0.0-beta.10": "1.0.0-beta.2",
+    "1.0.0-alpha || 1.0.0-alpha.1": "1.0.0-alpha",
+    "1.0.0-alpha.beta || 1.0.0-alpha.1": "1.0.0-alpha.1",
+    "1.0.0 || 1.0.0-rc.1": "1.0.0-rc.1",
+    // `>` past a prerelease allows the release itself: the scan does not start a patch above it.
+    ">1.2.3-beta": "1.2.3",
+    ">1.2.3-beta <2": "1.2.3",
     "*": null,
     "": null,
     latest: null,
     "<2.0.0": null,
+    "<=4.17.20": null,
+    // An alternative with no lower bound leaves the range none: its lowest is not the next
+    // alternative's bound. Both of these allow every version below the first bound.
+    "<2.0.0 || >=3.0.0": null,
+    "<1.0.0 || ^1.5.0": null,
+    "^1.5.0 || <1.0.0": null,
+    "^1.5.0 || *": null,
     "git+https://github.com/a/b.git": null,
     "file:../local": null,
     "workspace:*": null,
@@ -49,7 +66,7 @@ test("a manifest's direct dependencies, an alias read as the package it names, p
   });
   assert.deepEqual(npmDeclared(text), [
     { name: "express", range: "^4.17.1", version: "4.17.1" },
-    { name: "lodash", range: "^4.17.4", version: "4.17.4" },
+    { name: "lodash", range: "^4.17.4", version: "4.17.4", alias: "lodash4" },
     { name: "mine", range: "file:../mine", version: null },
     { name: "jest", range: "~29.0", version: "29.0.0" },
   ]);
@@ -59,10 +76,24 @@ test("a manifest's direct dependencies, an alias read as the package it names, p
   assert.deepEqual(lock.packages["node_modules/@hapi/hoek"], { version: "8.0.0" });
 });
 
+// An alias and a direct dependency on the same package are two entries in the lockfile, as npm
+// writes them, so both versions are scanned; written under one key, the last declared won and the
+// other version was never scanned.
+test("an alias and a direct dependency on the same package are both in the lockfile, at their own versions", () => {
+  const deps = npmDeclared(JSON.stringify({ dependencies: { "old-lodash": "npm:lodash@^4.17.4", lodash: "^4.17.21" } }));
+  const lock = lockfileFor(deps.filter((d) => d.version));
+  assert.deepEqual(lock.packages, {
+    "": { name: "wolfproof-lockless", version: "0.0.0", dependencies: { "old-lodash": "npm:lodash@4.17.4", lodash: "4.17.21" } },
+    "node_modules/old-lodash": { name: "lodash", version: "4.17.4" },
+    "node_modules/lodash": { version: "4.17.21" },
+  });
+});
+
 // osv-scanner, answering from a table of advisories rather than the network: what it would report
 // for each -L lockfile it is given, read from that lockfile.
 const ADVISORIES = {
   "lodash@4.17.4": [{ id: "GHSA-jf85-cpcp-j695", score: "9.1", fixed: "4.17.12" }, { id: "GHSA-29mw-wpgm-hmr9", score: "5.3", fixed: "4.17.21" }],
+  "lodash@4.17.20": [{ id: "GHSA-35jh-r3h4-6jhm", score: "7.2", fixed: "4.17.21" }],
   "@hapi/hoek@8.0.0": [{ id: "GHSA-c429-5p7v-vgjp", score: "8.1", fixed: "8.5.1" }],
 };
 function fakeOsv(calls = []) {
@@ -72,7 +103,8 @@ function fakeOsv(calls = []) {
     const results = locks.map((lock) => {
       const packages = Object.entries(JSON.parse(readFileSync(lock, "utf8")).packages)
         .filter(([k]) => k.startsWith("node_modules/"))
-        .map(([k, v]) => ({ name: k.slice("node_modules/".length), version: v.version }))
+        // As osv-scanner 2.4.0 reads an entry: by its `name` when it has one (an alias), else its key.
+        .map(([k, v]) => ({ name: v.name || k.slice("node_modules/".length), version: v.version }))
         .filter((p) => ADVISORIES[`${p.name}@${p.version}`])
         .map((p) => {
           const adv = ADVISORIES[`${p.name}@${p.version}`];
@@ -92,18 +124,22 @@ test("each package.json is scanned at its lowest versions, in one osv-scanner ru
   const dir = mkdtempSync(path.join(tmpdir(), "lockless-"));
   try {
     mkdirSync(path.join(dir, "web"));
-    writeFileSync(path.join(dir, "package.json"), JSON.stringify({ dependencies: { lodash: "^4.17.4", left: "latest" } }));
+    writeFileSync(path.join(dir, "package.json"), JSON.stringify({ dependencies: { lodash: "^4.17.4", left: "latest", split: "<2.0.0 || >=3.0.0" } }));
+    writeFileSync(path.join(dir, "aliased.json"), JSON.stringify({ dependencies: { lodash: "^4.17.20", "old-lodash": "npm:lodash@^4.17.4" } }));
     writeFileSync(path.join(dir, "web/package.json"), JSON.stringify({ dependencies: { "@hapi/hoek": "~8.0.0" } }));
     writeFileSync(path.join(dir, "empty.json"), JSON.stringify({ dependencies: { only: "*" } }));
     const calls = [];
-    const r = scanWithoutLockfile(dir, ["package.json", "web/package.json", "empty.json"], { summarize: summarizeFindings, run: fakeOsv(calls) });
+    const r = scanWithoutLockfile(dir, ["package.json", "web/package.json", "empty.json", "aliased.json"], { summarize: summarizeFindings, run: fakeOsv(calls) });
     assert.equal(calls.length, 1);
     assert.deepEqual(
-      r.scanned.map((s) => [s.manifest, s.checked, s.unresolved, s.findings.map((f) => `${f.package}@${f.version}:${f.id}:${f.fixedVersion}`)]),
+      r.scanned.map((s) => [s.manifest, s.checked, s.unresolved, s.findings.map((f) => `${f.package}@${f.version}:${f.id}:${f.fixedVersion}`).sort()]),
       [
-        ["package.json", 1, ["left@latest"], ["lodash@4.17.4:GHSA-jf85-cpcp-j695:4.17.12"]],
+        // `split` allows every 1.x, so it is not scanned at 3.0.0: it is listed as not checked.
+        ["package.json", 1, ["left@latest", "split@<2.0.0 || >=3.0.0"], ["lodash@4.17.4:GHSA-jf85-cpcp-j695:4.17.12"]],
         ["web/package.json", 1, [], ["@hapi/hoek@8.0.0:GHSA-c429-5p7v-vgjp:8.5.1"]],
         ["empty.json", 0, ["only@*"], []],
+        // The alias and the direct dependency are both scanned, each at its own lowest version.
+        ["aliased.json", 2, [], ["lodash@4.17.20:GHSA-35jh-r3h4-6jhm:4.17.21", "lodash@4.17.4:GHSA-jf85-cpcp-j695:4.17.12"]],
       ]
     );
     // A scanner that fails is an error, never an empty result.

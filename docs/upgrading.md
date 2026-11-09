@@ -415,6 +415,42 @@ loaded, and now does so only when its server starts. Verdicts do not change: the
 dep-audit's severity bands in a process of its own, and still does, for a project that hands it an
 older dep-audit. Like wolfproof, dep-audit is AGPL-3.0-only from this version.
 
+### After v1.16.1
+
+**After v1.16.1: a range with an `||` alternative that has no lower bound is not checked.** In a
+`package.json` with no lockfile, `<2.0.0 || >=3.0.0` was checked at 3.0.0, the lowest bound among
+the other alternatives, though it allows every 1.x, and the dependency counted as checked. It is
+now listed as not checked, as `<2.0.0` alone already was. The report's wording for these is now
+"have no lowest version and were not" (it said "name no version"). A finding that only the higher
+version had is no longer reported: raise the range's lower bound, or commit the lockfile, to have
+the dependency checked.
+
+**After v1.16.1: `wolfproof known` names its exception when it uses it.** After adding a committed
+lockfile's findings, it ended with "New findings are never added to an existing snapshot". That
+line now reads "No other new finding is added to an existing snapshot"; a run that adds nothing
+still prints the original.
+
+**After v1.16.1: `wolfproof known` keeps a workspace member's entry when the lockfile is committed
+at the root.** A `package-lock.json` at the workspace root covers `web/package.json`, so the
+member's entry for the missing lockfile matched nothing; the command looked for the lockfile only in
+`web/`, found none, and removed the entry with nothing added and nothing said. The root lockfile
+holds every member's packages and the root's, and its findings cannot be told apart by member, so
+none are added in one member's place: the command now says so and keeps the entry, to delete once
+the lockfile's findings are fixed or reviewed. Those findings block, as any new finding does.
+
+**After v1.16.1: prereleases are ordered as semver orders them.** In a `package.json` with no
+lockfile, `1.0.0-rc.9 || 1.0.0-rc.10` was checked at rc.10 and `1.0.0-beta.2 || 1.0.0-beta.10` at
+beta.10, the alternatives compared as text; both are now checked at the lower one. `>1.2.3-beta`
+was checked at 1.2.4, a patch above a version the range allows; it is now checked at 1.2.3. A
+finding only the higher version had is no longer reported, and one 1.2.3 has that 1.2.4 does not is
+new.
+
+**After v1.16.1: an alias and a direct dependency on the same package are both checked.** In a
+`package.json` with no lockfile declaring `"old-lodash": "npm:lodash@^4.17.4"` and
+`"lodash": "^4.17.21"`, both were written to the same entry of the scan's lockfile, and only the one
+declared last was scanned. Each is now its own entry, as npm writes an alias, so a finding in either
+version is reported.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

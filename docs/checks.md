@@ -426,9 +426,12 @@ scanner can read.
 A `package.json` with no lockfile is scanned anyway, at the lowest version each range allows its
 direct dependencies (`^4.17.4` is checked as 4.17.4). A high or critical CVE found that way blocks;
 an install may pick a later, fixed version, and raising the range's lower bound past the fix settles
-it either way. Its transitive dependencies are not checked at all, so the missing lockfile still
-blocks. A [snapshot](configuration.md#known-findings) can hold both; held, the missing lockfile is
-an advisory on every run. Other manifests that need a lockfile (Gradle, Cargo, Bundler, Composer,
+it either way. A range with no lowest version is not checked, and the report names it: one with no
+lower bound (`<=4.17.20`, or an `||` alternative with none, as in `<2.0.0 || >=3.0.0`, which allows
+every 1.x) and one that names no version (`*`, `latest`, a URL or a path). The `package.json`'s
+transitive dependencies are not checked at all, so the missing lockfile still blocks. A
+[snapshot](configuration.md#known-findings) can hold both; held, the missing lockfile is an advisory
+on every run. Other manifests that need a lockfile (Gradle, Cargo, Bundler, Composer,
 Pipenv) are not read without one: their versions mostly come from the build, which the gate does not
 run.
 

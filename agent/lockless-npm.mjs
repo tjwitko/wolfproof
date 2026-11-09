@@ -34,14 +34,30 @@ function parts(v) {
 
 const fmt = (p) => `${p.major ?? 0}.${p.minor ?? 0}.${p.patch ?? 0}${p.pre}`;
 
+// Semver's order: the three numbers, then the prerelease. A prerelease sorts before its release, and
+// prerelease identifiers compare field by field, numeric fields as numbers (rc.9 before rc.10),
+// a numeric field before an alphanumeric one, and the shorter list first when it is a prefix of the
+// other (alpha before alpha.1). Compared as text, rc.10 sorted before rc.9, and `||` picked the
+// higher one.
 function compare(a, b) {
-  const x = a.split(/[.-]/);
-  const y = b.split(/[.-]/);
-  for (let i = 0; i < 3; i++) if (Number(x[i]) !== Number(y[i])) return Number(x[i]) - Number(y[i]);
-  // A prerelease sorts before its release.
-  const pa = a.includes("-");
-  const pb = b.includes("-");
-  return pa === pb ? a.localeCompare(b) : pa ? -1 : 1;
+  const x = parts(a);
+  const y = parts(b);
+  for (const k of ["major", "minor", "patch"]) if ((x[k] ?? 0) !== (y[k] ?? 0)) return (x[k] ?? 0) - (y[k] ?? 0);
+  if (!x.pre || !y.pre) return x.pre ? -1 : y.pre ? 1 : 0;
+  const xs = x.pre.slice(1).split(".");
+  const ys = y.pre.slice(1).split(".");
+  for (let i = 0; i < Math.min(xs.length, ys.length); i++) {
+    const [p, q] = [xs[i], ys[i]];
+    const [np, nq] = [/^\d+$/.test(p), /^\d+$/.test(q)];
+    if (np && nq) {
+      if (Number(p) !== Number(q)) return Number(p) - Number(q);
+    } else if (np !== nq) {
+      return np ? -1 : 1;
+    } else if (p !== q) {
+      return p < q ? -1 : 1;
+    }
+  }
+  return xs.length - ys.length;
 }
 
 /** The lowest version one comparator allows, or undefined for one that sets no lower bound. */
@@ -53,6 +69,9 @@ function lower(comparator) {
   if (!p) return null;
   if (op === "<" || op === "<=") return undefined;
   if (op === ">") {
+    // Past a prerelease, the release itself: `>1.2.3-beta` allows 1.2.3 (and the prereleases between,
+    // which this does not reach for), so the scan must not start at 1.2.4.
+    if (p.pre) return fmt({ ...p, pre: "" });
     // The next version past it: a patch past a full version, the next minor or major past a partial.
     if (p.patch !== null) return `${p.major}.${p.minor}.${p.patch + 1}`;
     if (p.minor !== null) return `${p.major}.${p.minor + 1}.0`;
@@ -63,8 +82,10 @@ function lower(comparator) {
 }
 
 /**
- * The lowest version an npm range allows, or null when the range names no version: `*`, a tag like
- * `latest`, a URL, a path, `workspace:`. `||` takes the lowest of its alternatives.
+ * The lowest version an npm range allows, or null when it has none: a range with no lower bound
+ * (`*`, `<=4.17.20`) or one that names no version (a tag like `latest`, a URL, a path,
+ * `workspace:`). `||` takes the lowest of its alternatives, so one alternative with no lower bound
+ * leaves the whole range none: `<2.0.0 || >=3.0.0` allows every 1.x, and is not 3.0.0.
  */
 export function lowestVersion(range) {
   const r = String(range ?? "").trim();
@@ -86,13 +107,13 @@ export function lowestVersion(range) {
         if (l !== undefined && (low === undefined || compare(l, low) > 0)) low = l;
       }
     }
-    if (low === null || low === undefined) continue;
+    if (low === null || low === undefined) return null;
     if (best === null || compare(low, best) < 0) best = low;
   }
   return best;
 }
 
-/** What a package.json declares: [{ name, range, version }], version null where none is named. */
+/** What a package.json declares: [{ name, range, version }], version null where the range has no lowest version. */
 export function npmDeclared(text) {
   let pkg;
   try {
@@ -106,11 +127,13 @@ export function npmDeclared(text) {
     for (const [name, spec] of Object.entries(pkg?.[s] && typeof pkg[s] === "object" ? pkg[s] : {})) {
       if (seen.has(name)) continue;
       seen.add(name);
-      // `npm:other@^1` installs `other`: an alias is checked as the package it names.
+      // `npm:other@^1` installs `other`: an alias is checked as the package it names, and keeps
+      // the name it was declared under (`alias`) so that a direct dependency on the same package,
+      // at another version, is checked as well rather than overwritten in the lockfile.
       const alias = /^npm:((?:@[^/@]+\/)?[^@]+)@(.+)$/.exec(String(spec));
       const real = alias ? alias[1] : name;
       const range = alias ? alias[2] : String(spec);
-      out.push({ name: real, range, version: lowestVersion(range) });
+      out.push({ name: real, range, version: lowestVersion(range), ...(alias ? { alias: name } : {}) });
     }
   }
   return out;
@@ -126,12 +149,18 @@ export function declaredNames(text) {
   return deps ? [...new Set(deps.map((d) => d.name))].sort() : null;
 }
 
-/** A package-lock.json, version 3, holding exactly these packages at these versions. */
+/**
+ * A package-lock.json, version 3, holding exactly these packages at these versions. An alias is
+ * written as npm writes one, under the name it was declared with and naming the real package in
+ * `name` (osv-scanner 2.4.0 reads it as that package), so `"old-lodash": "npm:lodash@^4.17.4"` and
+ * `"lodash": "^4.17.21"` are two entries and both versions are scanned.
+ */
 export function lockfileFor(deps) {
   const packages = { "": { name: "wolfproof-lockless", version: "0.0.0", dependencies: {} } };
   for (const d of deps) {
-    packages[""].dependencies[d.name] = d.version;
-    packages[`node_modules/${d.name}`] = { version: d.version };
+    const key = d.alias || d.name;
+    packages[""].dependencies[key] = d.alias ? `npm:${d.name}@${d.version}` : d.version;
+    packages[`node_modules/${key}`] = { ...(d.alias ? { name: d.name } : {}), version: d.version };
   }
   return { name: "wolfproof-lockless", version: "0.0.0", lockfileVersion: 3, requires: true, packages };
 }
