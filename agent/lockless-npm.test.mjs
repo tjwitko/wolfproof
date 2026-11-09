@@ -106,9 +106,10 @@ test("a workspace's member manifests, from `workspaces` and pnpm-workspace.yaml,
     write("tools/cli/package.json", "{}");
     write("web/package.json", "{}");
     write("package.json", JSON.stringify({ workspaces: ["packages/*", "web", "./tools/cli/", "missing", "!packages/b"] }));
+    const none = { unresolved: [], unknown: [] };
     assert.deepEqual(workspaceManifests(dir), {
       manifests: ["packages/a/package.json", "packages/b/package.json", "tools/cli/package.json", "web/package.json"],
-      unresolved: [],
+      ...none,
     });
     // yarn's form, a `**` glob, and pnpm's file, read together.
     write("package.json", JSON.stringify({ workspaces: { packages: ["packages/**", "web"] } }));
@@ -116,13 +117,35 @@ test("a workspace's member manifests, from `workspaces` and pnpm-workspace.yaml,
     assert.deepEqual(workspaceManifests(dir), {
       manifests: ["tools/cli/package.json", "web/package.json"],
       unresolved: ["packages/**", "apps/{x,y}"],
+      unknown: [],
+    });
+    // pnpm's `packages` in the forms a line scanner misses: a flow-style list, and block entries not
+    // indented under the key. Both are the file as written by hand or by pnpm, and both named the
+    // members; reading "no members" from either added the members' findings for the root.
+    write("package.json", JSON.stringify({ dependencies: { lodash: "^4" } }));
+    write("pnpm-workspace.yaml", 'packages: ["packages/*"]\n');
+    assert.deepEqual(workspaceManifests(dir), { manifests: ["packages/a/package.json", "packages/b/package.json"], ...none });
+    write("pnpm-workspace.yaml", "packages:\n- packages/*\n- web\n");
+    assert.deepEqual(workspaceManifests(dir), { manifests: ["packages/a/package.json", "packages/b/package.json", "web/package.json"], ...none });
+    // A file that names members in a form that is not read leaves them unknown, never "none".
+    write("pnpm-workspace.yaml", "packages: [\n");
+    assert.deepEqual(workspaceManifests(dir), { manifests: [], unresolved: [], unknown: ["pnpm-workspace.yaml could not be parsed"] });
+    write("pnpm-workspace.yaml", "packages: packages/*\n");
+    assert.deepEqual(workspaceManifests(dir), { manifests: [], unresolved: [], unknown: ["pnpm-workspace.yaml has no `packages` list"] });
+    write("pnpm-workspace.yaml", "onlyBuiltDependencies: [esbuild]\n");
+    assert.deepEqual(workspaceManifests(dir), { manifests: [], unresolved: [], unknown: ["pnpm-workspace.yaml has no `packages` list"] });
+    write("package.json", JSON.stringify({ workspaces: "packages/*" }));
+    assert.deepEqual(workspaceManifests(dir), {
+      manifests: [],
+      unresolved: [],
+      unknown: ["package.json's `workspaces` is not a list of patterns", "pnpm-workspace.yaml has no `packages` list"],
     });
     // The root itself is never a member, and no workspace field means no members.
     write("package.json", JSON.stringify({ workspaces: ["."] }));
     rmSync(path.join(dir, "pnpm-workspace.yaml"));
-    assert.deepEqual(workspaceManifests(dir), { manifests: [], unresolved: [] });
+    assert.deepEqual(workspaceManifests(dir), { manifests: [], ...none });
     write("package.json", JSON.stringify({ dependencies: { lodash: "^4" } }));
-    assert.deepEqual(workspaceManifests(dir), { manifests: [], unresolved: [] });
+    assert.deepEqual(workspaceManifests(dir), { manifests: [], ...none });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

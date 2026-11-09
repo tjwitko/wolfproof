@@ -366,8 +366,9 @@ has to be fixed before the gate can be required.
   entry, every member's direct dependencies count as direct too (the members named by `workspaces`,
   or by `pnpm-workspace.yaml`): they were scanned without a lockfile exactly as the root's were, so
   a finding one has at its locked version blocks rather than being added. A `workspaces` pattern
-  the command cannot resolve (`**`, `?`, braces, brackets; `name` and `packages/*` it can), or a
-  member it cannot read, leaves the members unknown, so nothing is added and the entry is kept. In
+  the command cannot resolve (`**`, `?`, braces, brackets; `name` and `packages/*` it can), a
+  member it cannot read, or a `pnpm-workspace.yaml` it cannot parse or that has no `packages` list,
+  leaves the members unknown, so nothing is added and the entry is kept. In
   [factory mode](factory-mode.md) committing the lockfile does turn the build red: the base has a
   snapshot, so the entries the command adds are added grants, and block whatever the allowlist says.
   A pipeline that keeps its own snapshot (`--known=<file>`, or the Action's `known` input) avoids it.

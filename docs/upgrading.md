@@ -467,7 +467,8 @@ without a lockfile exactly as the root's were. Now a finding in any member's dir
 blocks, as the root's do, and only packages nothing in the workspace declares directly are added.
 The members are read from `workspaces` (an array, or `{ packages: [...] }`) and from
 `pnpm-workspace.yaml`; a pattern that is not a path or a `*` glob (`**`, `?`, braces, brackets),
-or a member that cannot be read, makes the command add nothing, say so, and keep the entry. A
+a member that cannot be read, or a `pnpm-workspace.yaml` that does not parse or has no `packages`
+list, makes the command add nothing, say so, and keep the entry. A
 workspace whose root lockfile was already added by an earlier run is not affected: the command
 only adds once.
 
