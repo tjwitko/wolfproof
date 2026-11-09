@@ -451,6 +451,12 @@ new.
 declared last was scanned. Each is now its own entry, as npm writes an alias, so a finding in either
 version is reported.
 
+**After v1.16.1: `--json` carries `configError`, and the corpus says why a fixture was INCOMPLETE.**
+The JSON document has a `configError` field, the configuration error that made the run incomplete
+(`.agent-gate.json` still present, for one) or `null`; it was only in the text report. The corpus
+runner prints, under an INCOMPLETE fixture, every control that did not run, every check that could
+not, and the configuration error, instead of a line with no reason.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
