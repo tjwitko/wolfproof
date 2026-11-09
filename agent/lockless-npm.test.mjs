@@ -6,7 +6,7 @@ import { spawnSync } from "child_process";
 import path from "path";
 
 import { fileURLToPath } from "url";
-import { lowestVersion, npmDeclared, lockfileFor, scanWithoutLockfile, scanLockfiles, childSummarizer } from "./lockless-npm.mjs";
+import { lowestVersion, npmDeclared, lockfileFor, scanWithoutLockfile, scanLockfiles, childSummarizer, workspaceManifests } from "./lockless-npm.mjs";
 
 // dep-audit's own banding, run as the gate runs it, in a process of its own. dep-audit up to v1.0.2
 // deletes the importer's environment as it loads (see childSummarizer), the test runner's variables
@@ -87,6 +87,45 @@ test("an alias and a direct dependency on the same package are both in the lockf
     "node_modules/old-lodash": { name: "lodash", version: "4.17.4" },
     "node_modules/lodash": { version: "4.17.21" },
   });
+});
+
+// A root lockfile holds its members' packages, so `wolfproof known` needs the members' manifests to
+// tell their direct dependencies from the lockfile's transitive ones. Paths and `*` globs resolve;
+// anything else is reported rather than guessed at.
+test("a workspace's member manifests, from `workspaces` and pnpm-workspace.yaml, with patterns it cannot resolve named", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "workspaces-"));
+  const write = (rel, text) => {
+    mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    writeFileSync(path.join(dir, rel), text);
+  };
+  try {
+    write("packages/a/package.json", "{}");
+    write("packages/b/package.json", "{}");
+    write("packages/.hidden/package.json", "{}");
+    write("packages/no-manifest/README.md", "");
+    write("tools/cli/package.json", "{}");
+    write("web/package.json", "{}");
+    write("package.json", JSON.stringify({ workspaces: ["packages/*", "web", "./tools/cli/", "missing", "!packages/b"] }));
+    assert.deepEqual(workspaceManifests(dir), {
+      manifests: ["packages/a/package.json", "packages/b/package.json", "tools/cli/package.json", "web/package.json"],
+      unresolved: [],
+    });
+    // yarn's form, a `**` glob, and pnpm's file, read together.
+    write("package.json", JSON.stringify({ workspaces: { packages: ["packages/**", "web"] } }));
+    write("pnpm-workspace.yaml", "# members\npackages:\n  - 'tools/*'\n  - \"apps/{x,y}\"\nother:\n  - packages/a\n");
+    assert.deepEqual(workspaceManifests(dir), {
+      manifests: ["tools/cli/package.json", "web/package.json"],
+      unresolved: ["packages/**", "apps/{x,y}"],
+    });
+    // The root itself is never a member, and no workspace field means no members.
+    write("package.json", JSON.stringify({ workspaces: ["."] }));
+    rmSync(path.join(dir, "pnpm-workspace.yaml"));
+    assert.deepEqual(workspaceManifests(dir), { manifests: [], unresolved: [] });
+    write("package.json", JSON.stringify({ dependencies: { lodash: "^4" } }));
+    assert.deepEqual(workspaceManifests(dir), { manifests: [], unresolved: [] });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // osv-scanner, answering from a table of advisories rather than the network: what it would report

@@ -13,7 +13,7 @@
 //     installs; raising the range's lower bound is the fix either way.
 // Nothing from the project is run: the versions are read from the manifest's text.
 
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, existsSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import path from "path";
@@ -147,6 +147,73 @@ export function npmDeclared(text) {
 export function declaredNames(text) {
   const deps = npmDeclared(text);
   return deps ? [...new Set(deps.map((d) => d.name))].sort() : null;
+}
+
+/**
+ * The package.json of every workspace member a root manifest in `dir` names: the `workspaces` field
+ * (an array, or yarn's `{ packages: [...] }`) and pnpm-workspace.yaml's `packages`, as paths
+ * relative to `dir`. A pattern is a path or a glob whose segments are literal or `*`
+ * (`packages/*`); anything else (`**`, `?`, `{a,b}`, `[ab]`) is listed in `unresolved` instead of
+ * guessed at, and a `!` exclusion is ignored, which can only name more members, never fewer.
+ *
+ * For `wolfproof known`: a root lockfile holds every member's packages, so when it is committed for a
+ * root package.json the snapshot held as having none, the members' direct dependencies have to count
+ * as direct too, or their findings would be added as if nothing had declared them.
+ */
+export function workspaceManifests(dir) {
+  const patterns = [];
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8"));
+    const ws = Array.isArray(pkg?.workspaces) ? pkg.workspaces : Array.isArray(pkg?.workspaces?.packages) ? pkg.workspaces.packages : [];
+    patterns.push(...ws);
+  } catch {
+    /* no root manifest, or unreadable: nothing names members */
+  }
+  try {
+    // A top-level `packages:` list of `- pattern` lines; pnpm-workspace.yaml holds little else.
+    const yaml = readFileSync(path.join(dir, "pnpm-workspace.yaml"), "utf8");
+    let inPackages = false;
+    for (const raw of yaml.split("\n")) {
+      const line = raw.replace(/#.*$/, "").trimEnd();
+      if (!line.trim()) continue;
+      if (/^\S/.test(line)) inPackages = /^packages\s*:/.test(line);
+      else if (inPackages) {
+        const m = /^\s*-\s*(.+?)\s*$/.exec(line);
+        if (m) patterns.push(m[1].replace(/^["']|["']$/g, ""));
+      }
+    }
+  } catch {
+    /* no pnpm workspace file */
+  }
+  const manifests = new Set();
+  const unresolved = [];
+  for (const raw of patterns) {
+    const pattern = String(raw).trim().replace(/\/+$/, "");
+    if (!pattern || pattern.startsWith("!")) continue;
+    const segments = pattern.split("/").filter((s) => s && s !== ".");
+    if (segments.some((s) => s !== "*" && /[*?[\]{}]/.test(s))) {
+      unresolved.push(pattern);
+      continue;
+    }
+    let dirs = [dir];
+    for (const s of segments) {
+      dirs = dirs.flatMap((d) => {
+        if (s !== "*") return [path.join(d, s)];
+        try {
+          return readdirSync(d, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+            .map((e) => path.join(d, e.name));
+        } catch {
+          return [];
+        }
+      });
+    }
+    for (const d of dirs) {
+      const m = path.join(d, "package.json");
+      if (path.relative(dir, m) !== "package.json" && existsSync(m)) manifests.add(path.relative(dir, m));
+    }
+  }
+  return { manifests: [...manifests].sort(), unresolved };
 }
 
 /**

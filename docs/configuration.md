@@ -362,7 +362,12 @@ has to be fixed before the gate can be required.
   again once the scan works adds them. A lockfile committed at a workspace root covers every member's
   `package.json`, and holds every member's packages and the root's, so which of its findings are one
   member's cannot be told: nothing is added for a member's entry, the command says so, and the entry
-  is kept for you to delete once the lockfile's findings are fixed or reviewed. In
+  is kept for you to delete once the lockfile's findings are fixed or reviewed. For the root's own
+  entry, every member's direct dependencies count as direct too (the members named by `workspaces`,
+  or by `pnpm-workspace.yaml`): they were scanned without a lockfile exactly as the root's were, so
+  a finding one has at its locked version blocks rather than being added. A `workspaces` pattern
+  the command cannot resolve (`**`, `?`, braces, brackets; `name` and `packages/*` it can), or a
+  member it cannot read, leaves the members unknown, so nothing is added and the entry is kept. In
   [factory mode](factory-mode.md) committing the lockfile does turn the build red: the base has a
   snapshot, so the entries the command adds are added grants, and block whatever the allowlist says.
   A pipeline that keeps its own snapshot (`--known=<file>`, or the Action's `known` input) avoids it.
