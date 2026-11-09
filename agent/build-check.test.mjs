@@ -133,7 +133,12 @@ import { chmodSync } from "fs";
 
 const GO_PROJECT = { "go.mod": "module example.com/x\n\ngo 1.22\n", "main.go": "package main\n\nfunc main() {}\n" };
 
-function withFakeDocker(mode, fn) {
+// `timeoutMs` is the docker timeout the check runs under. 1.5s ends a hanging call quickly, and is
+// enough when the hanging call is the first one made. When the fake must *answer* a call inside the
+// timeout -- hang-run, where `docker pull` has to exit 0 before `docker run` hangs -- a test needs
+// more: under the full suite's load, starting that shell script has taken over 1.5s, and the check
+// then reported the pull as the call that did not answer, which failed the test for the wrong reason.
+function withFakeDocker(mode, fn, timeoutMs = 1500) {
   const bin = mkdtempSync(path.join(tmpdir(), "fakedocker-"));
   const docker = path.join(bin, "docker");
   writeFileSync(
@@ -147,7 +152,7 @@ function withFakeDocker(mode, fn) {
   chmodSync(docker, 0o755);
   const saved = { PATH: process.env.PATH, T: process.env.WOLFPROOF_DOCKER_TIMEOUT_MS };
   process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
-  process.env.WOLFPROOF_DOCKER_TIMEOUT_MS = "1500";
+  process.env.WOLFPROOF_DOCKER_TIMEOUT_MS = String(timeoutMs);
   try {
     return fn();
   } finally {
@@ -185,13 +190,21 @@ test("a timeout is not reported as docker being missing", () => {
 test("a go build that never finishes ends as could-not-run, not as build errors", () => {
   // A build that runs out of time says nothing about whether the code compiles. Reporting it as
   // build errors would block on a verdict nobody reached.
+  //
+  // The pull that precedes the build answers at once, and must do so inside the timeout for the
+  // hang to be the build's: 6s, four times what starting the fake has taken under full-suite load.
   project(GO_PROJECT, (dir) =>
-    withFakeDocker("hang-run", () => {
-      const out = buildCheck(dir);
-      assert.ok(out.includes(UNAVAILABLE));
-      assert.match(out, /did not finish within/);
-      assert.doesNotMatch(out, /BUILD ERRORS/);
-    })
+    withFakeDocker(
+      "hang-run",
+      () => {
+        const out = buildCheck(dir);
+        assert.ok(out.includes(UNAVAILABLE));
+        assert.doesNotMatch(out, /did not answer within/, "the pull, which answers at once, ran out of time before the build hung");
+        assert.match(out, /did not finish within/);
+        assert.doesNotMatch(out, /BUILD ERRORS/);
+      },
+      6000
+    )
   );
 });
 
