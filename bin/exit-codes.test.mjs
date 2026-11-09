@@ -182,6 +182,8 @@ test("a project with only .agent-gate.json exits 3 and says to rename it", () =>
     assert.equal(r.code, 3, `exit ${r.code}`);
     const doc = JSON.parse(r.stdout);
     assert.equal(doc.incomplete, true);
+    // The JSON says why, as the human report does: incomplete with no reason is no use to a reader.
+    assert.match(String(doc.configError), /\.agent-gate\.json is no longer read: agent-gate was renamed wolfproof/);
     const human = cli([path.join(d, "proj")]);
     assert.match(human.stdout, /!! \.agent-gate\.json is no longer read: agent-gate was renamed wolfproof/);
   } finally {
