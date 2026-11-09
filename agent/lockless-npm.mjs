@@ -13,11 +13,12 @@
 //     installs; raising the range's lower bound is the fix either way.
 // Nothing from the project is run: the versions are read from the manifest's text.
 
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, existsSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import path from "path";
 import { pathToFileURL } from "url";
+import { parse as parseYaml } from "yaml";
 
 // The sections an install reads. peerDependencies are the host's to install, not this package's.
 const SECTIONS = ["dependencies", "devDependencies", "optionalDependencies"];
@@ -147,6 +148,88 @@ export function npmDeclared(text) {
 export function declaredNames(text) {
   const deps = npmDeclared(text);
   return deps ? [...new Set(deps.map((d) => d.name))].sort() : null;
+}
+
+/**
+ * The package.json of every workspace member a root manifest in `dir` names: the `workspaces` field
+ * (an array, or yarn's `{ packages: [...] }`) and pnpm-workspace.yaml's `packages`, as paths
+ * relative to `dir`. A pattern is a path or a glob whose segments are literal or `*`
+ * (`packages/*`); anything else (`**`, `?`, `{a,b}`, `[ab]`) is listed in `unresolved` instead of
+ * guessed at, and a `!` exclusion is ignored, which can only name more members, never fewer. A file
+ * that names members in a form this does not read -- a pnpm-workspace.yaml that does not parse or
+ * has no `packages` list, a `workspaces` that is not a list -- is described in `unknown`, since
+ * "none found" would be wrong in exactly the case the caller must not get wrong.
+ *
+ * For `wolfproof known`: a root lockfile holds every member's packages, so when it is committed for a
+ * root package.json the snapshot held as having none, the members' direct dependencies have to count
+ * as direct too, or their findings would be added as if nothing had declared them.
+ */
+export function workspaceManifests(dir) {
+  const patterns = [];
+  const unknown = [];
+  const strings = (v) => Array.isArray(v) && v.every((s) => typeof s === "string");
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8"));
+    const ws = pkg?.workspaces;
+    if (ws === undefined || ws === null) {
+      /* no workspaces field: nothing names members */
+    } else if (strings(ws)) patterns.push(...ws);
+    else if (strings(ws?.packages)) patterns.push(...ws.packages);
+    else unknown.push("package.json's `workspaces` is not a list of patterns");
+  } catch {
+    /* no root manifest, or unreadable: the caller reads it too and reports that itself */
+  }
+  // pnpm's file is YAML, and `packages` comes in every form YAML allows a list: block, flow, indented
+  // or not. The first version read it line by line and saw no members in `packages: ["a/*"]` or in
+  // an unindented `- a/*`, so the members' findings were added as if nothing had declared them.
+  let yamlText = null;
+  try {
+    yamlText = readFileSync(path.join(dir, "pnpm-workspace.yaml"), "utf8");
+  } catch (e) {
+    if (e?.code !== "ENOENT") unknown.push("pnpm-workspace.yaml could not be read");
+  }
+  if (yamlText !== null) {
+    let doc;
+    try {
+      doc = parseYaml(yamlText);
+    } catch {
+      unknown.push("pnpm-workspace.yaml could not be parsed");
+      doc = undefined;
+    }
+    if (doc !== undefined) {
+      if (strings(doc?.packages)) patterns.push(...doc.packages);
+      else unknown.push("pnpm-workspace.yaml has no `packages` list");
+    }
+  }
+  const manifests = new Set();
+  const unresolved = [];
+  for (const raw of patterns) {
+    const pattern = raw.trim().replace(/\/+$/, "");
+    if (!pattern || pattern.startsWith("!")) continue;
+    const segments = pattern.split("/").filter((s) => s && s !== ".");
+    if (segments.some((s) => s !== "*" && /[*?[\]{}]/.test(s))) {
+      unresolved.push(pattern);
+      continue;
+    }
+    let dirs = [dir];
+    for (const s of segments) {
+      dirs = dirs.flatMap((d) => {
+        if (s !== "*") return [path.join(d, s)];
+        try {
+          return readdirSync(d, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+            .map((e) => path.join(d, e.name));
+        } catch {
+          return [];
+        }
+      });
+    }
+    for (const d of dirs) {
+      const m = path.join(d, "package.json");
+      if (path.relative(dir, m) !== "package.json" && existsSync(m)) manifests.add(path.relative(dir, m));
+    }
+  }
+  return { manifests: [...manifests].sort(), unresolved, unknown };
 }
 
 /**

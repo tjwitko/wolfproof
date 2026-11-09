@@ -457,6 +457,21 @@ The JSON document has a `configError` field, the configuration error that made t
 runner prints, under an INCOMPLETE fixture, every control that did not run, every check that could
 not, and the configuration error, instead of a line with no reason.
 
+### After v1.16.2
+
+**After v1.16.2: `wolfproof known` counts a workspace's members' direct dependencies as direct when
+it adds a root lockfile's findings.** A root `package.json` with `workspaces` and a snapshot entry
+for its missing lockfile, once that lockfile was committed, had every finding added that the root
+did not declare directly, the members' direct dependencies among them, though those were scanned
+without a lockfile exactly as the root's were. Now a finding in any member's direct dependency
+blocks, as the root's do, and only packages nothing in the workspace declares directly are added.
+The members are read from `workspaces` (an array, or `{ packages: [...] }`) and from
+`pnpm-workspace.yaml`; a pattern that is not a path or a `*` glob (`**`, `?`, braces, brackets),
+a member that cannot be read, or a `pnpm-workspace.yaml` that does not parse or has no `packages`
+list, makes the command add nothing, say so, and keep the entry. A
+workspace whose root lockfile was already added by an earlier run is not affected: the command
+only adds once.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
