@@ -173,14 +173,17 @@ export async function runKnown(args, { env = process.env, gate = null } = {}) {
         if (blocking.has(id) && !after.some((e) => e.id === id) && !added.some((e) => e.id === id)) added.push({ id, where: `${manifest}'s new lockfile` });
       }
     }
-    for (const { manifest, refused, scanFailed } of relocked.filter((r) => r.refused)) {
+    for (const { manifest, refused, scanFailed, workspace } of relocked.filter((r) => r.refused)) {
       out.push(
         scanFailed
           ? `not added: the findings of the lockfile committed for ${manifest}, because ${refused}. Nothing was added for it, and ` +
               `the entry for ${manifest} is kept (the gate lists it as matching nothing): run this again once the scan works.`
-          : `not added: the findings of the lockfile committed for ${manifest}, because ${refused}. A dependency declared since the ` +
-              `snapshot is not one it held, so the lockfile's findings block until fixed or reviewed. The entry for ${manifest} is kept ` +
-              `(the gate lists it as matching nothing): declare only what it lists, commit the lockfile, and run this again; or delete it.`
+          : workspace
+            ? `not added: the findings of the lockfile committed for ${manifest}, because ${refused}. The lockfile's findings block ` +
+                `until fixed or reviewed. The entry for ${manifest} is kept (the gate lists it as matching nothing): delete it once they are.`
+            : `not added: the findings of the lockfile committed for ${manifest}, because ${refused}. A dependency declared since the ` +
+                `snapshot is not one it held, so the lockfile's findings block until fixed or reviewed. The entry for ${manifest} is kept ` +
+                `(the gate lists it as matching nothing): declare only what it lists, commit the lockfile, and run this again; or delete it.`
       );
     }
     const gone = before.filter((e) => stale.has(e.id));
