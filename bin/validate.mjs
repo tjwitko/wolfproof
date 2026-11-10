@@ -437,10 +437,12 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         }
       }
       r.advisories = kept;
-      // Code in a language nothing reads, and the files every check skipped (over the size limit,
-      // or unreadable). The default mode prints these above the verdict for a reader; here each is
-      // a check that could not run against that code, unless the policy accepts it. Two ids, so a
-      // pipeline can accept a vendored bundle over the limit without accepting a language unread.
+      // Code in a language nothing reads, and the data and configuration files the checks skipped
+      // (over the size limit, or unreadable). The default mode prints these above the verdict for a
+      // reader; here each is a check that could not run against those files, unless the policy
+      // accepts it. Two ids, so a pipeline can accept a 600 KB values file without accepting a
+      // language unread. A skipped code file is not among them: the gate reports it as could-not-run
+      // itself, in both modes, and no policy drops it.
       for (const [id, line] of [
         ["unread-code", unreadLanguagesLine(coverage)],
         ["skipped-files", skippedFilesLine(coverage)],
@@ -636,7 +638,8 @@ function machine(result) {
       // Per requirement text: sentences, how many a check read, and the ones none did.
       requirementsRead: result.requirementsRead,
       notRead: result.coverage.unread,
-      // Files every check skipped: over the size limit, or unreadable.
+      // Files a check that reads their kind skipped: over the size limit, or unreadable. `code`
+      // marks the ones that are could-not-run; `coverage` below is the line for the rest.
       skippedFiles: result.coverage.skipped,
       coverage: coverageLine(result.coverage),
       exitCode: result.exitCode,

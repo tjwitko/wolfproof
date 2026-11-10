@@ -476,7 +476,8 @@ only adds once.
 
 Six changes of one shape: a part of the gate that could not read its input said "nothing there",
 which is the answer that passes. Each now says what it did not read, and nothing is judged over an
-input that was not read. Two of them can turn a passing project red; they are marked.
+input that was not read. Three of them can change a passing project's verdict, two to blocked and
+one to could-not-run; they are marked.
 
 **After v1.16.3: a `package.json` that does not parse is unscanned, not "0 checked".** The scan of
 a `package.json` with no lockfile reported one that was not JSON as `(0 checked)`, which counted as
@@ -489,15 +490,29 @@ stands. Can turn a passing project red: only one whose `package.json` is not val
 with no `FROM`: its end-of-life finding left the run with nothing in could-not-run, and its snapshot
 entries matched nothing. The run now exits 3 naming the file, and its entries are not judged.
 
-**After v1.16.3: a source file over 512 KB is named above the verdict.** Every check that reads
-source skips a file that size (the injection and IaC-template checks read up to 1 MB), and nothing
-said so: a project whose only source file was 545 KB passed, with four checks reporting it had no
-source files. The "not read" line above the verdict now lists such files with their size, `--json`
-lists them under `skippedFiles`, and a snapshot entry naming one is not judged. The per-check "no
-source files" lines are unchanged; the line above the verdict is what says why. In factory mode it
-is the `skipped-files` advisory, could-not-run by default like `unread-code`, and a vendored bundle
-over the limit makes the run incomplete until the policy drops it. Of the 48 pinned calibration
-projects, six have such a file; every one is a minified bundle, a data file or a lockfile.
+**After v1.16.3: a code file the checks did not read is could-not-run.** Authentication, code
+quality, immutability, retention, secret rotation, the manifest contract and the test check stop
+reading a source file at 512 KB, and said nothing: a project whose only source file was 600 KB, with
+an open `DELETE /admin` route in it, passed, with four checks reporting it had no source files. A
+code file over the limit for its language, or one that cannot be opened, now makes the run exit 3,
+in the default mode and in factory mode, with a `source_files:` entry naming each file, its size and
+the reason. The limit is 512 KB for every language except C and C++, which only injection reads,
+up to 1 MB; a file between the two limits is marked as within injection's. A snapshot entry naming
+such a file is not judged. Can turn a passing project to exit 3: split the file, or, when it is
+generated or vendored, move it under `dist/` or `build/`, or declare its directory a fixture with a
+reason. No factory policy drops it; a fixture marker there is a grant the allowlist has to approve.
+Of the 34 calibration checkouts, four have such a file and now exit 3: CTFd (six JavaScript
+bundles), juice-shop (`three.js`), WebGoat (`ace.js`) and NetBox (a 6 MB table of place codes in a
+`.py` file).
+
+**After v1.16.3: a YAML, SQL or Terraform file over 512 KB is named above the verdict.** Immutability,
+retention, the Kubernetes manifest check and the IAM and manifest contracts skip one that size, or
+one they cannot open, and the "not read" line above the verdict now lists them. The run's exit code
+does not change. In factory mode the line is the `skipped-files` advisory, could-not-run by default
+like `unread-code`, and a policy can drop it. `--json` lists these and the code files above under
+`skippedFiles`, each with `code` true or false. A lockfile the dependency scanner reads
+(`pnpm-lock.yaml` is the one with an extension these checks read) is not listed at any size, and a
+symbolic link to a file that is not there is listed and is never could-not-run.
 
 **After v1.16.3: dependencies declared indirectly need a lockfile.** A `pyproject.toml` with
 `dynamic = ["dependencies"]` (setuptools, reading them from a requirements file), one whose
@@ -518,10 +533,23 @@ without a lockfile still does not scan peers.
 **After v1.16.3: Helm templates and YAML that does not parse are not read as manifests.** The
 Kubernetes manifest, manifest-contract and IAM-contract checks read a file that failed to parse as
 whatever the parser salvaged, and read `{{ .Values.image }}` as nested mappings rather than as the
-unexpanded value it is. Neither is read now. The checks name the files they did not read, a
-variable set only in a file not read is unknown rather than missing, and a template is checked by
-rendering it (`helm template`) and running the gate over the output. A document cut short in a way
-that still parses is read as it stands; nothing in its text says it is incomplete.
+unexpanded value it is. Neither is read now, and the checks name the files they did not read. A
+file is a template when an unquoted `{{ … }}` stands where YAML expects a key, a value or a list
+item, which the parsed document decides: `{{` in a comment, in a quoted or plain string or in a
+block of text (a Prometheus rule, an Argo parameter, a container argument, `${{ }}` in a workflow)
+is text, and that file is read exactly as before. A variable the code requires is unknown rather
+than missing only when a file that was not read could have set it; a file that parsed and holds no
+workload changes nothing. A template is checked by rendering it (`helm template`) and running the
+gate over the output. A document cut short in a way that still parses is read as it stands; nothing
+in its text says it is incomplete.
+
+In factory mode a file that was not read is never information. Each message has its own advisory
+id, all of class not-checked, so each blocks until the file is rendered or repaired, or the policy
+says otherwise: `k8s-yaml-unread`, `k8s-none-read` (no manifest was read and some YAML was not),
+`iam-yaml-unread`, `manifest-contract-unread` and `manifest-contract-no-workload-read`. That
+includes a file that is not a manifest and does not parse as YAML, such as a Rails
+`config/database.yml` written in ERB: three of the 34 calibration checkouts have a file that does
+not parse (juice-shop, Mastodon, RailsGoat), none of them a manifest, and none lost a finding.
 
 ## Keeping current
 

@@ -213,3 +213,33 @@ test("a Helm template and a YAML file that does not parse are not read as manife
   assert.equal(advisories.length, 1, advisories.join("\n"));
   assert.match(advisories[0], /^kubernetes manifests: 1 YAML file\(s\) were not read — chart\/templates\/deployment\.yaml \(a Helm or Go template, which is not a manifest until it is rendered\)\. Nothing in them was checked.*helm template/);
 });
+
+// Review of the first version, repro A. A Deployment whose image is `example.com/web:${TAG}` blocks.
+// With `# rendered from chart {{ .Chart.Name }}` on line 1 the text held two braces, the file became
+// "a Helm template", and the check said "not checked — no Kubernetes manifests read": one comment
+// switched the interpolation rule off for the file. The comment is a comment; the file is read.
+const UNEXPANDED_UNDER_A_COMMENT =
+  "# rendered from chart {{ .Chart.Name }}\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\nspec:\n  replicas: 1\n" +
+  "  selector:\n    matchLabels:\n      app: web\n  template:\n    metadata:\n      labels:\n        app: web\n" +
+  "    spec:\n      containers:\n        - name: web\n          image: example.com/web:${TAG}\n";
+
+test("a comment holding {{ does not make a manifest a template: its ${...} image still blocks", () => {
+  const { failures, advisories } = run({ "k8s/deploy.yaml": UNEXPANDED_UNDER_A_COMMENT }, k8sManifestFailures);
+  assert.equal(failures.length, 1, failures.join("\n"));
+  assert.match(failures[0], /^kubernetes manifests: 1 value\(s\) contain \$\{\.\.\.\} interpolation that Kubernetes never expands — k8s\/deploy\.yaml: spec\.template\.spec\.containers\[0\]\.image = example\.com\/web:\$\{TAG\}/);
+  assert.equal(advisories.some((a) => /not read|not checked/.test(a)), false, advisories.join("\n"));
+  // The same file without the comment, for the same answer.
+  const plain = run({ "k8s/deploy.yaml": UNEXPANDED_UNDER_A_COMMENT.split("\n").slice(1).join("\n") }, k8sManifestFailures);
+  assert.deepEqual(plain.failures, failures);
+});
+
+// Repro B's other half: the workflow beside the manifest was named as a Helm template.
+test("a workflow's ${{ }} expression is not a Helm template, and the workflow is not named as unread", () => {
+  const workflow = 'name: ci\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "${{ github.sha }}"\n      - uses: actions/checkout@v4\n        with:\n          ref: ${{ github.sha }}\n';
+  const r = run({ ".github/workflows/ci.yml": workflow, "k8s/deployment.yaml": deployment({ probe: true }), "app/main.py": APP_WITH_HEALTH }, checkK8sManifests);
+  assert.equal(r.ran, true);
+  assert.deepEqual(r.unread, []);
+  // Alone, it is a project with no manifests, as it was before the reader existed.
+  const alone = run({ ".github/workflows/ci.yml": workflow }, checkK8sManifests);
+  assert.equal(alone.unknown, "no Kubernetes manifests found, in YAML or in Terraform");
+});

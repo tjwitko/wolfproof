@@ -12,9 +12,12 @@ The checks fall into two groups:
   infrastructure policy, base images and the build. The checks you would expect, still necessary.
 
 A check that could not run — a scanner missing, a control unreachable — makes the whole run exit 3,
-never a pass. Code in a language nothing reads is named above the verdict, and so is a source file
-over 512 KB, which no check that reads source opens (injection and the IaC templates read up to
-1 MB); `--json` lists them under `skippedFiles`.
+never a pass. So does a code file the checks for its language did not read: one over 512 KB, which
+only injection opens (it reads up to 1 MB, and is the one check that reads C and C++), or one that
+cannot be opened. The run names the file and exits 3; split it, or move a generated bundle under
+`dist/` or `build/`. Code in a language nothing reads is named above the verdict, and so is a YAML,
+SQL or Terraform file over 512 KB. A lockfile the dependency scanner reads is not listed, whatever
+its size. `--json` lists every such file under `skippedFiles`, code or not.
 
 ## What scanners miss
 
@@ -270,10 +273,14 @@ Validators: `manifest_contract`, `k8s_manifest`, `iam_contract`.
 
 **Reports without blocking:** a manifest that pulls in a whole ConfigMap or Secret with `envFrom`,
 whose keys cannot be checked; a managed-policy name this check does not recognise and cannot show is
-a near miss for a real one; a YAML file none of the three read — a Helm or Go template (`{{ … }}`),
-or one that does not parse — named by file. A variable set only in a file not read is unknown, not
-missing. Render templates with `helm template` and run the gate over the output. A document cut
-short in a way that still parses is read as it stands.
+a near miss for a real one; a YAML file none of the three read — a Helm or Go template, or one that
+does not parse — named by file. A file is a template when an unquoted `{{ … }}` stands where YAML
+expects a key, a value or a list item, which is decided from the parsed document: `{{` in a comment,
+in a quoted or plain string, or in a block of text (a Prometheus rule, an Argo parameter, `${{ }}`
+in a workflow) is text, and the file is read. A variable the code requires and no manifest sets is
+missing, and blocks, unless a file that was not read could have set it; a file that parsed and holds
+no workload never makes it unknown. Render templates with `helm template` and run the gate over the
+output. A document cut short in a way that still parses is read as it stands.
 
 **Covers:** Kubernetes YAML and Terraform on AWS, against the application source beside them.
 
@@ -637,9 +644,11 @@ Listed so that a clean verdict is read for what it is.
 - **Blocking infrastructure policy beyond Terraform on AWS and Kubernetes.** Terraform for Azure and
   GCP, CloudFormation, ARM and Bicep get checkov's findings as advisories; none of them can block.
   Pulumi programs are not read as infrastructure at all.
-- **Helm templates, until rendered.** A file holding `{{ … }}` is not a manifest yet, so the three
-  checks that read manifests skip it and say so. Render it (`helm template`) and run the gate over
-  the output; the workload-identity control reads templates as it always did.
+- **Helm templates, until rendered.** A file with an unquoted `{{ … }}` where YAML expects a key, a
+  value or a list item is not a manifest yet, so the three checks that read manifests skip it and
+  say so. Render it (`helm template`) and run the gate over the output; the workload-identity
+  control reads templates as it always did. A template whose every expression is quoted parses as a
+  manifest holding those strings, and is read as one.
 - **Requirements nobody stated.** The task-gated checks run only when the task or a baseline states
   the requirement.
 - **A commit made with `--no-verify`.** The hook is a convenience. CI with the gate as a required check

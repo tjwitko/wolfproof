@@ -9,13 +9,39 @@
 // `${...}` rule, which exists for exactly this -- a value the cluster will receive unexpanded -- did
 // not see it. Neither is read any more; the caller is told which files it did not read, and says so.
 //
+// What makes a file a template is braces that are YAML structure, and the parsed document decides
+// it, not the text. The first version of this file tested the text for `{{`, and one comment --
+// `# rendered from chart {{ .Chart.Name }}` -- switched all three checks off for a Deployment whose
+// `${TAG}` image blocks, while a workflow's `echo "${{ github.sha }}"` turned a missing variable
+// into an unknown. `{{` in a comment, in a quoted or plain scalar, or in a block scalar (a
+// Prometheus rule, an Argo parameter, a container argument, `${{ }}` in a workflow) is text, the
+// file parses as what it says, and it is read. A template whose every expression is quoted parses
+// as a manifest holding those strings and is read as one too, as it was before this file existed.
+//
 // A truncated document that still parses is not caught here: there is nothing in the text that says
 // it is incomplete. That is a limit, named in docs/checks.md.
-import { parseAllDocuments } from "yaml";
+import { parseAllDocuments, visit, isMap } from "yaml";
 
-// Go template delimiters. A YAML flow mapping directly inside another with no space between the
-// braces is legal and unheard of; a Helm template is in half the repositories with a chart.
-const TEMPLATE = /\{\{/;
+const TEMPLATE_WHY = "a Helm or Go template, which is not a manifest until it is rendered";
+
+// `{{ x }}` where YAML expects a node is a flow mapping whose key is a flow mapping, the two opening
+// braces adjacent. `{ {a: 1}: 2 }` is legal YAML and not a template, hence the adjacency; `{{a: 1}: 2}`
+// is legal and unheard of, and a Helm template is in half the repositories with a chart. Asked of
+// the document the parser built, salvaged or not: a control line (`{{- if .Values.x }}`) leaves
+// errors behind and its two mappings with them.
+function isTemplate(doc) {
+  let found = false;
+  visit(doc, {
+    Map(_, node) {
+      if (!node.flow || !node.range) return undefined;
+      const braces = node.items.some((p) => isMap(p.key) && p.key.flow && p.key.range && p.key.range[0] === node.range[0] + 1);
+      if (!braces) return undefined;
+      found = true;
+      return visit.BREAK;
+    },
+  });
+  return found;
+}
 
 /**
  * The documents in a YAML file, as plain objects, with the reason the file was not read instead
@@ -23,9 +49,12 @@ const TEMPLATE = /\{\{/;
  * sentence.
  */
 export function yamlDocs(text, { maxAliasCount = -1 } = {}) {
-  if (TEMPLATE.test(text)) return { docs: [], unread: "a Helm or Go template, which is not a manifest until it is rendered" };
+  const parsed = parseAllDocuments(text);
+  // Before the errors: a template's control lines do not parse, and "a template" is the reason that
+  // tells its author what to do about it.
+  if (parsed.some(isTemplate)) return { docs: [], unread: TEMPLATE_WHY };
   const docs = [];
-  for (const d of parseAllDocuments(text)) {
+  for (const d of parsed) {
     if (d.errors?.length) {
       const first = String(d.errors[0].message || d.errors[0]).split("\n")[0].replace(/:$/, "");
       return { docs: [], unread: `did not parse as YAML (${first})` };
