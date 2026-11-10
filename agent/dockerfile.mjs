@@ -214,12 +214,19 @@ export function dockerfileFailures(projectDir, { env = process.env, checkov = tr
   const unresolved = [];
   const located = [];
   const reviewed = [];
+  // A Dockerfile this could not read. Skipped quietly once, which read as a file with no FROM: its
+  // end-of-life finding vanished from the run, and its snapshot entries matched nothing, so
+  // `wolfproof known` removed them. Could-not-run, and the gate does not judge its entries.
+  const unreadable = [];
+  const couldNotRun = [];
 
   for (const f of files) {
     let text;
     try {
       text = readFileSync(path.join(projectDir, f), "utf8");
-    } catch {
+    } catch (e) {
+      unreadable.push(f);
+      couldNotRun.push(`${f} could not be read (${e?.code || e?.message}), so its base images were not checked for end of life`);
       continue;
     }
     // One finding per Dockerfile, however many FROMs it has: two stages on node:20 are one mistake
@@ -271,5 +278,5 @@ export function dockerfileFailures(projectDir, { env = process.env, checkov = tr
     const ckv = checkovDockerfiles(projectDir, files);
     if (ckv) advisories.push(ckv);
   }
-  return { failures, advisories, reviewed, ids: located.map((r) => r.id), located };
+  return { failures, advisories, reviewed, ids: located.map((r) => r.id), located, couldNotRun, unreadable };
 }

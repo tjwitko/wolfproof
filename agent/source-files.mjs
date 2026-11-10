@@ -20,7 +20,11 @@ export const READ_EXT = new Set([
   ".yaml", ".yml",
 ]);
 
-const MAX_FILE_BYTES = 512 * 1024;
+// The largest file a source check reads. A file over it is skipped by every check that reads
+// source (sast and the IaC templates read up to twice this), and agent/coverage.mjs names it above
+// the verdict: skipped quietly, a 545 KB server.js with two open admin routes read as "no source
+// files in a language this check recognises", and the gate passed.
+export const MAX_FILE_BYTES = 512 * 1024;
 
 // Test files, defined once for the two checks that ask about them: code quality (are there tests that
 // assert something) and the tests check (are there tests to run). Each used to keep its own pattern,

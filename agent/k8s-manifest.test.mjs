@@ -192,3 +192,24 @@ test("neither YAML nor Terraform workloads means not-checked, not a pass", () =>
   const { advisories } = run({ "app/main.py": APP_WITH_HEALTH }, k8sManifestFailures);
   assert.match(advisories[0], /in YAML or in Terraform/);
 });
+
+// `parseAllDocuments` never throws: a file that did not parse came back as whatever the parser
+// salvaged and was read as a complete manifest, and a Helm template's `{{ .Values.image }}` parsed as
+// nested mappings rather than tripping the `${...}` rule. Neither is read now, and both are named.
+const HELM =
+  "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {{ .Release.Name }}\nspec:\n  template:\n    spec:\n" +
+  "      containers:\n      - name: app\n        image: {{ .Values.image }}\n        resources: {{ toYaml .Values.resources | nindent 10 }}\n";
+const BROKEN = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: a\n bad: b\nspec:\n  resources: {}\n";
+
+test("a Helm template and a YAML file that does not parse are not read as manifests, and are named", () => {
+  const r = run({ "chart/templates/deployment.yaml": HELM, "k8s/broken.yaml": BROKEN }, checkK8sManifests);
+  assert.equal(r.ran, false);
+  assert.match(r.unknown, /^no Kubernetes manifests read; 2 YAML file\(s\) were not read — chart\/templates\/deployment\.yaml \(a Helm or Go template, which is not a manifest until it is rendered\); k8s\/broken\.yaml \(did not parse as YAML \(All mapping items must start at the same column at line 5, column 1\)\)$/);
+  assert.deepEqual(r.unread.map((u) => u.file), ["chart/templates/deployment.yaml", "k8s/broken.yaml"]);
+
+  // Beside a manifest it can read, the check runs over that one and says what it did not read.
+  const { failures, advisories } = run({ "chart/templates/deployment.yaml": HELM, "k8s/deployment.yaml": deployment({ probe: true }), "app/main.py": APP_WITH_HEALTH }, k8sManifestFailures);
+  assert.deepEqual(failures, []);
+  assert.equal(advisories.length, 1, advisories.join("\n"));
+  assert.match(advisories[0], /^kubernetes manifests: 1 YAML file\(s\) were not read — chart\/templates\/deployment\.yaml \(a Helm or Go template, which is not a manifest until it is rendered\)\. Nothing in them was checked.*helm template/);
+});

@@ -214,3 +214,21 @@ test("a genuine read is still required, and a comparison is a read", () => {
     assert.match(failures[0], /WEBHOOK_SECRET/);
   }
 });
+
+// A Helm template supplied some variables and not others, depending on what the parser salvaged
+// from `{{ .Values.x }}`. A file not read can only have supplied more, so with nothing missing the
+// answer stands, and with something missing the answer is unknown, not "missing".
+test("a variable set only in a Helm template nothing read is unknown, not missing", () => {
+  const code = 'import os\nKEY = os.getenv("SUPPORT_API_KEY")\n';
+  const tmpl =
+    "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {{ .Release.Name }}\nspec:\n  template:\n    spec:\n      containers:\n" +
+    "      - name: svc\n        image: svc\n        env:\n        - name: SUPPORT_API_KEY\n          value: {{ .Values.key }}\n";
+  const alone = run({ "src/main.py": code, "chart/templates/deployment.yaml": tmpl }, checkManifestContract);
+  assert.deepEqual(alone.missing, []);
+  assert.match(alone.unknown, /no Kubernetes workload was found to supply them; 1 YAML file\(s\) were not read \(chart\/templates\/deployment\.yaml: a Helm or Go template/);
+  const beside = run({ "src/main.py": code, "chart/templates/deployment.yaml": tmpl, "k8s/deployment.yaml": deployment(["S3_BUCKET"]) }, checkManifestContract);
+  assert.deepEqual(beside.missing, []);
+  assert.match(beside.unknown, /^1 variable\(s\) the code requires are set by no manifest that was read \(SUPPORT_API_KEY\), but 1 YAML file\(s\) were not read \(chart\/templates\/deployment\.yaml: a Helm or Go template/);
+  const fine = run({ "src/main.py": code, "chart/templates/deployment.yaml": tmpl, "k8s/deployment.yaml": deployment(["SUPPORT_API_KEY"]) }, checkManifestContract);
+  assert.deepEqual(fine, { ran: true, missing: [], unknown: null });
+});

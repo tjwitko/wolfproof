@@ -173,7 +173,10 @@ avoids this.
 ```
 
 The policy maps an advisory id, an id family (`sast` for every `sast:<category>`), or a class name to
-`block`, `drop` or `incomplete`, most specific first.
+`block`, `drop` or `incomplete`, most specific first. The two lines the default mode prints above the
+verdict are advisories here: `unread-code` for code in a language nothing reads, and `skipped-files`
+for the files every check skipped — over 512 KB, or unreadable — so a vendored bundle can be accepted
+without accepting a language unread.
 
 ## What it does not do
 

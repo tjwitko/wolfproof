@@ -77,6 +77,11 @@ Svelte). The verdict says nothing about that code: only the project-wide scans �
 secrets, dependencies, infrastructure — apply to it, and a requirement like "include unit tests"
 cannot be enforced on it.
 
+**"file(s) of a kind the checks read were not read" above the verdict** — the files
+named are over 512 KB, or could not be opened, and every check that reads source skipped them. The
+checks say "no source files" when these were the only ones. A file that size is rarely hand-written
+code: move a generated bundle under `dist/` or `build/`, which every check skips, or split it.
+
 **"Rails routing is not read"** — this check does not resolve a Rails route to its controller, so the
 routes in `config/routes.rb` were not judged at all, protected or not. Check them by hand: each
 controller's `before_action`, any `skip_before_action`, and what it inherits. In factory mode the

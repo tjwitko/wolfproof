@@ -472,6 +472,57 @@ list, makes the command add nothing, say so, and keep the entry. A
 workspace whose root lockfile was already added by an earlier run is not affected: the command
 only adds once.
 
+### After v1.16.3
+
+Six changes of one shape: a part of the gate that could not read its input said "nothing there",
+which is the answer that passes. Each now says what it did not read, and nothing is judged over an
+input that was not read. Two of them can turn a passing project red; they are marked.
+
+**After v1.16.3: a `package.json` that does not parse is unscanned, not "0 checked".** The scan of
+a `package.json` with no lockfile reported one that was not JSON as `(0 checked)`, which counted as
+read: the dependency family was judged over it, and `wolfproof known` removed the entries its earlier
+scan had produced. It is now reported with the other manifests no scanner read, with the reason
+(`could not be parsed as JSON`), it blocks like them, and no dependency entry is judged while it
+stands. Can turn a passing project red: only one whose `package.json` is not valid JSON.
+
+**After v1.16.3: a Dockerfile that cannot be read is could-not-run.** It was skipped as a file
+with no `FROM`: its end-of-life finding left the run with nothing in could-not-run, and its snapshot
+entries matched nothing. The run now exits 3 naming the file, and its entries are not judged.
+
+**After v1.16.3: a source file over 512 KB is named above the verdict.** Every check that reads
+source skips a file that size (the injection and IaC-template checks read up to 1 MB), and nothing
+said so: a project whose only source file was 545 KB passed, with four checks reporting it had no
+source files. The "not read" line above the verdict now lists such files with their size, `--json`
+lists them under `skippedFiles`, and a snapshot entry naming one is not judged. The per-check "no
+source files" lines are unchanged; the line above the verdict is what says why. In factory mode it
+is the `skipped-files` advisory, could-not-run by default like `unread-code`, and a vendored bundle
+over the limit makes the run incomplete until the policy drops it. Of the 48 pinned calibration
+projects, six have such a file; every one is a minified bundle, a data file or a lockfile.
+
+**After v1.16.3: dependencies declared indirectly need a lockfile.** A `pyproject.toml` with
+`dynamic = ["dependencies"]` (setuptools, reading them from a requirements file), one whose
+dependencies are only in `[tool.pdm.dev-dependencies]` or `[tool.uv] dev-dependencies`, and a
+`Gemfile` whose only declaration is `gemspec` each read as declaring nothing, so none needed a
+lockfile. Each counts as declaring now. Can turn a passing project red: commit the lockfile
+(`pip freeze`, `pdm lock`, `uv lock`, `bundle lock`), or hold the finding in a snapshot.
+
+**After v1.16.3: `wolfproof known` counts `peerDependencies` as declared when it adds a lockfile's
+findings.** npm 7 and later install peers and write them to the lockfile, so a peer added in the
+change that commits the lockfile had its findings added as if they were transitive. The entry
+written for a `package.json` with no lockfile now lists its peers, and the relock step compares and
+counts them as direct. An entry written by an earlier version for a `package.json` that already had
+peers lists none of them, so its relock is refused as "declares packages its entry does not list",
+the lockfile's findings block, and the entry is kept: review them, then delete it by hand. The scan
+without a lockfile still does not scan peers.
+
+**After v1.16.3: Helm templates and YAML that does not parse are not read as manifests.** The
+Kubernetes manifest, manifest-contract and IAM-contract checks read a file that failed to parse as
+whatever the parser salvaged, and read `{{ .Values.image }}` as nested mappings rather than as the
+unexpanded value it is. Neither is read now. The checks name the files they did not read, a
+variable set only in a file not read is unknown rather than missing, and a template is checked by
+rendering it (`helm template`) and running the gate over the output. A document cut short in a way
+that still parses is read as it stands; nothing in its text says it is incomplete.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

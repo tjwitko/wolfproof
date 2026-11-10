@@ -6,7 +6,7 @@ import { spawnSync } from "child_process";
 import path from "path";
 
 import { fileURLToPath } from "url";
-import { lowestVersion, npmDeclared, lockfileFor, scanWithoutLockfile, scanLockfiles, childSummarizer, workspaceManifests } from "./lockless-npm.mjs";
+import { lowestVersion, npmDeclared, lockfileFor, scanWithoutLockfile, scanLockfiles, childSummarizer, workspaceManifests, declaredNames } from "./lockless-npm.mjs";
 
 // dep-audit's own banding, run as the gate runs it, in a process of its own. dep-audit up to v1.0.2
 // deletes the importer's environment as it loads (see childSummarizer), the test runner's variables
@@ -265,4 +265,36 @@ test("dep-audit's bands come from a process of its own, and this one keeps its e
   } finally {
     delete process.env.WOLFPROOF_LOCKLESS_SENTINEL;
   }
+});
+
+// The reviewer's report on v1.16.2, item 1: a package.json that was not JSON came back as "0 checked",
+// which the gate counted as read, so it judged the dependency family over it and `wolfproof known`
+// removed the entries its earlier scan had produced.
+test("a package.json that is not JSON, or cannot be read, is returned as unread, not as nothing checked", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lockless-"));
+  try {
+    writeFileSync(path.join(dir, "package.json"), "{");
+    writeFileSync(path.join(dir, "ok.json"), JSON.stringify({ dependencies: { lodash: "^4.17.4" }, peerDependencies: { react: ">=16" } }));
+    const calls = [];
+    const r = scanWithoutLockfile(dir, ["package.json", "missing/package.json", "ok.json"], { summarize: summarizeFindings, run: fakeOsv(calls) });
+    assert.deepEqual(
+      r.scanned.map((s) => [s.manifest, s.checked, s.declared, s.unread]),
+      [
+        ["package.json", 0, [], "could not be parsed as JSON"],
+        ["missing/package.json", 0, [], "could not be read (ENOENT)"],
+        // Peers are not scanned (the host installs them) but are recorded as declared, for the
+        // lockfile committed later: npm 7+ writes them to it.
+        ["ok.json", 1, ["lodash", "react"], undefined],
+      ]
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("declaredNames counts peerDependencies only when asked", () => {
+  const text = JSON.stringify({ dependencies: { lodash: "^4" }, peerDependencies: { react: ">=16" } });
+  assert.deepEqual(declaredNames(text), ["lodash"]);
+  assert.deepEqual(declaredNames(text, { peers: true }), ["lodash", "react"]);
+  assert.equal(declaredNames("{", { peers: true }), null);
 });

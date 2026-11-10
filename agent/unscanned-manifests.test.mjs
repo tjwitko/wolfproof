@@ -177,3 +177,20 @@ scannerTest("osv-scanner does not read bun.lockb or requirements.lock, which is 
   assert.equal(osvReads("requirements.lock", "requests==2.19.0\n").read, false);
   assert.equal(osvReads("requirements-lock.txt", "requests==2.19.0\n").read, true);
 });
+
+// Each of these declares dependencies without a `dependencies = [...]` or `gem "..."` line, and
+// each read as declaring nothing, so it needed no lockfile: setuptools' dynamic metadata (read from
+// a requirements file), a Ruby library's `gemspec`, and PDM's and uv's own development groups.
+test("dependencies declared indirectly still need a lockfile: dynamic metadata, gemspec, PDM's and uv's groups", () => {
+  const found = unscanned({
+    "setuptools/pyproject.toml": '[project]\nname = "p"\ndynamic = ["version", "dependencies"]\n\n[tool.setuptools.dynamic]\ndependencies = { file = ["requirements.in"] }\n',
+    "multi/pyproject.toml": '[project]\nname = "p"\ndynamic = [\n  "version",\n  "optional-dependencies",\n]\n',
+    "pdm/pyproject.toml": '[project]\nname = "p"\n\n[tool.pdm.dev-dependencies]\ntest = ["pytest"]\n',
+    "uv/pyproject.toml": '[project]\nname = "p"\n\n[tool.uv]\ndev-dependencies = ["pytest"]\n',
+    "gem/Gemfile": "source 'https://rubygems.org'\ngemspec\n",
+    // Only the version is dynamic: nothing declared, no lockfile needed.
+    "version-only/pyproject.toml": '[project]\nname = "p"\ndynamic = ["version"]\n',
+    "commented/Gemfile": "source 'https://rubygems.org'\n# gemspec\n",
+  });
+  assert.deepEqual(found.sort(), ["gem/Gemfile", "multi/pyproject.toml", "pdm/pyproject.toml", "setuptools/pyproject.toml", "uv/pyproject.toml"]);
+});

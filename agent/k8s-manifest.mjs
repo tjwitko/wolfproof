@@ -12,10 +12,10 @@
 
 import { readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
-import { parseAllDocuments } from "yaml";
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { hclResources, hclBlocks, hclAttr, TF_SERVER_WORKLOAD } from "./hcl-blocks.mjs";
+import { yamlDocs, unreadYamlLine } from "./yaml-docs.mjs";
 
 const MAX_FILE_BYTES = 512 * 1024;
 
@@ -75,23 +75,20 @@ function podSpecOf(doc) {
   return doc?.spec?.template?.spec || null;
 }
 
-/** Every Kubernetes document in the project, with the file it came from. */
-export function manifestDocs(projectDir) {
+/**
+ * Every Kubernetes document in the project, with the file it came from. A YAML file that did not
+ * parse, or is a Helm or Go template, is added to `unread` as { file, why } instead of being read
+ * as whatever the parser salvaged (agent/yaml-docs.mjs).
+ */
+export function manifestDocs(projectDir, unread = []) {
   const out = [];
   for (const f of walkFiles(projectDir, [".yaml", ".yml"])) {
-    let docs;
-    try {
-      docs = parseAllDocuments(f.text);
-    } catch {
+    const { docs, unread: why } = yamlDocs(f.text);
+    if (why) {
+      unread.push({ file: f.rel, why });
       continue;
     }
-    for (const d of docs) {
-      let obj;
-      try {
-        obj = d.toJS?.({ maxAliasCount: -1 });
-      } catch {
-        continue;
-      }
+    for (const obj of docs) {
       if (obj && typeof obj === "object" && obj.kind && obj.apiVersion) out.push({ file: f.rel, doc: obj });
     }
   }
@@ -137,10 +134,20 @@ function terraformWorkloadContainers(projectDir) {
 }
 
 export function checkK8sManifests(projectDir) {
-  const docs = manifestDocs(projectDir);
+  const unread = [];
+  const docs = manifestDocs(projectDir, unread);
   const tfContainers = terraformWorkloadContainers(projectDir);
   if (docs.length === 0 && tfContainers.length === 0) {
-    return { ran: false, unknown: "no Kubernetes manifests found, in YAML or in Terraform", misplaced: [], unexpanded: [], unprobed: [] };
+    return {
+      ran: false,
+      unknown: unread.length
+        ? `no Kubernetes manifests read; ${unread.length} YAML file(s) were not read — ${unread.slice(0, 5).map((u) => `${u.file} (${u.why})`).join("; ")}`
+        : "no Kubernetes manifests found, in YAML or in Terraform",
+      misplaced: [],
+      unexpanded: [],
+      unprobed: [],
+      unread,
+    };
   }
 
   const misplaced = [];
@@ -194,7 +201,7 @@ export function checkK8sManifests(projectDir) {
     }
   }
 
-  return { ran: true, unknown: null, misplaced, unexpanded, unprobed };
+  return { ran: true, unknown: null, misplaced, unexpanded, unprobed, unread };
 }
 
 /** Blocking failures for the gate. */
@@ -203,6 +210,10 @@ export function k8sManifestFailures(projectDir) {
   if (!r.ran) return { failures: [], advisories: [`kubernetes manifests: not checked — ${r.unknown}`] };
 
   const failures = [];
+  const advisories = [];
+  if (r.unread.length > 0) {
+    advisories.push(unreadYamlLine("kubernetes manifests", r.unread, "Nothing in them was checked: not their fields, their probes or their interpolation."));
+  }
 
   if (r.misplaced.length > 0) {
     const list = r.misplaced.map((m) => `${m.file}: ${m.kind}/${m.name} has "${m.field}" on the pod spec`).join("; ");
@@ -249,5 +260,5 @@ export function k8sManifestFailures(projectDir) {
     );
   }
 
-  return { failures, advisories: [] };
+  return { failures, advisories };
 }

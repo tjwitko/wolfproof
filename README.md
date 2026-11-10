@@ -354,6 +354,8 @@ So that a clean verdict is read for what it is:
   GitHub Advanced Security only for open-source code.
 - **Blocking infrastructure policy beyond Terraform on AWS and Kubernetes.** Other clouds and
   formats get advisories only.
+- **Helm templates, until rendered.** The manifest checks skip a file holding `{{ … }}` and name it;
+  run `helm template` and gate the output.
 - **Requirements nobody stated.**
 
 → [What it checks, in full](docs/checks.md): languages and frameworks, the four controls, how the

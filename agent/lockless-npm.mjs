@@ -114,8 +114,12 @@ export function lowestVersion(range) {
   return best;
 }
 
-/** What a package.json declares: [{ name, range, version }], version null where the range has no lowest version. */
-export function npmDeclared(text) {
+/**
+ * What a package.json declares: [{ name, range, version }], version null where the range has no
+ * lowest version, or null when the text is not JSON. `sections` names the fields read; the default
+ * is what an install reads for this package.
+ */
+export function npmDeclared(text, { sections = SECTIONS } = {}) {
   let pkg;
   try {
     pkg = JSON.parse(text);
@@ -124,7 +128,7 @@ export function npmDeclared(text) {
   }
   const out = [];
   const seen = new Set();
-  for (const s of SECTIONS) {
+  for (const s of sections) {
     for (const [name, spec] of Object.entries(pkg?.[s] && typeof pkg[s] === "object" ? pkg[s] : {})) {
       if (seen.has(name)) continue;
       seen.add(name);
@@ -144,9 +148,14 @@ export function npmDeclared(text) {
  * The names a package.json declares directly, sorted, or null when it cannot be read. What a
  * snapshot's entry for a package.json with no lockfile records, so that the lockfile committed for it
  * later adds only findings of what was declared then (bin/known.mjs).
+ *
+ * With `peers`, peerDependencies count too. The no-lockfile scan does not scan them (they are the
+ * host's to install), but npm 7 and later install them and write them to the lockfile, so for the
+ * lockfile committed later a peer declared is a package declared: a finding in it is the change's
+ * own, not a transitive one to add.
  */
-export function declaredNames(text) {
-  const deps = npmDeclared(text);
+export function declaredNames(text, { peers = false } = {}) {
+  const deps = npmDeclared(text, { sections: peers ? [...SECTIONS, "peerDependencies"] : SECTIONS });
   return deps ? [...new Set(deps.map((d) => d.name))].sort() : null;
 }
 
@@ -252,26 +261,37 @@ export function lockfileFor(deps) {
  * Scan each package.json in `manifests` (paths relative to the project) as described above.
  * `summarize` is dep-audit's summarizeFindings, so severities are banded exactly as the control
  * bands them. Returns { error } when osv-scanner could not run, or
- * { scanned: [{ manifest, checked, unresolved, declared, findings }] }, findings at or above
- * `threshold`, `declared` the names the manifest declares (declaredNames).
+ * { scanned: [{ manifest, checked, unresolved, declared, findings, unread? }] }, findings at or above
+ * `threshold`, `declared` the names the manifest declares (declaredNames, peers included).
+ *
+ * A manifest that cannot be read, or is not JSON, is returned with `unread` saying why, and nothing
+ * else: it was reported as "0 checked" once, which counted as read, so the dependency family was
+ * judged over it and `wolfproof known` removed the entries its earlier scan had produced.
  */
 export function scanWithoutLockfile(projectDir, manifests, { summarize, threshold = "high", run = spawnSync } = {}) {
   const work = mkdtempSync(path.join(tmpdir(), "wolfproof-lockless-"));
   try {
     const scanned = [];
     manifests.forEach((manifest, i) => {
-      let deps = null;
+      let text = null;
+      let unread = null;
       try {
-        deps = npmDeclared(readFileSync(path.join(projectDir, manifest), "utf8"));
-      } catch {
-        /* unreadable: reported below as nothing checked */
+        text = readFileSync(path.join(projectDir, manifest), "utf8");
+      } catch (e) {
+        unread = `could not be read (${e?.code || e?.message})`;
       }
-      const resolved = (deps || []).filter((d) => d.version);
+      const deps = text === null ? null : npmDeclared(text);
+      if (text !== null && deps === null) unread = "could not be parsed as JSON";
+      if (unread) {
+        scanned.push({ manifest, checked: 0, unresolved: [], declared: [], findings: [], unread });
+        return;
+      }
+      const resolved = deps.filter((d) => d.version);
       const entry = {
         manifest,
         checked: resolved.length,
-        unresolved: (deps || []).filter((d) => !d.version).map((d) => `${d.name}@${d.range}`),
-        declared: [...new Set((deps || []).map((d) => d.name))].sort(),
+        unresolved: deps.filter((d) => !d.version).map((d) => `${d.name}@${d.range}`),
+        declared: declaredNames(text, { peers: true }),
         findings: [],
       };
       scanned.push(entry);

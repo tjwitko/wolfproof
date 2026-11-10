@@ -368,7 +368,9 @@ has to be fixed before the gate can be required.
   a finding one has at its locked version blocks rather than being added. A `workspaces` pattern
   the command cannot resolve (`**`, `?`, braces, brackets; `name` and `packages/*` it can), a
   member it cannot read, or a `pnpm-workspace.yaml` it cannot parse or that has no `packages` list,
-  leaves the members unknown, so nothing is added and the entry is kept. In
+  leaves the members unknown, so nothing is added and the entry is kept. A `peerDependency` counts as
+  declared, for the entry and for the comparison: npm 7 and later install peers and write them to
+  the lockfile, so a peer added with it is the change's own. In
   [factory mode](factory-mode.md) committing the lockfile does turn the build red: the base has a
   snapshot, so the entries the command adds are added grants, and block whatever the allowlist says.
   A pipeline that keeps its own snapshot (`--known=<file>`, or the Action's `known` input) avoids it.
@@ -380,7 +382,9 @@ has to be fixed before the gate can be required.
   advisory: the finding was fixed, or the line it names changed. An entry for a check that could not
   run is kept, since that check could still hold the finding. Dependency findings come from two
   scans, the lockfile scan and the scan of a `package.json` with no lockfile, and an advisory's entry
-  is judged only when the lockfile scan ran and every manifest of its ecosystem was read.
+  is judged only when the lockfile scan ran and every manifest of its ecosystem was read; a
+  `package.json` that does not parse was not. An entry naming a file no check read — a Dockerfile
+  that could not be opened, a source file over 512 KB — is not judged either.
 - **A fixed finding stays covered until the command runs.** Its entry matches nothing, and the gate
   says so on every run, but it stays in the file until `wolfproof known` removes it; until then, a
   change that brings the same finding back — the same ID — is set aside like the original. Run the

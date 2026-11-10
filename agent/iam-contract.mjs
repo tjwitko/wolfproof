@@ -6,10 +6,10 @@
 
 import { readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
-import { parseAllDocuments } from "yaml";
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
 import { hclResources, hclBlocks, hclAttr, TF_SERVICE_ACCOUNT, hclVariableDefaults } from "./hcl-blocks.mjs";
+import { yamlDocs, unreadYamlLine } from "./yaml-docs.mjs";
 
 const MAX_FILE_BYTES = 512 * 1024;
 
@@ -123,23 +123,20 @@ const WELL_FORMED_ROLE_ARN = /^arn:aws[a-z-]*:iam::\d{12}:role\/.+$/;
 // not also cost us the trust-policy verdict on the role it names.
 const ROLE_NAME_FROM_ARN = /:role\/(.+)$/;
 
-/** Role names that a Kubernetes ServiceAccount claims through an IRSA annotation. */
-export function irsaAnnotatedRoles(projectDir) {
+/**
+ * Role names that a Kubernetes ServiceAccount claims through an IRSA annotation. A YAML file that
+ * did not parse, or is a Helm or Go template, is added to `unread` as { file, why } rather than
+ * read as whatever the parser salvaged (agent/yaml-docs.mjs).
+ */
+export function irsaAnnotatedRoles(projectDir, unread = []) {
   const out = [];
   for (const f of walkFiles(projectDir, [".yaml", ".yml"])) {
-    let docs;
-    try {
-      docs = parseAllDocuments(f.text);
-    } catch {
+    const { docs, unread: why } = yamlDocs(f.text);
+    if (why) {
+      unread.push({ file: f.rel, why });
       continue;
     }
-    for (const d of docs) {
-      let obj;
-      try {
-        obj = d.toJS?.({ maxAliasCount: -1 });
-      } catch {
-        continue;
-      }
+    for (const obj of docs) {
       const collect = (ann, where, sa = {}) => {
         const arn = ann?.[IRSA_ANNOTATION];
         if (typeof arn !== "string") return;
@@ -281,9 +278,20 @@ function terraformIrsaAnnotations(projectDir) {
 }
 
 export function checkIrsa(projectDir) {
-  const annotated = [...irsaAnnotatedRoles(projectDir), ...terraformIrsaAnnotations(projectDir)];
+  const unread = [];
+  const annotated = [...irsaAnnotatedRoles(projectDir, unread), ...terraformIrsaAnnotations(projectDir)];
   if (annotated.length === 0)
-    return { ran: false, unknown: "no ServiceAccount declares an IRSA role annotation, in YAML or in Terraform", broken: [], unmatched: [], mismatchedSubject: [], malformed: [] };
+    return {
+      ran: false,
+      unknown:
+        "no ServiceAccount declares an IRSA role annotation, in YAML or in Terraform" +
+        (unread.length ? ` (${unread.length} YAML file(s) were not read: ${unread.slice(0, 5).map((u) => `${u.file}, ${u.why}`).join("; ")})` : ""),
+      broken: [],
+      unmatched: [],
+      mismatchedSubject: [],
+      malformed: [],
+      unread,
+    };
 
   const roles = terraformRoles(projectDir);
   const hasOidcProvider = walkFiles(projectDir, [".tf"]).some((f) =>
@@ -336,7 +344,7 @@ export function checkIrsa(projectDir) {
     broken.push({ ...a, roleFile: role.file, reason, hasOidcProvider });
   }
   const definesRoles = roles.length > 0;
-  return { ran: true, unknown: null, broken, unmatched, mismatchedSubject, malformed, definesRoles, hasOidcProvider };
+  return { ran: true, unknown: null, broken, unmatched, mismatchedSubject, malformed, definesRoles, hasOidcProvider, unread };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -368,6 +376,9 @@ export function iamContractFailures(projectDir) {
   }
 
   const irsa = checkIrsa(projectDir);
+  if (irsa.ran && irsa.unread.length > 0) {
+    advisories.push(unreadYamlLine("iam", irsa.unread, "An IRSA annotation in them was not checked against its role."));
+  }
   if (irsa.ran && irsa.broken.length > 0) {
     const list = irsa.broken
       .map((b) => `${b.where} (${b.file}) -> role "${b.role}" in ${b.roleFile}, which ${b.reason}`)
