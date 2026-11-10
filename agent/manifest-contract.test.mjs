@@ -214,3 +214,58 @@ test("a genuine read is still required, and a comparison is a read", () => {
     assert.match(failures[0], /WEBHOOK_SECRET/);
   }
 });
+
+// A Helm template supplied some variables and not others, depending on what the parser salvaged
+// from `{{ .Values.x }}`. A file not read can only have supplied more, so with nothing missing the
+// answer stands, and with something missing the answer is unknown, not "missing".
+test("a variable set only in a Helm template nothing read is unknown, not missing", () => {
+  const code = 'import os\nKEY = os.getenv("SUPPORT_API_KEY")\n';
+  const tmpl =
+    "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {{ .Release.Name }}\nspec:\n  template:\n    spec:\n      containers:\n" +
+    "      - name: svc\n        image: svc\n        env:\n        - name: SUPPORT_API_KEY\n          value: {{ .Values.key }}\n";
+  const alone = run({ "src/main.py": code, "chart/templates/deployment.yaml": tmpl }, checkManifestContract);
+  assert.deepEqual(alone.missing, []);
+  assert.match(alone.unknown, /no Kubernetes workload was found to supply them; 1 YAML file\(s\) were not read \(chart\/templates\/deployment\.yaml: a Helm or Go template/);
+  const beside = run({ "src/main.py": code, "chart/templates/deployment.yaml": tmpl, "k8s/deployment.yaml": deployment(["S3_BUCKET"]) }, checkManifestContract);
+  assert.deepEqual(beside.missing, []);
+  assert.match(beside.unknown, /^1 variable\(s\) the code requires are set by no manifest that was read \(SUPPORT_API_KEY\), but 1 YAML file\(s\) were not read \(chart\/templates\/deployment\.yaml: a Helm or Go template/);
+  const fine = run({ "src/main.py": code, "chart/templates/deployment.yaml": tmpl, "k8s/deployment.yaml": deployment(["SUPPORT_API_KEY"]) }, checkManifestContract);
+  assert.deepEqual(fine, { ran: true, missing: [], unknown: null });
+});
+
+// Review of the first version, repro B. A plain Deployment, a server reading DATABASE_URL, and a
+// workflow holding `echo "${{ github.sha }}"`. The variable is supplied by nothing and that blocks.
+// The text test for `{{` called the workflow a Helm template, "a file not read can only have
+// supplied more" then applied to a file that had been parsed in full, and the block became an
+// advisory. A file that parsed and holds no workload supplies nothing, and "missing" stays missing.
+test("a workflow with ${{ }} beside a manifest leaves a missing variable missing, and blocking", () => {
+  const files = {
+    "server.js": "const url = process.env.DATABASE_URL;\nconsole.log(url.length);\n",
+    "k8s/deploy.yaml": deployment([]),
+    ".github/workflows/ci.yml": 'name: ci\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "${{ github.sha }}"\n',
+  };
+  const r = run(files, checkManifestContract);
+  assert.equal(r.unknown, null);
+  assert.deepEqual(r.missing.map((m) => m.name), ["DATABASE_URL"]);
+  const { failures, advisories } = run(files, manifestContractFailures);
+  assert.equal(failures.length, 1, failures.join("\n"));
+  assert.match(failures[0], /^manifest contract: the application requires 1 environment variable\(s\) that no Kubernetes manifest supplies — DATABASE_URL \(read in server\.js\)/);
+  assert.deepEqual(advisories, []);
+});
+
+// Files that parse and are not manifests, with braces as text in each: none of them makes the
+// answer unknown. Only a file that was not read can.
+test("only a file that was not read makes a missing variable unknown", () => {
+  const code = 'import os\nKEY = os.getenv("SUPPORT_API_KEY")\n';
+  const parsed = {
+    "values.yaml": "image:\n  tag: \"{{ .Chart.AppVersion }}\"\n",
+    "rules/alerts.yml": "groups:\n  - name: a\n    rules:\n      - alert: Down\n        annotations:\n          summary: '{{ $labels.instance }} down'\n",
+    "k8s/note.yaml": "# {{ not a template }}\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: note\ndata:\n  motd: |\n    hello {{ .name }}\n",
+  };
+  const read = run({ "src/main.py": code, "k8s/deployment.yaml": deployment(["S3_BUCKET"]), ...parsed }, checkManifestContract);
+  assert.equal(read.unknown, null);
+  assert.deepEqual(read.missing.map((m) => m.name), ["SUPPORT_API_KEY"]);
+  const broken = run({ "src/main.py": code, "k8s/deployment.yaml": deployment(["S3_BUCKET"]), ...parsed, "k8s/broken.yaml": "kind: Deployment\n bad: b\n" }, checkManifestContract);
+  assert.deepEqual(broken.missing, []);
+  assert.match(broken.unknown, /^1 variable\(s\) the code requires are set by no manifest that was read \(SUPPORT_API_KEY\), but 1 YAML file\(s\) were not read \(k8s\/broken\.yaml: did not parse as YAML/);
+});

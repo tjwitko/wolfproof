@@ -18,10 +18,10 @@
 
 import { readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
-import { parseAllDocuments } from "yaml";
 
 import { SKIP_DIRS } from "./skip-dirs.mjs";
 import { isDeclaredFixture } from "./fixture-markers.mjs";
+import { yamlDocs } from "./yaml-docs.mjs";
 
 const MAX_FILE_BYTES = 512 * 1024;
 
@@ -118,6 +118,9 @@ export function providedEnv(files) {
   const provided = new Set();
   let opaque = null;
   let sawWorkload = false;
+  // YAML files not read: a Helm or Go template, or a file that did not parse (agent/yaml-docs.mjs).
+  // Read as whatever the parser salvaged before, which supplied some variables and not others.
+  const unread = [];
 
   // Every one of these shapes is assumed rather than guaranteed. A Helm chart parses as YAML but
   // not as Kubernetes: `env:` followed by `{{- range .Values.environment }}` yields something that
@@ -149,11 +152,10 @@ export function providedEnv(files) {
       continue;
     }
     if (![".yaml", ".yml"].includes(f.ext)) continue;
-    let docs;
-    try {
-      docs = parseAllDocuments(f.text).map((d) => d.toJS({ maxAliasCount: 100 }));
-    } catch {
-      continue; // not parseable as YAML — not this check's problem to report
+    const { docs, unread: why } = yamlDocs(f.text, { maxAliasCount: 100 });
+    if (why) {
+      unread.push({ file: f.rel, why });
+      continue;
     }
     for (const doc of docs) {
       if (!doc || typeof doc !== "object") continue;
@@ -163,21 +165,26 @@ export function providedEnv(files) {
       visitContainers(spec.initContainers);
     }
   }
-  return { provided, opaque, sawWorkload };
+  return { provided, opaque, sawWorkload, unread };
 }
 
 /** Variables the code requires that no manifest supplies. */
 export function checkManifestContract(projectDir) {
   const files = walk(projectDir);
   const required = requiredEnv(files);
-  const { provided, opaque, sawWorkload } = providedEnv(files);
+  const { provided, opaque, sawWorkload, unread } = providedEnv(files);
 
   if (required.size === 0) return { ran: true, missing: [], unknown: null };
+  const notRead = unread.length
+    ? `${unread.length} YAML file(s) were not read (${unread.slice(0, 5).map((u) => `${u.file}: ${u.why}`).join("; ")})`
+    : null;
   if (!sawWorkload) {
     return {
       ran: true,
       missing: [],
-      unknown: `the code requires ${required.size} environment variable(s) and no Kubernetes workload was found to supply them`,
+      unknown:
+        `the code requires ${required.size} environment variable(s) and no Kubernetes workload was found to supply them` +
+        (notRead ? `; ${notRead}, and a workload in one of them would supply what it supplies unseen. Render templates (\`helm template\`) and run the gate over the output` : ""),
     };
   }
   if (opaque) {
@@ -189,6 +196,15 @@ export function checkManifestContract(projectDir) {
   }
 
   const missing = [...required.entries()].filter(([name]) => !provided.has(name)).map(([name, file]) => ({ name, file }));
+  // A file not read can only have supplied more. With nothing missing the answer stands; with
+  // something missing it may be set in the file that was not read, and "missing" would be a guess.
+  if (missing.length > 0 && notRead) {
+    return {
+      ran: true,
+      missing: [],
+      unknown: `${missing.length} variable(s) the code requires are set by no manifest that was read (${missing.map((m) => m.name).join(", ")}), but ${notRead}, so whether they are supplied is not known. Render templates (\`helm template\`) and run the gate over the output`,
+    };
+  }
   return { ran: true, missing, unknown: null };
 }
 

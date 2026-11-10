@@ -333,3 +333,14 @@ test("an unrecognised name with no near miss is advisory, not wrong", () => {
   assert.deepEqual(r.wrong, []);
   assert.equal(r.unverifiable.length, 1);
 });
+
+// The same gap as the manifest check's: a ServiceAccount in a Helm template, or in a file that does
+// not parse, was read as whatever the parser salvaged. Not read now, and named.
+test("a ServiceAccount in a Helm template is not read, and the check says so", () => {
+  const tmpl = "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: app-sa\n  annotations:\n    eks.amazonaws.com/role-arn: {{ .Values.roleArn }}\n";
+  const alone = run({ "chart/templates/sa.yaml": tmpl }, checkIrsa);
+  assert.equal(alone.ran, false);
+  assert.match(alone.unknown, /no ServiceAccount declares an IRSA role annotation, in YAML or in Terraform \(1 YAML file\(s\) were not read: chart\/templates\/sa\.yaml, a Helm or Go template/);
+  const { advisories } = run({ "chart/templates/sa.yaml": tmpl, "k8s/sa.yaml": sa("arn:aws:iam::123456789012:role/app-role") }, iamContractFailures);
+  assert.ok(advisories.some((a) => /^iam: 1 YAML file\(s\) were not read — chart\/templates\/sa\.yaml \(a Helm or Go template.*An IRSA annotation in them was not checked/.test(a)), advisories.join("\n"));
+});

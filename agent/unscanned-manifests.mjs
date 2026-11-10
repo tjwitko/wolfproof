@@ -71,7 +71,9 @@ export const NEEDS_LOCKFILE = {
   Gemfile: {
     ecosystem: "RubyGems",
     locks: ["Gemfile.lock"],
-    declares: (text) => /^\s*gem\s+['"]/m.test(text),
+    // `gemspec` pulls the gem's own dependencies in from its .gemspec: every Ruby library's Gemfile
+    // declares that way and little else, and read as declaring nothing it needed no lockfile.
+    declares: (text) => /^\s*(?:gem\s+['"]|gemspec\b)/m.test(text),
     fix: "`bundle lock` writes Gemfile.lock",
   },
   "composer.json": {
@@ -114,10 +116,11 @@ function tomlDeclares(text, wanted, { headerAlone = () => false } = {}) {
 }
 
 function pyprojectDeclares(text) {
-  // Poetry and PEP 735 groups: any key except the interpreter constraint.
+  // Poetry and PEP 735 groups, PDM's and uv's development dependencies: any key except the
+  // interpreter constraint.
   const poetry = (h) =>
     h === "tool.poetry.dependencies" || h === "tool.poetry.dev-dependencies" ||
-    /^tool\.poetry\.group\..+\.dependencies$/.test(h);
+    /^tool\.poetry\.group\..+\.dependencies$/.test(h) || h === "tool.pdm.dev-dependencies";
   let section = "";
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
@@ -137,8 +140,31 @@ function pyprojectDeclares(text) {
       if (/\[\s*["']/.test(line)) return true;
       if (/\[\s*$/.test(line) && arrayHasString(lines, i)) return true;
     }
+    // `dynamic = ["dependencies"]`: setuptools reads them from a file named under
+    // [tool.setuptools.dynamic], usually a requirements.txt. They are declared, just not here, and
+    // read as declaring nothing the manifest needed no lockfile.
+    if (section === "project" && /^dynamic\s*=/.test(line)) {
+      const body = /\[\s*$/.test(line) ? arrayBody(lines, i) : line;
+      if (/["'](?:optional-)?dependencies["']/.test(body)) return true;
+    }
+    // uv's own list, before dependency-groups: `dev-dependencies = [...]` under [tool.uv].
+    if (section === "tool.uv" && /^dev-dependencies\s*=/.test(line)) {
+      if (/\[\s*["']/.test(line)) return true;
+      if (/\[\s*$/.test(line) && arrayHasString(lines, i)) return true;
+    }
   }
   return false;
+}
+
+// The lines of a multi-line array opened on line i, up to its close, as one string.
+function arrayBody(lines, i) {
+  const out = [];
+  for (let j = i + 1; j < lines.length; j++) {
+    const l = lines[j].replace(/#.*$/, "").trim();
+    if (l.startsWith("]")) break;
+    out.push(l);
+  }
+  return out.join(" ");
 }
 
 // A multi-line array opened on line i: does it hold a string before it closes?

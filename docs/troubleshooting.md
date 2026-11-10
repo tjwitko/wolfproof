@@ -77,6 +77,26 @@ Svelte). The verdict says nothing about that code: only the project-wide scans �
 secrets, dependencies, infrastructure — apply to it, and a requirement like "include unit tests"
 cannot be enforced on it.
 
+**"source_files: N code file(s) were not read by the checks that read their language", exit 3** —
+the files named are over 512 KB (1 MB for C and C++), or could not be opened. Authentication, code
+quality, immutability, retention, secret rotation, the manifest contract and the test check skipped
+them, and say "no source files" when these were the only ones; injection reads up to 1 MB, and a
+file it had within its limit is marked. A file that size is rarely hand-written code: move a
+generated or vendored bundle under `dist/` or `build/`, which every check skips, declare its
+directory a fixture with a reason, or split it. In factory mode the last two need an allowlist
+entry, and no policy entry drops the message.
+
+**"file(s) of a kind the checks read were not read" above the verdict** — a YAML, SQL or Terraform
+file is over 512 KB, or could not be opened, so immutability, retention, the Kubernetes manifest
+check and the IAM and manifest contracts say nothing about it. The exit code is unchanged. In
+factory mode it is the `skipped-files` advisory and makes the run incomplete until the policy drops
+it. A lockfile is never listed here.
+
+**"YAML file(s) were not read"** — a manifest check found a Helm or Go template, or YAML that does
+not parse, and names each file with the reason. Render a template (`helm template`) and run the
+gate over the output; repair a file that does not parse. `{{` inside a comment or a string does not
+make a file a template. In factory mode these block as not-checked.
+
 **"Rails routing is not read"** — this check does not resolve a Rails route to its controller, so the
 routes in `config/routes.rb` were not judged at all, protected or not. Check them by hand: each
 controller's `before_action`, any `skip_before_action`, and what it inherits. In factory mode the

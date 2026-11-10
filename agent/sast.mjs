@@ -44,7 +44,8 @@ const LANGUAGE = {
   ".c": "C/C++", ".h": "C/C++", ".cc": "C/C++", ".cpp": "C/C++", ".cxx": "C/C++", ".hpp": "C/C++", ".hh": "C/C++",
   ".php": "PHP", ".kt": "Kotlin",
 };
-const MAX_FILE_BYTES = 1024 * 1024;
+// Exported for agent/coverage.mjs, which says which files this scan read and the 512 KB checks did not.
+export const MAX_FILE_BYTES = 1024 * 1024;
 const CHUNK = 400;
 const TIMEOUT_MS = 300_000;
 

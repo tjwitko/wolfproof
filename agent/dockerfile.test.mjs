@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import path from "path";
@@ -150,6 +150,27 @@ test("without checkov, the advisory says which rules did not run", () => {
     assert.match(out.advisories.join("\n"), /checkov is not installed, so 1 Dockerfile\(s\) were checked for end-of-life base images only/);
   } finally {
     rmSync(bin, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The reviewer's report on v1.16.2, item 2: a Dockerfile that could not be read was skipped as one
+// with no FROM. Its end-of-life finding left the run, nothing was could-not-run, and its snapshot
+// entries matched nothing.
+test("a Dockerfile that cannot be read is could-not-run, by name, not a file with no FROM", { skip: process.getuid?.() === 0 && "root reads every file" }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "dockerfile-"));
+  try {
+    writeFileSync(path.join(dir, "Dockerfile"), 'FROM node:14\nCMD ["node"]\n');
+    chmodSync(path.join(dir, "Dockerfile"), 0o000);
+    const r = dockerfileFailures(dir, { env: NOW, checkov: false });
+    assert.deepEqual(r.failures, []);
+    assert.deepEqual(r.unreadable, ["Dockerfile"]);
+    assert.deepEqual(r.couldNotRun, ["Dockerfile could not be read (EACCES), so its base images were not checked for end of life"]);
+    chmodSync(path.join(dir, "Dockerfile"), 0o644);
+    const readable = dockerfileFailures(dir, { env: NOW, checkov: false });
+    assert.equal(readable.failures.length, 1);
+    assert.deepEqual([readable.unreadable, readable.couldNotRun], [[], []]);
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

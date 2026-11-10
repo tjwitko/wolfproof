@@ -472,6 +472,85 @@ list, makes the command add nothing, say so, and keep the entry. A
 workspace whose root lockfile was already added by an earlier run is not affected: the command
 only adds once.
 
+### After v1.16.3
+
+Six changes of one shape: a part of the gate that could not read its input said "nothing there",
+which is the answer that passes. Each now says what it did not read, and nothing is judged over an
+input that was not read. Three of them can change a passing project's verdict, two to blocked and
+one to could-not-run; they are marked.
+
+**After v1.16.3: a `package.json` that does not parse is unscanned, not "0 checked".** The scan of
+a `package.json` with no lockfile reported one that was not JSON as `(0 checked)`, which counted as
+read: the dependency family was judged over it, and `wolfproof known` removed the entries its earlier
+scan had produced. It is now reported with the other manifests no scanner read, with the reason
+(`could not be parsed as JSON`), it blocks like them, and no dependency entry is judged while it
+stands. Can turn a passing project red: only one whose `package.json` is not valid JSON.
+
+**After v1.16.3: a Dockerfile that cannot be read is could-not-run.** It was skipped as a file
+with no `FROM`: its end-of-life finding left the run with nothing in could-not-run, and its snapshot
+entries matched nothing. The run now exits 3 naming the file, and its entries are not judged.
+
+**After v1.16.3: a code file the checks did not read is could-not-run.** Authentication, code
+quality, immutability, retention, secret rotation, the manifest contract and the test check stop
+reading a source file at 512 KB, and said nothing: a project whose only source file was 600 KB, with
+an open `DELETE /admin` route in it, passed, with four checks reporting it had no source files. A
+code file over the limit for its language, or one that cannot be opened, now makes the run exit 3,
+in the default mode and in factory mode, with a `source_files:` entry naming each file, its size and
+the reason. The limit is 512 KB for every language except C and C++, which only injection reads,
+up to 1 MB; a file between the two limits is marked as within injection's. A snapshot entry naming
+such a file is not judged. Can turn a passing project to exit 3: split the file, or, when it is
+generated or vendored, move it under `dist/` or `build/`, or declare its directory a fixture with a
+reason. No factory policy drops it; a fixture marker there is a grant the allowlist has to approve.
+Of the 34 calibration checkouts, four have such a file and now exit 3: CTFd (six JavaScript
+bundles), juice-shop (`three.js`), WebGoat (`ace.js`) and NetBox (a 6 MB table of place codes in a
+`.py` file).
+
+**After v1.16.3: a YAML, SQL or Terraform file over 512 KB is named above the verdict.** Immutability,
+retention, the Kubernetes manifest check and the IAM and manifest contracts skip one that size, or
+one they cannot open, and the "not read" line above the verdict now lists them. The run's exit code
+does not change. In factory mode the line is the `skipped-files` advisory, could-not-run by default
+like `unread-code`, and a policy can drop it. `--json` lists these and the code files above under
+`skippedFiles`, each with `code` true or false. A lockfile the dependency scanner reads
+(`pnpm-lock.yaml` is the one with an extension these checks read) is not listed at any size, and a
+symbolic link to a file that is not there is listed and is never could-not-run.
+
+**After v1.16.3: dependencies declared indirectly need a lockfile.** A `pyproject.toml` with
+`dynamic = ["dependencies"]` (setuptools, reading them from a requirements file), one whose
+dependencies are only in `[tool.pdm.dev-dependencies]` or `[tool.uv] dev-dependencies`, and a
+`Gemfile` whose only declaration is `gemspec` each read as declaring nothing, so none needed a
+lockfile. Each counts as declaring now. Can turn a passing project red: commit the lockfile
+(`pip freeze`, `pdm lock`, `uv lock`, `bundle lock`), or hold the finding in a snapshot.
+
+**After v1.16.3: `wolfproof known` counts `peerDependencies` as declared when it adds a lockfile's
+findings.** npm 7 and later install peers and write them to the lockfile, so a peer added in the
+change that commits the lockfile had its findings added as if they were transitive. The entry
+written for a `package.json` with no lockfile now lists its peers, and the relock step compares and
+counts them as direct. An entry written by an earlier version for a `package.json` that already had
+peers lists none of them, so its relock is refused as "declares packages its entry does not list",
+the lockfile's findings block, and the entry is kept: review them, then delete it by hand. The scan
+without a lockfile still does not scan peers.
+
+**After v1.16.3: Helm templates and YAML that does not parse are not read as manifests.** The
+Kubernetes manifest, manifest-contract and IAM-contract checks read a file that failed to parse as
+whatever the parser salvaged, and read `{{ .Values.image }}` as nested mappings rather than as the
+unexpanded value it is. Neither is read now, and the checks name the files they did not read. A
+file is a template when an unquoted `{{ … }}` stands where YAML expects a key, a value or a list
+item, which the parsed document decides: `{{` in a comment, in a quoted or plain string or in a
+block of text (a Prometheus rule, an Argo parameter, a container argument, `${{ }}` in a workflow)
+is text, and that file is read exactly as before. A variable the code requires is unknown rather
+than missing only when a file that was not read could have set it; a file that parsed and holds no
+workload changes nothing. A template is checked by rendering it (`helm template`) and running the
+gate over the output. A document cut short in a way that still parses is read as it stands; nothing
+in its text says it is incomplete.
+
+In factory mode a file that was not read is never information. Each message has its own advisory
+id, all of class not-checked, so each blocks until the file is rendered or repaired, or the policy
+says otherwise: `k8s-yaml-unread`, `k8s-none-read` (no manifest was read and some YAML was not),
+`iam-yaml-unread`, `manifest-contract-unread` and `manifest-contract-no-workload-read`. That
+includes a file that is not a manifest and does not parse as YAML, such as a Rails
+`config/database.yml` written in ERB: three of the 34 calibration checkouts have a file that does
+not parse (juice-shop, Mastodon, RailsGoat), none of them a manifest, and none lost a finding.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

@@ -219,3 +219,72 @@ test("with gitleaks and osv-scanner missing, the run names each and exits 3", ()
     rmSync(d, { recursive: true, force: true });
   }
 });
+
+// A source file over the size limit, through the real CLI. The only source file was a 600 KB
+// server.js with an open DELETE /admin route, and the default mode exited 0 with a line above the
+// verdict. Run here with only node and git on PATH, so the run is incomplete for the scanners as
+// well: what is asserted is what the report says about the file, which no missing scanner supplies.
+test("a code file over the limit is could-not-run in both modes; a data file is a line, a lockfile neither", () => {
+  const d = scratch();
+  const bin = path.join(d, "bin");
+  mkdirSync(bin);
+  const where = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
+  symlinkSync(where, path.join(bin, "git"));
+  symlinkSync(process.execPath, path.join(bin, "node"));
+  const env = { PATH: `${bin}:/usr/bin:/bin` };
+  const proj = path.join(d, "proj");
+  const git = (...a) => spawnSync("git", ["-C", proj, "-c", "user.email=t@example.invalid", "-c", "user.name=t", ...a], { encoding: "utf8" });
+  const pad = (comment) => `${comment} ${"x".repeat(4000)}\n`.repeat(150);
+  const run = (extra = []) => {
+    const r = spawnSync(process.execPath, [CLI, ".", "--json", ...extra], { cwd: proj, encoding: "utf8", env: { ...process.env, ...env }, timeout: 120_000 });
+    return { code: r.status, doc: JSON.parse(r.stdout) };
+  };
+  const sourceFiles = (doc) => doc.couldNotRun.filter((c) => /source_files: /.test(c));
+  try {
+    writeFileSync(path.join(proj, "package.json"), JSON.stringify({ name: "p" }));
+    writeFileSync(path.join(proj, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n" + pad("#"));
+    git("init", "-q");
+    git("add", "-A");
+    git("commit", "-q", "-m", "lockfile");
+
+    // The lockfile alone: named nowhere, in either mode.
+    for (const extra of [[], ["--factory", "--base=HEAD"]]) {
+      const { doc } = run(extra);
+      assert.deepEqual(doc.skippedFiles, [], extra.join(" "));
+      assert.equal(doc.coverage, null);
+      assert.deepEqual(sourceFiles(doc), []);
+      if (doc.factory) assert.ok(!doc.factory.advisories.classified.some((c) => c.id === "skipped-files"));
+    }
+
+    // A data file: the line above the verdict by default, the skipped-files advisory in factory mode.
+    mkdirSync(path.join(proj, "deploy"));
+    writeFileSync(path.join(proj, "deploy", "values.yaml"), pad("#"));
+    git("add", "-A");
+    git("commit", "-q", "-m", "values");
+    let r = run();
+    assert.deepEqual(r.doc.skippedFiles.map((s) => [s.file, s.code]), [["deploy/values.yaml", false]]);
+    assert.match(r.doc.coverage, /^1 file\(s\) of a kind the checks read were not read: deploy\/values\.yaml /);
+    assert.deepEqual(sourceFiles(r.doc), []);
+    r = run(["--factory", "--base=HEAD"]);
+    assert.deepEqual(r.doc.factory.advisories.classified.filter((c) => c.id === "skipped-files"), [{ id: "skipped-files", class: "could-not-run", action: "incomplete" }]);
+    assert.ok(r.doc.couldNotRun.some((c) => /^factory: 1 file\(s\) of a kind the checks read were not read: deploy\/values\.yaml /.test(c)), JSON.stringify(r.doc.couldNotRun));
+
+    // The code file: could-not-run in both modes, said once.
+    rmSync(path.join(proj, "deploy"), { recursive: true });
+    writeFileSync(path.join(proj, "server.js"), 'const app = require("express")();\napp.delete("/admin/users/:id", (req, res) => res.sendStatus(204));\napp.listen(3000);\n' + pad("//"));
+    git("add", "-A");
+    git("commit", "-q", "-m", "server");
+    for (const extra of [[], ["--factory", "--base=HEAD"]]) {
+      const { code, doc } = run(extra);
+      assert.equal(code, 3, extra.join(" "));
+      assert.deepEqual(doc.skippedFiles.map((s) => [s.file, s.code]), [["server.js", true]]);
+      const entries = sourceFiles(doc);
+      assert.equal(entries.length, 1, JSON.stringify(doc.couldNotRun));
+      assert.match(entries[0], /^source_files: 1 code file\(s\) were not read by the checks that read their language: server\.js \(\d+ KB, over the 512 KB limit; within injection's 1 MB\)\./);
+      assert.equal(doc.coverage, null, "the entry is the report; the line does not repeat it");
+      if (doc.factory) assert.ok(!doc.factory.advisories.classified.some((c) => c.id === "skipped-files"));
+    }
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});

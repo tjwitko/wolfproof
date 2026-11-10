@@ -106,7 +106,7 @@ Every advisory is classified, and none may leave the verdict clean by meaning no
 
 | class | for example | factory mode |
 |---|---|---|
-| not-checked | "no HTTP routes were identified" in a project that starts an HTTP server; a retention period the task states and nothing here describes | blocks |
+| not-checked | "no HTTP routes were identified" in a project that starts an HTTP server; a retention period the task states and nothing here describes; a YAML file a manifest check did not read, because it is a Helm template or does not parse | blocks |
 | could-not-run | a Terraform plan that could not authenticate; checkov killed; code in a language no check reads | exit 3 |
 | finding | SQL built from a value of unknown origin; a heuristic workload-identity hit | counted, and dropped |
 | info | tests ran and passed; no Kubernetes manifests to read | dropped |
@@ -173,7 +173,14 @@ avoids this.
 ```
 
 The policy maps an advisory id, an id family (`sast` for every `sast:<category>`), or a class name to
-`block`, `drop` or `incomplete`, most specific first.
+`block`, `drop` or `incomplete`, most specific first. The two lines the default mode prints above the
+verdict are advisories here: `unread-code` for code in a language nothing reads, and `skipped-files`
+for YAML, SQL and Terraform files the checks that read them skipped — over 512 KB, or unreadable —
+so an oversized data file can be accepted without accepting a language unread. A code file the
+checks for its language skipped is not an advisory and no policy entry reaches it: it is in
+could-not-run in both modes, and the run exits 3 until the file is split, moved under `dist/` or
+`build/`, or its directory is declared a fixture, each of the last two a grant the allowlist
+approves by path.
 
 ## What it does not do
 

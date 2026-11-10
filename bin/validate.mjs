@@ -21,7 +21,7 @@ import path from "path";
 import { readFileSync, realpathSync, existsSync, statSync } from "fs";
 import { fileURLToPath } from "url";
 import { loadRequirements, checkBaselineInput } from "../lib/requirements.mjs";
-import { sourceCoverage, coverageLine } from "../agent/coverage.mjs";
+import { coverageLine, unreadLanguagesLine, skippedFilesLine } from "../agent/coverage.mjs";
 import { splitSentences, unjudgedSentences, alwaysOnCoverage } from "../agent/requirement-sentences.mjs";
 
 import { validateProject, localTools, McpClient } from "../lib/gate-core.mjs";
@@ -402,7 +402,9 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
     // blocking "STATIC ERRORS" on any machine without ruff, and read a missing Go toolchain as a
     // pass, and neither showed up here at all.
     const couldNotRun = r.couldNotRun || [];
-    const coverage = sourceCoverage(projectDir);
+    // Measured by the gate (lib/gate-core.mjs), which also uses it to leave the entries naming a
+    // skipped file unjudged.
+    const coverage = r.coverage;
     const alwaysOnContext = { languages: coverage.languages, ran: r.ran, couldNotRun };
 
     // Factory mode's judgement, after the checks: what the change granted itself, and what every
@@ -435,14 +437,21 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         }
       }
       r.advisories = kept;
-      // Code in a language nothing reads. The default mode prints this above the verdict for a reader;
-      // here it is a check that could not run against that code, unless the policy accepts it.
-      if (coverage.unreadFiles > 0) {
-        const action = actionFor({ id: "unread-code", class: COULD_NOT_RUN }, policy);
-        classified.push({ id: "unread-code", class: COULD_NOT_RUN, action });
-        const line = coverageLine(coverage);
+      // Code in a language nothing reads, and the data and configuration files the checks skipped
+      // (over the size limit, or unreadable). The default mode prints these above the verdict for a
+      // reader; here each is a check that could not run against those files, unless the policy
+      // accepts it. Two ids, so a pipeline can accept a 600 KB values file without accepting a
+      // language unread. A skipped code file is not among them: the gate reports it as could-not-run
+      // itself, in both modes, and no policy drops it.
+      for (const [id, line] of [
+        ["unread-code", unreadLanguagesLine(coverage)],
+        ["skipped-files", skippedFilesLine(coverage)],
+      ]) {
+        if (!line) continue;
+        const action = actionFor({ id, class: COULD_NOT_RUN }, policy);
+        classified.push({ id, class: COULD_NOT_RUN, action });
         if (action === "incomplete") couldNotRun.push(`factory: ${line}`);
-        else if (action === "block") r.failures.push(`factory: blocked by the pipeline's policy (unread-code) — ${line}`);
+        else if (action === "block") r.failures.push(`factory: blocked by the pipeline's policy (${id}) — ${line}`);
       }
       const count = (k) => classified.filter((c) => c.action === k).length;
       factoryReport = {
@@ -629,6 +638,9 @@ function machine(result) {
       // Per requirement text: sentences, how many a check read, and the ones none did.
       requirementsRead: result.requirementsRead,
       notRead: result.coverage.unread,
+      // Files a check that reads their kind skipped: over the size limit, or unreadable. `code`
+      // marks the ones that are could-not-run; `coverage` below is the line for the rest.
+      skippedFiles: result.coverage.skipped,
       coverage: coverageLine(result.coverage),
       exitCode: result.exitCode,
       incomplete: result.incomplete,
