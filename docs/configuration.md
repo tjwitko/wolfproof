@@ -350,7 +350,11 @@ has to be fixed before the gate can be required.
   snapshot held, so the command adds nothing for that lockfile, says why, and keeps the entry. Its
   findings block until fixed or reviewed; to have them added, commit the lockfile in a change that
   declares only what the entry lists and run the command again. An entry with no `declared` list,
-  one written by hand, adds nothing. Even then, only findings for packages the `package.json` does
+  one written by hand, adds nothing. The list is read from the snapshot file as it is. In the
+  project's own file a name written in by hand is therefore not refused, which is the snapshot being
+  a record and not a control: the same hand could have written the finding's entry, and both edits
+  are in the diff. [Factory mode](factory-mode.md) refuses the edit itself, and a snapshot kept
+  outside the project (`--file`) cannot be edited by the change. Even then, only findings for packages the `package.json` does
   not declare directly are added. A direct dependency was scanned before the lockfile existed, at the
   lowest version its range allows, so a finding it had then is already an entry; one it did not have
   is the change's own (a range lowered in the same change) or a vulnerability only in versions above
@@ -402,7 +406,8 @@ Like the review file, `.wolfproof-known.json` is a record, not a control: whoeve
 can edit it, the edit is in the diff a reviewer reads, and the agent loop refuses to let a model
 write it. In [factory mode](factory-mode.md), each entry a change adds blocks. The pipeline's
 allowlist (`known-finding`) can approve the change that writes the first snapshot, and only that
-one: once a snapshot exists, nothing approves an entry added to it.
+one: once a snapshot exists, nothing approves an entry added to it, or a name added to the
+`declared` list of an entry in it (`known-declared`).
 `--known=<file>` and the Action's `known` input take a snapshot from outside the project, in either
 mode: `wolfproof known . --file <path>` writes one there.
 

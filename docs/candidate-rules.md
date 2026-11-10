@@ -2465,6 +2465,18 @@ Changed after a second review, which reproduced two more on throwaway projects:
   Now a failed scan refuses every manifest it covered: the entry is kept, and the command says the
   scan failed and to run it again once it works.
 
+Changed after QA measurement on 8011429 (2026-11-10), reproduced through `validateProject` with a
+stubbed osv-scanner:
+
+- *The list that refuses a new dependency was the change's to edit.* A change declared express,
+  committed the lockfile and wrote "express" into the entry's `declared` list. The relock reads the
+  list from the snapshot on disk, so it refused nothing and returned the finding under express for
+  adding, and the entry's factory grant is keyed by its ID, so the edit was no grant. Factory mode
+  already blocked the change that then holds the added entries; it now blocks the edit, as a
+  `known-declared` grant per added name that no allowlist approves. The default mode is left as it
+  is, where the snapshot is a record: the command has no base to read the list from, and a hand that
+  can edit the list can add the entry.
+
 Measured on the 34 calibration checkouts and the four control repositories, at their pinned
 commits: the snapshot command, the same command again, then the gate with the snapshot. Measured
 twice, on the first version and again after the changes above (2026-11-05); the figures are the
