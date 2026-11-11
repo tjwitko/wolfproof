@@ -222,6 +222,39 @@ test("a lockfile committed at the workspace root adds nothing for a member, and 
   assert.match(r.out, /^New findings are never added to an existing snapshot/m);
 });
 
+// The review of PR #8: a root lockfile refused for what a member declares. The way out is each
+// package.json declaring what its own entry lists, and the member's entry, which its own message
+// says to delete, is needed until the root's lockfile has been added.
+test("a root lockfile refused for what a workspace member declares says so, and says to keep the member's entry", async () => {
+  const root = { id: "dependencies:unlocked:package.json", where: "package.json", declared: ["lodash"] };
+  const web = { id: "dependencies:unlocked:packages/web/package.json", where: "packages/web/package.json", declared: ["minimist"] };
+  const qs = "dependencies:npm/qs:GHSA-hrpp-h998-j3pp";
+  const atRoot = "its lockfile is package-lock.json, at the workspace root, which holds every member's packages and the root's, and the findings that are this member's cannot be told apart";
+  const run = (rootResult) =>
+    known([root, web], {
+      staleKnown: [{ id: root.id }, { id: web.id }],
+      relocked: [rootResult, { manifest: "packages/web/package.json", ids: [], refused: atRoot, workspace: true, root: "package.json" }],
+      records: [{ id: qs, blocking: true, known: false }],
+      failures: ["check_dependencies: 1 finding(s) at or above high severity"],
+    });
+
+  const refused = "its workspace member packages/web/package.json now declares 1 package its snapshot entry does not list: express";
+  const r = await run({ manifest: "package.json", ids: [qs], refused, member: true });
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.doc.known, [root, web], "nothing added, nothing removed");
+  assert.match(
+    r.out,
+    /^not added: the findings of the lockfile committed for package\.json, because its workspace member packages\/web\/package\.json now declares 1 package its snapshot entry does not list: express\. The lockfile holds every workspace member's packages, and a dependency a member declared since the snapshot is not one the snapshot held, so the lockfile's findings block until fixed or reviewed\. The entry for package\.json is kept \(the gate lists it as matching nothing\): have it and each member declare only what its own entry lists \(a member with no entry, nothing\), commit the lockfile, and run this again; or delete it\.$/m
+  );
+  assert.match(r.out, /^not added: .* for packages\/web\/package\.json, .*: delete it once they are\. Not before the lockfile's findings have been added for package\.json: that needs each member's entry, this one included\.$/m);
+
+  // With the root's lockfile added in this run, the member's entry is no longer needed for it.
+  const ok = await run({ manifest: "package.json", ids: [qs] });
+  assert.deepEqual(ok.doc.known.map((e) => e.id), [qs, web.id]);
+  assert.match(ok.out, /^not added: .* for packages\/web\/package\.json, .*: delete it once they are\.$/m);
+  assert.doesNotMatch(ok.out, /Not before/);
+});
+
 test("with part of the gate not run, an existing snapshot loses nothing, and what would have gone is listed", async () => {
   const held = [{ id: "dependencies:npm/lodash:GHSA-jf85-cpcp-j695" }, { id: "presence:empty:gone.js" }];
   const r = await known(held, {

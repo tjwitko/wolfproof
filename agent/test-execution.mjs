@@ -27,6 +27,7 @@ import { spawnSync } from "child_process";
 import { isTestFile, TEST_EXT, walk } from "./source-files.mjs";
 import { jvmSuites, dotnetSuites, cargoSuites, phpSuites, rubySuites, COUNTS, FAILING } from "./test-runners.mjs";
 import { setting } from "../lib/settings.mjs";
+import { NO_BYTECODE } from "./python-bytecode.mjs";
 
 const DEFAULT_TIMEOUT_S = 120;
 
@@ -81,11 +82,13 @@ export function detectSuites(projectDir) {
   }
 
   if (py.length) {
-    const probe = spawnSync("python3", ["-m", "pytest", "--version"], { cwd: projectDir, encoding: "utf8" });
+    // Both run Python in the project, which writes bytecode beside whatever it imports from there:
+    // not with NO_BYTECODE (python-bytecode.mjs), so the check leaves no __pycache__/ behind.
+    const probe = spawnSync("python3", ["-m", "pytest", "--version"], { cwd: projectDir, encoding: "utf8", env: { ...process.env, ...NO_BYTECODE } });
     suites.push(
       probe.status !== 0
         ? { environmental: true, unavailable: "the tests are Python and pytest is not installed here" }
-        : { label: "pytest", cmd: "python3", args: ["-m", "pytest", "-q"], cwd: projectDir }
+        : { label: "pytest", cmd: "python3", args: ["-m", "pytest", "-q"], cwd: projectDir, env: NO_BYTECODE }
     );
   }
 

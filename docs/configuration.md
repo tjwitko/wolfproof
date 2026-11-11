@@ -369,7 +369,19 @@ has to be fixed before the gate can be required.
   is kept for you to delete once the lockfile's findings are fixed or reviewed. For the root's own
   entry, every member's direct dependencies count as direct too (the members named by `workspaces`,
   or by `pnpm-workspace.yaml`): they were scanned without a lockfile exactly as the root's were, so
-  a finding one has at its locked version blocks rather than being added. A `workspaces` pattern
+  a finding one has at its locked version blocks rather than being added. Each member is also held
+  to its own entry's list, as the root is to its own: the lockfile holds every member's packages,
+  so a dependency a member declared since the snapshot would otherwise have its transitive findings
+  added through the root's entry. A member that declares a package its entry does not list, one
+  whose entry has no list, and one that declares packages and has no entry in the snapshot each
+  refuse the lockfile: nothing is added, the command names the member and the packages, and the
+  root's entry is kept. A member that declares nothing needs no entry. So keep the members' entries
+  until the lockfile's findings have been added for the root, which the command says when it keeps
+  one. A member has no entry when it was added after the snapshot, had a lockfile of its own
+  then, or sits under a directory the checks skip; the root's lockfile is then refused for as long
+  as that member declares anything, and its findings are fixed or reviewed instead. A `!` exclusion
+  in `workspaces` is not applied, so a `package.json` it excludes is held to its entry like a
+  member. A `workspaces` pattern
   the command cannot resolve (`**`, `?`, braces, brackets; `name` and `packages/*` it can), a
   member it cannot read, or a `pnpm-workspace.yaml` it cannot parse or that has no `packages` list,
   leaves the members unknown, so nothing is added and the entry is kept. A `peerDependency` counts as

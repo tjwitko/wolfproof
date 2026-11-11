@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync, readdirSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import path from "path";
@@ -283,6 +283,59 @@ test("a code file over the limit is could-not-run in both modes; a data file is 
       assert.match(entries[0], /^source_files: 1 code file\(s\) were not read by the checks that read their language: server\.js \(\d+ KB, over the 512 KB limit; within injection's 1 MB\)\./);
       assert.equal(doc.coverage, null, "the entry is the report; the line does not repeat it");
       if (doc.factory) assert.ok(!doc.factory.advisories.classified.some((c) => c.id === "skipped-files"));
+    }
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+// The gate leaves nothing in the project it judges. Its build check runs `python3 -m py_compile`,
+// which writes the bytecode it compiles into __pycache__/ beside the source; factory mode reads a
+// file under __pycache__/ as one the change wrote where no source check looks. So on a checkout
+// that does not ignore the directory, the second run of a clean one-file project blocked on what
+// the first run had left. Reproduced on 04b763c and 39da0d6 before the fix. Run with only node, git
+// and this machine's python3 on PATH; the scanners are missing, so the exit code is not the subject.
+test("a second factory run does not block on bytecode the first run's build check wrote", (t) => {
+  const d = scratch();
+  const bin = path.join(d, "bin");
+  mkdirSync(bin);
+  const where = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
+  symlinkSync(where, path.join(bin, "git"));
+  symlinkSync(process.execPath, path.join(bin, "node"));
+  // The python3 a developer's PATH finds, ahead of the system's: the one Apple ships in /usr/bin
+  // keeps its bytecode under ~/Library/Caches and never showed the defect.
+  const python = spawnSync("sh", ["-c", "command -v python3"], { encoding: "utf8" }).stdout.trim();
+  if (python) symlinkSync(python, path.join(bin, "python3"));
+  // A machine that sets either variable does not write the bytecode at all, or not here.
+  const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin` };
+  delete env.PYTHONDONTWRITEBYTECODE;
+  delete env.PYTHONPYCACHEPREFIX;
+  const proj = path.join(d, "proj");
+  const git = (...a) => spawnSync("git", ["-C", proj, "-c", "user.email=t@example.invalid", "-c", "user.name=t", ...a], { encoding: "utf8" });
+  const run = () => {
+    const r = spawnSync(process.execPath, [CLI, ".", "--json", "--factory", "--base=HEAD"], { cwd: proj, encoding: "utf8", env, timeout: 120_000 });
+    return { code: r.status, out: r.stdout, doc: JSON.parse(r.stdout) };
+  };
+  try {
+    // The control, and the reason to skip: this python3 does write bytecode beside what it compiles.
+    const control = path.join(d, "control");
+    mkdirSync(control);
+    writeFileSync(path.join(control, "calc.py"), "def add(a, b):\n    return a + b\n");
+    const compiled = spawnSync("python3", ["-m", "py_compile", "calc.py"], { cwd: control, encoding: "utf8", env });
+    if (compiled.error || compiled.status !== 0) return t.skip("no python3 here");
+    if (!existsSync(path.join(control, "__pycache__"))) return t.skip("this python3 keeps its bytecode outside the project by itself");
+
+    writeFileSync(path.join(proj, "calc.py"), "def add(a, b):\n    return a + b\n");
+    git("init", "-q");
+    git("add", "-A");
+    git("commit", "-q", "-m", "calc");
+    for (const n of [1, 2]) {
+      const { code, out, doc } = run();
+      assert.ok(doc.validatorsRun.includes("build_check"), `run ${n}: the build check ran`);
+      assert.deepEqual(readdirSync(proj).sort(), [".git", "calc.py"], `run ${n} left the project as it found it`);
+      assert.ok(!/__pycache__/.test(out), `run ${n} names no __pycache__: ${out.match(/[^"]*__pycache__[^"]*/)?.[0]}`);
+      assert.ok(code === 0 || code === 3, `run ${n}: exit ${code}, and nothing in the project blocks`);
+      assert.deepEqual(doc.findings, [], `run ${n}`);
     }
   } finally {
     rmSync(d, { recursive: true, force: true });

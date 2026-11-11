@@ -173,15 +173,28 @@ export async function runKnown(args, { env = process.env, gate = null } = {}) {
         if (blocking.has(id) && !after.some((e) => e.id === id) && !added.some((e) => e.id === id)) added.push({ id, where: `${manifest}'s new lockfile` });
       }
     }
-    for (const { manifest, refused, scanFailed, workspace } of relocked.filter((r) => r.refused)) {
+    for (const { manifest, refused, scanFailed, workspace, member, root } of relocked.filter((r) => r.refused)) {
       out.push(
         scanFailed
           ? `not added: the findings of the lockfile committed for ${manifest}, because ${refused}. Nothing was added for it, and ` +
               `the entry for ${manifest} is kept (the gate lists it as matching nothing): run this again once the scan works.`
           : workspace
             ? `not added: the findings of the lockfile committed for ${manifest}, because ${refused}. The lockfile's findings block ` +
-                `until fixed or reviewed. The entry for ${manifest} is kept (the gate lists it as matching nothing): delete it once they are.`
-            : `not added: the findings of the lockfile committed for ${manifest}, because ${refused}. A dependency declared since the ` +
+                `until fixed or reviewed. The entry for ${manifest} is kept (the gate lists it as matching nothing): delete it once they are.` +
+                // The root's entry was refused in this run. It adds the lockfile's findings only
+                // while every member that declares packages has an entry, so this one is needed.
+                (root && kept.has(`dependencies:unlocked:${root}`)
+                  ? ` Not before the lockfile's findings have been added for ${root}: that needs each member's entry, this one included.`
+                  : "")
+            : member
+              ? // A workspace member's declarations are among the reasons. The root's lockfile holds
+                // every member's packages, so each package.json is held to its own entry's list.
+                `not added: the findings of the lockfile committed for ${manifest}, because ${refused}. The lockfile holds every ` +
+                `workspace member's packages, and a dependency a member declared since the snapshot is not one the snapshot held, so the ` +
+                `lockfile's findings block until fixed or reviewed. The entry for ${manifest} is kept (the gate lists it as matching ` +
+                `nothing): have it and each member declare only what its own entry lists (a member with no entry, nothing), commit the ` +
+                `lockfile, and run this again; or delete it.`
+              : `not added: the findings of the lockfile committed for ${manifest}, because ${refused}. A dependency declared since the ` +
                 `snapshot is not one it held, so the lockfile's findings block until fixed or reviewed. The entry for ${manifest} is kept ` +
                 `(the gate lists it as matching nothing): declare only what it lists, commit the lockfile, and run this again; or delete it.`
       );
