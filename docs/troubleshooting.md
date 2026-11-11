@@ -88,9 +88,10 @@ entry, and no policy entry drops the message.
 
 **"file(s) of a kind the checks read were not read" above the verdict** — a YAML, SQL or Terraform
 file is over 512 KB, or could not be opened, so immutability, retention, the Kubernetes manifest
-check and the IAM and manifest contracts say nothing about it. The exit code is unchanged. In
-factory mode it is the `skipped-files` advisory and makes the run incomplete until the policy drops
-it. A lockfile is never listed here.
+check and the IAM and manifest contracts say nothing about it. A symbolic link to a file that is
+not there is listed here too, whatever it is named. The line leaves the exit code unchanged. In factory mode it
+is the `skipped-files` advisory and makes the run incomplete, exit 3, until the file is fixed or
+the policy drops it. A lockfile is never listed here.
 
 **"YAML file(s) were not read"** — a manifest check found a Helm or Go template, or YAML that does
 not parse, and names each file with the reason. Render a template (`helm template`) and run the

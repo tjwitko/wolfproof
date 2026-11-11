@@ -511,8 +511,13 @@ one they cannot open, and the "not read" line above the verdict now lists them. 
 does not change. In factory mode the line is the `skipped-files` advisory, could-not-run by default
 like `unread-code`, and a policy can drop it. `--json` lists these and the code files above under
 `skippedFiles`, each with `code` true or false. A lockfile the dependency scanner reads
-(`pnpm-lock.yaml` is the one with an extension these checks read) is not listed at any size, and a
-symbolic link to a file that is not there is listed and is never could-not-run.
+(`pnpm-lock.yaml` is the one with an extension these checks read) is not listed at any size. A
+symbolic link to a file that is not there is listed with these files whatever its extension, a link
+named `.py` included: it is never the `source_files:` entry a skipped code file gets. So in the
+default mode it is a line, and the line does not change the exit code; in factory mode it is
+`skipped-files` like the rest, and the run is incomplete, exit 3, until the link is repaired or
+removed or the policy drops the advisory. The line is not all a link named `.py` gets: the build
+check compiles it by name, cannot open it, and reports a blocking finding in either mode.
 
 **After v1.16.3: dependencies declared indirectly need a lockfile.** A `pyproject.toml` with
 `dynamic = ["dependencies"]` (setuptools, reading them from a requirements file), one whose
@@ -550,6 +555,22 @@ says otherwise: `k8s-yaml-unread`, `k8s-none-read` (no manifest was read and som
 includes a file that is not a manifest and does not parse as YAML, such as a Rails
 `config/database.yml` written in ERB: three of the 34 calibration checkouts have a file that does
 not parse (juice-shop, Mastodon, RailsGoat), none of them a manifest, and none lost a finding.
+
+**After v1.16.3: in factory mode, a name added to a snapshot entry's `declared` list blocks.** The
+entry for a `package.json` with no lockfile lists what it declared when the snapshot was taken, and
+`wolfproof known` adds a new lockfile's findings only while the `package.json` declares nothing
+else. The command reads the list from the snapshot file as it is, so a change that declared a
+dependency, committed the lockfile and wrote the name into the list in `.wolfproof-known.json` was
+refused nothing, and factory mode did not see the edit: the entry's grant is its ID, which had not
+changed. Each name a change adds to the list of an entry that was at the base is now a grant of its
+own, `known-declared`, listed in `--json` under `factory.grants`, and it blocks whatever the
+allowlist says; an allowlist entry of that kind is ignored and reported. A name removed, the list
+removed, and the list of an entry the change itself adds grant nothing more than before. The
+command never adds a name to a list, so only a change that edits one by hand is affected. The
+default mode is unchanged: there the project's snapshot is a record the change can edit, this line
+of it included, and the edit is in the diff a reviewer reads. A snapshot kept outside the project
+(`wolfproof known . --file <path>`, then `--known=<file>`) cannot be edited by the change in either
+mode.
 
 ## Keeping current
 

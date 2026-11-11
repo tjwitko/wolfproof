@@ -77,6 +77,10 @@ Each of these is confirmed to loosen a check:
 - an entry in `.wolfproof-known.json` — one named finding out of the verdict, as a
   [known finding](configuration.md#known-findings). The change that writes the first snapshot adds
   every entry in it, and is the only one the allowlist can approve; removing an entry grants nothing
+- a package name added to the `declared` list of a `.wolfproof-known.json` entry that was at the
+  base (`known-declared`) — the list is what `wolfproof known` reads before it adds a new lockfile's
+  findings, so a name written into it has the command add the findings that dependency brings; no
+  allowlist entry approves it, and removing a name grants nothing
 - `# identity-guard:allow <rule> <reason>`
 - `gitleaks:allow` on a line, and `.gitleaksignore` at the project root
 - `osv-scanner.toml` beside a lockfile — an `[[IgnoredVulns]]` or `[[PackageOverrides]]` entry
@@ -134,7 +138,8 @@ inputs, written outside the workspace.
 An entry approves its `kind` at its `path` or anywhere under it, and needs a `reason`; one without
 is ignored and reported. The kinds are the exemptions above plus `changed-under-exemption`,
 `skipped-location`, `moved-to-unchecked`, `server-in-test`, `reviewed-finding`, `known-finding` and `workflow-change`, which covers both
-`.github/workflows/` and `.github/actions/`.
+`.github/workflows/` and `.github/actions/`. `known-declared` is the one exemption above with no
+kind here: an entry naming it is ignored and reported.
 
 A `workflow-change` path is from the repository root, where GitHub reads workflows, even when the
 project is a subdirectory:
@@ -162,9 +167,11 @@ The snapshot of known findings is approved differently. A `known-finding` entry 
 once the snapshot exists at the base, an entry a change adds is that change setting its own finding
 aside, and blocks whatever the allowlist says, a `*` entry included. The approval can stay in place.
 That includes the entries `wolfproof known` adds once when a lockfile is committed for a
-`package.json` the snapshot held as having none, so in factory mode that change blocks too. The
-pipeline can instead keep the snapshot itself, `--known=<file>` or the Action's `known` input, which
-avoids this.
+`package.json` the snapshot held as having none, so in factory mode that change blocks too. So
+does a name a change adds to the `declared` list of that `package.json`'s entry: the command adds a
+lockfile's findings only while the `package.json` declares nothing the list does not hold, and it
+reads the list from the file the change can write. The pipeline can instead keep the snapshot
+itself, `--known=<file>` or the Action's `known` input, which avoids both.
 
 ### The policy
 
@@ -175,7 +182,8 @@ avoids this.
 The policy maps an advisory id, an id family (`sast` for every `sast:<category>`), or a class name to
 `block`, `drop` or `incomplete`, most specific first. The two lines the default mode prints above the
 verdict are advisories here: `unread-code` for code in a language nothing reads, and `skipped-files`
-for YAML, SQL and Terraform files the checks that read them skipped — over 512 KB, or unreadable —
+for YAML, SQL and Terraform files the checks that read them skipped — over 512 KB, unreadable, or
+a symbolic link to a file that is not there, whatever the link is named —
 so an oversized data file can be accepted without accepting a language unread. A code file the
 checks for its language skipped is not an advisory and no policy entry reaches it: it is in
 could-not-run in both modes, and the run exits 3 until the file is split, moved under `dist/` or
