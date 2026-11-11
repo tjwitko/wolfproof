@@ -76,9 +76,9 @@ jobs:
       - run: npm test
         env:
           WOLFPROOF_REQUIRE_SCANNERS: "1"
-      # Its own step, not part of `npm test`: these runs take about a minute, and `npm test`'s files
-      # are what the gate's tests check executes, inside a 120-second budget, when the self job below
-      # gates this repository.
+      # Its own step, not part of `npm test`: these runs take 31-54s, and `npm test`'s files are what
+      # the gate's tests check executes when the self job below gates this repository, inside the
+      # limit that job sets.
       - name: factory mode, end to end
         run: npm run test:factory
         env:
@@ -163,10 +163,21 @@ jobs:
       - run: npm ci --ignore-scripts
       - uses: ./.github/actions/control-tooling
       - uses: ./
-        # This repository's suite takes 63-100s on a 4-vCPU runner, CPU-bound, and was killed at the
-        # default 120s on 21863d3, a README-only commit: exit 3 from a limit, not from the project.
+        # The limit on this repository's own suite, which is CPU-bound and has outgrown two limits:
+        # exit 3 from a limit, not from the project, each time.
+        #   - 20 October, 683 tests: `npm test` took 89-100s in the unit-test jobs on a 4-vCPU runner,
+        #     and the default 120s killed it here on 21863d3, a README-only commit. The limit became 300.
+        #   - 11 November, 1,054 tests: 140-241s in the unit-test jobs of the ten runs up to 2b0c1aa
+        #     (30 jobs, median 181s), and 300 killed it here on 1f7e9ca and 2b0c1aa, two merges whose
+        #     trees had passed as pull requests. The rest of the gate took 75s in each.
+        # The suite does more here than in the unit-test jobs, which do not install checkov: it starts
+        # checkov 49 times. This job does not print how long the suite took, and the two killed runs
+        # do not say how far past 300s it would have gone, so 900 is three times the limit it is known
+        # to exceed rather than a multiple of a measurement. The unit-test jobs do print theirs: raise
+        # this again when `npm test` there passes 450s. docs/candidate-rules.md #18 has where the time
+        # goes.
         env:
-          WOLFPROOF_TEST_TIMEOUT: "300"
+          WOLFPROOF_TEST_TIMEOUT: "900"
         with:
           project: .
           task-file: .github/gate-task.txt

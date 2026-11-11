@@ -1,6 +1,6 @@
 // The report prints no finding IDs, so when a blocking finding has one it says where to get it:
 // `wolfproof review <project>`. Its own file, because it runs the real CLI twice and the suite has
-// to finish inside the gate's own 120-second default for this repository.
+// to finish inside the limit the self job sets for it (.github/workflows/gate.yml).
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";

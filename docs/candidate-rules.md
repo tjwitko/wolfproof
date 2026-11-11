@@ -1285,6 +1285,91 @@ upgrade notice first: the CI tooling check read that as an empty version and fai
 installs the tooling. It and the toolchain probe now set `SEMGREP_ENABLE_VERSION_CHECK=0`, as the sast
 check always had.
 
+**2026-11-11: it outgrew 300 as well.** The self job's `tests` check was killed at 300s on `1f7e9ca` and
+on `2b0c1aa`, two merges to main whose trees had passed the same job as pull requests (`39da0d6`,
+`e7d3ecd`). Exit 3 from the limit, not from the project, as on `21863d3`. The self job now sets 900.
+
+What the unit-test jobs print for `npm test`, three jobs a run on the same 4-vCPU runners:
+
+| commit | date | tests | `npm test`, seconds | the self job's gate step |
+|---|---|---|---|---|
+| `21863d3` | 10-20 | 683 | 89–100 | 133s, killed at 120 |
+| `7d41380` | 10-20 | 688 | 59–68 | 84s |
+| `75c551b` | 10-24 | 753 | 89–121 | 119s |
+| `fdac4fd` | 10-27 | 813 | 133–141 | 169s |
+| `f0aa213` | 10-31 | 939 | 104–140 | 230s |
+| `19d0b2f` | 11-07 | 1,008 | 133–222 | 323s |
+| `1673438` | 11-09 | 1,015 | 160–204 | 363s |
+| `1f7e9ca` | 11-11 | 1,047 | 161–241 | 375s, killed at 300 |
+| `2b0c1aa` | 11-11 | 1,054 | 172–223 | 376s, killed at 300 |
+
+Over the ten runs up to `2b0c1aa`, 30 unit-test jobs: 140–241s, median 181s. The self job does not
+print how long the suite took. The rest of its gate step took 75s in both killed runs; if it took
+that in the eight of those ten runs that passed, the suite took about 160–290s there. How far past
+300s the killed ones would have gone is not known. 900 is three times the limit the suite is known to
+exceed, not a multiple of a measurement.
+
+**Where the growth is.** Not in the test count: the sum of test time in the node 22 job went from 243s
+to 459s, and at `2b0c1aa` 53 tests of two seconds or more hold 430s of it. The other thousand hold
+30s. Files are run three at a time on these runners, so the suite is bound by that sum, not by its
+slowest file (72s). Per file, seconds and tests:
+
+| file | `21863d3` | `2b0c1aa` | what it runs |
+|---|---|---|---|
+| `bin/known.test.mjs` | new | 72s / 9 | the CLI; one test is eight runs, 52s |
+| `lib/known-gate.test.mjs` | new | 62s / 23 | `validateProject` in process |
+| `agent/sast.test.mjs` | 75s | 54s | semgrep |
+| `agent/sast-hops.test.mjs` | new | 51s / 5 | semgrep |
+| `agent/sast-review.test.mjs` | new | 31s / 1 | semgrep, four scans |
+| `agent/build-check.test.mjs` | 30s | 28s | `validateProject` in process |
+| `agent/requirement-sentences.test.mjs` | 36s | 27s | the CLI |
+| `bin/exit-codes.test.mjs` | 17s / 15 | 24s / 17 | the CLI |
+| `lib/requirements.test.mjs` | 22s | 23s | the CLI |
+| `bin/reviewable.test.mjs`, `bin/review.test.mjs` | new | 27s / 5 | the CLI |
+| `agent/scan-root.test.mjs` | 34s | 0s | item 2 above |
+
+So the growth is the `known` and `review` commands and the reviewable findings, each tested through
+the real CLI or the whole of `validateProject`, as the requirements files already were. A full CLI run
+costs about 6.5s on the runner and a semgrep scan 7–8s.
+
+A wrapper on PATH counted every tool start in one run of the suite on the developer's machine, with
+the self job's tools installed: 62 starts of `bin/validate.mjs` (4 of them `init`); semgrep 109 (79
+scans, 28 `--version`, one `--test`, one `--validate`); checkov 49 (38 `--version`, 11 scans); python3
+73 (31 `pytest --version`, 28 `--version`, 11 `py_compile`, 3 pytest); osv-scanner 51; terraform 25;
+ruff 30; gitleaks 25. The 28 are the toolchain report, once per gate run that gets that far.
+
+**Why it is slower in the self job than in the unit-test jobs.** The self job installs checkov,
+terraform, ruff and pytest; the unit-test jobs do not, and a tool that is not installed costs nothing
+to probe. CPU for the whole suite on the developer's machine, user + sys with children, one run each
+on a loaded machine: 558s with the unit jobs' tools on PATH, 602s with the self job's. `checkov
+--version` is 1.4s of CPU there and took 3.2s in the self job's tooling step on `1f7e9ca`, its first
+start after the install; `semgrep --version` took 1.3s in the same step. That accounts for some tens
+of seconds on the runner, and it is an estimate: the suite's time in the self job has not been
+measured directly, and the killed runs were further from their unit-test jobs (over 300s against
+161–241s) than this explains.
+
+**What was looked at for cutting, and left.**
+
+1. **No test was found that is not needed.** The slow tests are slow because each asserts on what the
+   real gate printed after a real change to a project. The one duplicate found is in the 52s `known`
+   test, which runs the gate twice on one state, once with `--json` and once without: 6.5s of 459.
+2. **semgrep is given every language's rules for every scan.** `agent/sast.mjs` passes the whole of
+   `agent/sast-rules/`, eleven files. For one Python file, three runs each: 4.4s of CPU with the
+   directory, 2.2s with `python.yaml` alone, the same three results. Passing only the rule files for
+   the languages present would, if the other languages cost what Python does, cut about a quarter of the
+   suite's CPU (79 scans, 602s) and two seconds of CPU from a project's gate run. It is a change to
+   which rules run, so it needs the extension-to-rules mapping to agree with semgrep's own and a
+   calibration run to show no finding moved. Not done here.
+3. **Three checks start checkov to ask its version before starting it to scan**
+   (`agent/dockerfile.mjs`, `agent/iac-templates.mjs`, `checkovAdvisory` in `lib/gate-core.mjs`): 10 of
+   the 38 above. The same shape as item 1 above, with the same fix: a missing checkov is the scan
+   failing to start. Not done here.
+4. **The toolchain report is once per gate run by design**, and a switch that turned it off for tests
+   would be a switch that turns it off.
+
+The self job could also say how long the suite took: the `tests` line reports the count, and a limit
+set from a measurement needs the time.
+
 ### 19. Injection rules for PHP and Kotlin — fixed, calibrated
 
 `agent/sast-rules/php.yaml` and `kotlin.yaml`, the same ten rules as Java and Ruby: blocking taint

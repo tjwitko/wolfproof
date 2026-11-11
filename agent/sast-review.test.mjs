@@ -1,6 +1,6 @@
 // Reviewed findings on the injection check (lib/reviewed.mjs, docs/candidate-rules.md #24). Its own
 // file so node runs its four Semgrep scans beside the other injection tests rather than after them:
-// the suite has to finish inside the gate's own 120-second default for this repository.
+// the suite has to finish inside the limit the self job sets for it (.github/workflows/gate.yml).
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
