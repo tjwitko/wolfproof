@@ -2477,6 +2477,19 @@ stubbed osv-scanner:
   is, where the snapshot is a record: the command has no base to read the list from, and a hand that
   can edit the list can add the entry.
 
+Changed after the review of 39da0d6 (2026-11-11), reproduced the same way on 04b763c and 39da0d6:
+
+- *A workspace member's new dependency was added through the root's entry.* The root declared
+  lodash and its entry listed lodash; `packages/web` declared minimist and express and its entry
+  listed minimist; the root lockfile held express 4.16.0 and qs 6.5.2. The refusal compared the
+  root's names with the root's list only, and the member's names went into `direct` and were
+  compared with nothing, so the advisory in qs was returned for adding with no refusal. The same
+  with a member the snapshot never held. No edit to the snapshot was needed, so the
+  `known-declared` grant did not see it. Now each member that declares packages is held to its own
+  entry's list before the root's entry adds anything, and a member with no entry, or an entry with
+  no list, refuses the lockfile with the member and its names given. A member's kept entry says not
+  to delete it before the root's findings have been added, since the root's relock now needs it.
+
 Measured on the 34 calibration checkouts and the four control repositories, at their pinned
 commits: the snapshot command, the same command again, then the gate with the snapshot. Measured
 twice, on the first version and again after the changes above (2026-11-05); the figures are the
@@ -2531,6 +2544,11 @@ second run's where they differ.
 - The `declared` list is fixed when the entry is written. A dependency declared after the snapshot,
   even in a change that passed, makes the lockfile's findings block when it is committed, until the
   dependency is removed for that change or the findings are fixed or reviewed.
+- A workspace member with no entry of its own refuses the root's lockfile while it declares
+  anything: one added after the snapshot, one that had its own lockfile then, one under a skipped
+  directory. Finding IDs do not carry a path, so which of the lockfile's findings such a member
+  accounts for cannot be told, and nothing records what it declared. A `package.json` a `!`
+  pattern excludes is held to its entry like a member, since exclusions are not applied.
 - A direct dependency's finding is never added, so one present only above its range's lower bound
   blocks when the lockfile is committed, though nothing about it changed. Telling it from a range
   lowered in the same change would need the range recorded in the snapshot.

@@ -572,6 +572,38 @@ of it included, and the edit is in the diff a reviewer reads. A snapshot kept ou
 (`wolfproof known . --file <path>`, then `--known=<file>`) cannot be edited by the change in either
 mode.
 
+**After v1.16.3: `wolfproof known` holds each workspace member to its own entry before it adds a
+root lockfile's findings.** The refusal for a dependency declared since the snapshot compared only
+the root `package.json` with the root's entry. A member's names counted as direct and were compared
+with nothing, so a change that declared express in `packages/web/package.json` and committed the
+root lockfile had the finding in qs, which express brings in, added through the root's entry. Now
+the root lockfile adds nothing while any member declares a package its own entry does not list, has
+an entry with no list, or declares packages and has no entry at all; the command names each member
+and its packages, and the root's entry is kept. This can refuse a lockfile an earlier version added
+findings for, and then those findings block. Two cases to expect. A member's entry deleted by hand
+before the root's lockfile was added: restore it from the snapshot's history, or fix or review the
+findings. A member the snapshot never held as having no lockfile (it was added since, it had its
+own lockfile then, or it is under a skipped directory): the root lockfile is refused while that
+member declares anything. The message for a member's kept entry now says not to
+delete it before the lockfile's findings have been added for the root. `--json` consumers: a
+refused root entry in `relocked` carries `member: true` when a member is among the reasons, and a
+member's entry carries `root` naming the root `package.json` whose entry is still held.
+
+**After v1.16.3: the gate leaves no Python bytecode in the project.** The build check's
+`python3 -m py_compile` wrote `__pycache__/` beside every Python file it compiled, and the test
+check's pytest wrote one for each module the suite imported. On a checkout that does not ignore
+`__pycache__/`, the next `--factory` run read those as files the change wrote where no source
+check looks and blocked: "1 file(s) this change wrote under __pycache__". A machine with
+`PYTHONDONTWRITEBYTECODE` set never saw the pytest half, and Apple's `/usr/bin/python3`, which
+keeps its bytecode under `~/Library/Caches`, saw neither. Now `py_compile` writes to a temporary
+directory that is removed afterwards (`PYTHONPYCACHEPREFIX`, or the one already set in the
+environment), and pytest and the `pytest --version` probes run with `PYTHONDONTWRITEBYTECODE=1`,
+which the suite's own subprocesses inherit. A `__pycache__/` an earlier run left is still there and
+still blocks in factory mode: delete it once. Not covered: Python before 3.8 does not read
+`PYTHONPYCACHEPREFIX`, so `py_compile` there writes beside the source as before; and pytest still
+writes `.pytest_cache/`, which holds its own `.gitignore` and is not one of the directories factory
+mode blocks on.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
