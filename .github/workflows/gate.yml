@@ -170,12 +170,18 @@ jobs:
         #   - 11 November, 1,054 tests: 140-241s in the unit-test jobs of the ten runs up to 2b0c1aa
         #     (30 jobs, median 181s), and 300 killed it here on 1f7e9ca and 2b0c1aa, two merges whose
         #     trees had passed as pull requests. The rest of the gate took 75s in each.
+        # The limit became 900: three times the limit the suite was known to exceed, since a killed run
+        # does not say how much longer it needed.
         # The suite does more here than in the unit-test jobs, which do not install checkov: it starts
-        # checkov 49 times. This job does not print how long the suite took, and the two killed runs
-        # do not say how far past 300s it would have gone, so 900 is three times the limit it is known
-        # to exceed rather than a multiple of a measurement. The unit-test jobs do print theirs: raise
-        # this again when `npm test` there passes 450s. docs/candidate-rules.md #18 has where the time
-        # goes.
+        # checkov 49 times. On the two runs since (f2da804 as a pull request and a17fc8c, its merge;
+        # the same tree, 1,054 tests) this step took 403s and 419s. If the rest of the gate is the 75s
+        # it was in the killed runs, the suite took about 328s and 344s, against 161-240s and 149-191s
+        # in the unit-test jobs of the same runs: 1.4 to 2.3 times as long. So a limit for this job
+        # cannot be set from what those jobs print, and 900 is about 2.6 times what the suite takes.
+        # The `tests` line this job prints now says how long the suite took, beside the limit. Raise
+        # the limit when that line passes 600s: the unit-test job on this job's Node took 240s and
+        # then 160s on those two runs, half an hour apart, so one run can take half as long again as
+        # another. docs/candidate-rules.md #18 has where the time goes.
         env:
           WOLFPROOF_TEST_TIMEOUT: "900"
         with:

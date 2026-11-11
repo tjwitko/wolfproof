@@ -81,7 +81,7 @@ BLOCKING        : 2
   - authentication: POST /webhook has no authentication ...
 
 advisory        : 3
-  · tests: ran under node --test — 19 of 19 passed.
+  · tests: ran under node --test — 19 of 19 passed in 1.4s (limit 120s).
   ...
 ```
 

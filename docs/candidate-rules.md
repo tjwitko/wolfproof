@@ -1399,6 +1399,26 @@ measured directly, and the killed runs were further from their unit-test jobs (o
 The self job could also say how long the suite took: the `tests` line reports the count, and a limit
 set from a measurement needs the time.
 
+**2026-11-11, later: the `tests` line says how long the suite took.** A suite that passes is now
+reported as `tests: ran under node --test — 1054 of 1054 passed in 331s (limit 900s).`, in the CLI and
+in the Action, which print the same line. A failing suite's finding is unchanged: it blocks, and its
+text does not vary from run to run.
+
+The first two runs with the limit at 900 gave the number the killed runs could not. Same tree both
+times, `f2da804` as a pull request and `a17fc8c`, its merge:
+
+| run | the self job's gate step | the suite, if the rest is the 75s it was in the killed runs | `npm test` in the unit-test jobs (node 20, 22, 24) | ratio |
+|---|---|---|---|---|
+| `f2da804` | 403s | about 328s | 161s, 240s, 230s | 1.4–2.0 |
+| `a17fc8c` | 419s | about 344s | 191s, 160s, 149s | 1.8–2.3 |
+
+So the suite takes 1.4 to 2.3 times as long in the self job as in the unit-test jobs of the same run,
+and 900 is about 2.6 times what it takes. The workflow comment had said to raise the limit when
+`npm test` in the unit-test jobs passes 450s. At these ratios that is 630s to 1,035s in the self job:
+the limit could be reached first. The trigger is now the self job's own line passing 600s. The
+unit-test job on the self job's Node (22) took 240s and then 160s on the same tree half an hour apart,
+so one run can take half as long again as another, and 600 leaves that much.
+
 ### 19. Injection rules for PHP and Kotlin — fixed, calibrated
 
 `agent/sast-rules/php.yaml` and `kotlin.yaml`, the same ten rules as Java and Ruby: blocking taint

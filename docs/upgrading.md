@@ -619,6 +619,13 @@ remove the install. Also: "dockerfile: checkov's output could not be parsed" had
 mode blocked on it (exit 1) as an unclassified advisory. It is could-not-run, exit 3, like the same
 message for templates and Terraform. A gate run starts checkov one time fewer per check that uses it.
 
+**After v1.16.3: the `tests` line says how long the suite took.** A suite that passes is reported as
+`tests: ran under node --test — 19 of 19 passed in 41s (limit 120s).`: the time, and the limit
+`WOLFPROOF_TEST_TIMEOUT` or its default gave it. Each suite of a project with several has its own
+line and its own time. The verdict is unchanged, and so is the finding for a suite that fails. If you
+read the line with a pattern that ends at `passed.`, it no longer matches. The line now differs from
+run to run, so two runs' advisories are no longer equal as text.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
