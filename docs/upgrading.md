@@ -604,6 +604,21 @@ still blocks in factory mode: delete it once. Not covered: Python before 3.8 doe
 writes `.pytest_cache/`, which holds its own `.gitignore` and is not one of the directories factory
 mode blocks on.
 
+**After v1.16.3: a checkov that is installed and cannot run is no longer called "not installed".**
+The Dockerfile, template and Terraform checks each ran `checkov --version` before the scan and read
+any failure of it as absence. They now start the scan and nothing else; checkov is absent when the
+scan cannot be started. With checkov working, and with no checkov at all, nothing a run reports has
+changed: a Dockerfile and a CloudFormation, ARM or Bicep template still get "checkov is not
+installed", could-not-run in factory mode, and Terraform still gets nothing from this check, since
+checkov is optional there. What changes is the install that is there and fails, for instance one
+whose Python has lost the module. For a Dockerfile and a template the advisory now reads "checkov did
+NOT run to completion (exit 1, no output)", could-not-run as before. For Terraform, where that
+install was read as absent and nothing was said, the run now reports "checkov (.): produced no output
+(exit 1)" with what checkov printed, and in factory mode that is could-not-run, exit 3. Repair or
+remove the install. Also: "dockerfile: checkov's output could not be parsed" had no class, so factory
+mode blocked on it (exit 1) as an unclassified advisory. It is could-not-run, exit 3, like the same
+message for templates and Terraform. A gate run starts checkov one time fewer per check that uses it.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
