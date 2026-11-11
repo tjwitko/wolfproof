@@ -619,6 +619,13 @@ remove the install. Also: "dockerfile: checkov's output could not be parsed" had
 mode blocked on it (exit 1) as an unclassified advisory. It is could-not-run, exit 3, like the same
 message for templates and Terraform. A gate run starts checkov one time fewer per check that uses it.
 
+**After v1.16.3: C# tests with no project file say so where the .NET SDK is missing too.** With no
+`.sln`, `.slnx` or `.csproj` to build them with, the test check said "there is no .sln, .slnx or
+.csproj" on a machine with the SDK and "the .NET SDK is not installed here" on one without, because it
+asked for the SDK first. It now settles what to build first, as it does for every other language, so
+the message names what the project lacks on both. The verdict is the same either way: could not run,
+exit 3. With a project file and no SDK the message is unchanged.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

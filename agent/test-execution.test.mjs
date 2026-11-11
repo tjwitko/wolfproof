@@ -308,6 +308,52 @@ test("the Laravel shape that exited 0 -- a composer.json with no runner, a faili
   );
 });
 
+// The test above passes wherever the toolchains are installed. This one takes them all off PATH: on
+// a machine without the .NET SDK, C# tests with no project file said the SDK was missing, and the
+// test above failed there. Each runner settles what the project lacks before it asks for its tool.
+test("what the project lacks is said before what the machine lacks; with a project file, the missing toolchain is", () => {
+  const offPath = (fn) => {
+    const saved = process.env.PATH;
+    process.env.PATH = "/nonexistent";
+    try {
+      return fn();
+    } finally {
+      process.env.PATH = saved;
+    }
+  };
+  for (const [files, msg] of [
+    [{ "src/test/java/app/AddTest.java": "class AddTest {}\n" }, /there is no pom\.xml or build\.gradle/],
+    [{ "tests/AddTest.php": "<?php\n" }, /there is no composer\.json/],
+    [{ "composer.json": "{}", "tests/AddTest.php": "<?php\n" }, /declares neither phpunit\/phpunit nor pestphp\/pest/],
+    [{ "src/lib.rs": "#[test]\nfn adds() {}\n" }, /there is no Cargo\.toml/],
+    [{ "App.Tests/AddTests.cs": "public class AddTests {}\n" }, /there is no \.sln, \.slnx or \.csproj/],
+    [{ "spec/add.rb": "describe 'add' do end\n" }, /none is named for RSpec or Minitest/],
+  ]) {
+    run(files, (dir) =>
+      offPath(() => {
+        const suite = detectSuite(dir);
+        assert.match(suite.unavailable, msg);
+        assert.equal(suite.noRunner, true, String(msg));
+        assert.deepEqual(testExecutionReport(dir, { wanted: true }).couldNotRun, [suite.unavailable]);
+      })
+    );
+  }
+  const sdk = "the tests are C# and the .NET SDK is not installed here (dotnet is not on PATH)";
+  for (const files of [
+    { "App.sln": "\n", "App.Tests/AddTests.cs": "public class AddTests {}\n" },
+    { "App.csproj": "<Project/>\n", "AddTests.cs": "public class AddTests {}\n" },
+    { "App.Tests/App.Tests.csproj": "<Project/>\n", "App.Tests/AddTests.cs": "public class AddTests {}\n" },
+  ]) {
+    run(files, (dir) =>
+      offPath(() => {
+        const v = testExecutionReport(dir, { wanted: true });
+        assert.deepEqual(v.failures, []);
+        assert.deepEqual(v.couldNotRun, [sdk], Object.keys(files).join(", "));
+      })
+    );
+  }
+});
+
 test("a toolchain that is not installed, or dependencies that were not, could not run; a declared PHP runner not installed blocks", () => {
   run({ "pom.xml": "<project/>", "src/test/java/app/AddTest.java": "class AddTest {}\n" }, (dir) => {
     const saved = process.env.PATH;
