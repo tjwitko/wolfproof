@@ -1,10 +1,11 @@
 // The Dark Factory measurement, end to end: the real gate over test/fixtures/factory-scenario.mjs,
 // one escape at a time, in the default mode and in factory mode.
 //
-// Not a *.test.mjs file, on purpose: the gate's own `tests` check runs every one of those inside a
-// 120-second budget when this repository gates itself, and these runs take minutes. `npm run
-// test:factory` runs this file, and CI runs that with the scanners installed and
-// WOLFPROOF_REQUIRE_SCANNERS set, so a missing scanner fails here rather than skipping.
+// Not a *.test.mjs file, on purpose: the gate's own `tests` check runs every one of those inside
+// the limit the self job sets when this repository gates itself (.github/workflows/gate.yml), and
+// these runs take minutes. `npm run test:factory` runs this file, and CI runs that with the
+// scanners installed and WOLFPROOF_REQUIRE_SCANNERS set, so a missing scanner fails here rather
+// than skipping.
 //
 // The sequence, measured at a6e98ba (the fixture's commit message has the numbers):
 //   1. the server                      default 3 blocking (authentication, sast, scan_path)
