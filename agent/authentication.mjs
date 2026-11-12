@@ -1585,13 +1585,39 @@ function locateComparisons(files, names) {
 // the line, the column, the line's text (cut short on a minified line) and the whole line, which the
 // finding's ID hashes. The check and credentialComparisons() both read them here.
 function* comparisonsIn(adapterFiles, language) {
+  const all = adapterFiles.map((f) => f.text).join("\n");
+  const at = locator(adapterFiles);
+  for (const { name, index } of acceptedCredentialComparisons(all)) yield { name, language, ...at(index) };
+}
+
+// Every signature compared loosely in one language's files, one per line, with where it is. The
+// check decides whether there is a finding for the language at all (leakySignatureCheck over the
+// joined text, unchanged); this lists each place the same pattern matches that same text, so each
+// comparison gets its own ID. The ID was the language's alone, so a snapshot or a review that took in
+// one comparison took in every comparison a later change added in that language.
+function* leakySignaturesIn(adapterFiles, language) {
+  const all = adapterFiles.map((f) => f.text).join("\n");
+  const at = locator(adapterFiles);
+  const re = new RegExp(LEAKY_SIGNATURE_COMPARE.source, LEAKY_SIGNATURE_COMPARE.flags.replace("g", "") + "g");
+  const seen = new Set();
+  for (let m; (m = re.exec(all)); ) {
+    const found = at(m.index);
+    const key = `${found.file}:${found.line}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    yield { language, ...found };
+  }
+}
+
+// Where an offset into one language's joined text falls: the file, the line, the column, the line's
+// text (cut short on a minified line) and the whole line, which an ID hashes.
+function locator(adapterFiles) {
   const starts = [];
   let offset = 0;
   for (const f of adapterFiles) {
     starts.push(offset);
     offset += f.text.length + 1; // the "\n" each language's files are joined with
   }
-  const all = adapterFiles.map((f) => f.text).join("\n");
   // Each file's line starts, found once and searched, rather than counted from the top for every
   // comparison: a minified bundle can hold hundreds of them.
   const lineStarts = new Map();
@@ -1612,7 +1638,7 @@ function* comparisonsIn(adapterFiles, language) {
     }
     return lo + 1;
   };
-  for (const { name, index } of acceptedCredentialComparisons(all)) {
+  return (index) => {
     let i = starts.length - 1;
     while (starts[i] > index) i--;
     const f = adapterFiles[i];
@@ -1623,8 +1649,8 @@ function* comparisonsIn(adapterFiles, language) {
     const column = local - lineStart + 1;
     const whole = f.text.slice(lineStart, lineEnd);
     const text = whole.length <= 200 ? whole.trim() : `…${whole.slice(Math.max(0, column - 81), column + 119).trim()}…`;
-    yield { name, language, file: f.rel.split(path.sep).join("/"), line, column, text, whole };
-  }
+    return { file: f.rel.split(path.sep).join("/"), line, column, text, whole };
+  };
 }
 
 // One function for the check and for credentialComparisons(), so the two cannot see different files.
@@ -1675,6 +1701,7 @@ export function checkAuthentication(projectDir) {
   const unread = [];
   let leakySignature = false;
   const leakySignatureLanguages = [];
+  const signatures = [];
   let leakyCredential = false;   // { name, language, at } once found
   // Every comparison the credential rule accepts, not only the first: the finding names the first,
   // and a snapshot (lib/known.mjs) that covers it must not hide the next one.
@@ -1695,6 +1722,7 @@ export function checkAuthentication(projectDir) {
     if (leakySignatureCheck(all)) {
       leakySignature = true;
       leakySignatureLanguages.push(adapter.name);
+      signatures.push(...leakySignaturesIn(adapterFiles, adapter.name));
     }
     // Every accepted comparison, read once; the first is the one leakyCredentialCheck would name.
     const compared = [...comparisonsIn(adapterFiles, adapter.name)];
@@ -1764,6 +1792,7 @@ export function checkAuthentication(projectDir) {
   const comparisons = {
     leakySignature,
     leakySignatureLanguages,
+    signatures: withIds(signatures, (c) => `authentication:signature:${c.file}:${lineFingerprint(c.whole)}`).map(({ whole, ...c }) => c),
     leakyCredential,
     credentials: withIds(credentials, (c) => `authentication:timing:${c.file}:${lineFingerprint(c.whole)}`).map(({ whole, ...c }) => c),
     vacuousCredentials: [...vacuous.keys()],
@@ -1812,12 +1841,12 @@ const exemptList = (exempt) =>
 
 /**
  * The comparison findings: blocking whether or not any route was read or is open. Each has an ID, so
- * a review or the snapshot can name it: a signature compared loosely by language, a credential by
- * the line it is compared on, an unset variable by its name. Returns { failures, reviewed, located }.
+ * a review or the snapshot can name it: a signature compared loosely, and a credential, by the line
+ * it is compared on; an unset variable by its name. Returns { failures, reviewed, located }.
  */
 function comparisonFindings(report, reviews = []) {
   const items = [
-    ...(report.leakySignatureLanguages || []).map((language) => ({ kind: "signature", id: `authentication:signature:${language}`, language, where: `a signature compared with == (${language})` })),
+    ...(report.signatures || []).map((c) => ({ kind: "signature", ...c, where: `${c.file}:${c.line} (${c.language})` })),
     ...(report.credentials || []).map((c) => ({ kind: "credential", ...c, where: `${c.file}:${c.line} (${c.name})` })),
     ...(report.vacuousCredentials || []).map((name) => {
       const { language, at } = report.vacuousAt[name];
@@ -1830,10 +1859,11 @@ function comparisonFindings(report, reviews = []) {
   // Reported whether or not any route is open, and separately from the open-route finding: a
   // service can authenticate every endpoint and still have a leaky comparison in the one control
   // that matters. Conflating the two would let a fix for one hide the other.
-  const timing = kept.some((i) => i.kind === "signature")
+  const signatures = kept.filter((i) => i.kind === "signature");
+  const timing = signatures.length
     ? [
         `authentication: a request signature is verified with an ordinary equality comparison ` +
-          `rather than a constant-time one. \`==\` returns as soon as it finds a differing byte, so ` +
+          `rather than a constant-time one${where(signatures.map((i) => `${i.file}:${i.line}`))}. \`==\` returns as soon as it finds a differing byte, so ` +
           `an attacker who can send repeated callbacks measures response times and recovers the ` +
           `correct digest one byte at a time, without ever learning the secret. This is the ` +
           `canonical way signature verification is broken. Use hmac.compare_digest (Python), ` +

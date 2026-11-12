@@ -36,6 +36,36 @@ test("review lists open routes by ID, writes an entry, replaces it, and marks it
   }
 });
 
+// What voids an entry depends on what its ID names. Every authentication ID was described as a
+// route's, so an entry for a comparison said it held until a route changed.
+test("review says what voids an entry by what the ID names", () => {
+  const d = mkdtempSync(path.join(tmpdir(), "review-cli-"));
+  try {
+    writeFileSync(
+      path.join(d, "hook.py"),
+      "import hmac, hashlib\ndef verify(body, sig):\n    expected_signature = hmac.new(S.encode(), body, hashlib.sha256).hexdigest()\n    return expected_signature == sig\n"
+    );
+    const list = wolfproof("review", d);
+    const id = /^BLOCKING  (authentication:signature:hook\.py:[0-9a-f]{8})$/m.exec(list.stdout)?.[1];
+    assert.ok(id, list.stdout + list.stderr);
+    assert.match(list.stdout, /^    hook\.py:4 — a request signature verified with an ordinary equality comparison/m);
+    const expected = {
+      [id]: "the line it names changes",
+      "authentication:timing:hook.py:0123abcd": "the line it names changes",
+      "authentication:unset:API_TOKEN": "the variable it names is renamed",
+      "authentication:GET /report:app.js": "the route's method, path or file changes",
+      "sast:python-sql-injection:app.py:5df60c0d": "the line it names changes",
+    };
+    for (const [entry, voids] of Object.entries(expected)) {
+      const w = wolfproof("review", d, entry, "--reason", "probe");
+      assert.equal(w.status, 0, w.stderr);
+      assert.match(w.stdout, new RegExp(`^It stops applying when ${voids.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.$`, "m"), `${entry}: ${w.stdout}`);
+    }
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("review refuses an entry the gate would ignore, and writes nothing", () => {
   const d = dir();
   try {

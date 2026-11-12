@@ -77,7 +77,7 @@ function list(projectDir, out, given = projectDir, codeql = false) {
     out.push(`${reviewed.has(id) ? "reviewed" : "BLOCKING"}  ${id}`);
     const at = where.get(id) ? `${where.get(id)} — ` : "";
     if (id.startsWith("authentication:timing:")) out.push(`    ${at}a credential compared with an ordinary equality operator rather than a constant-time one`);
-    else if (id.startsWith("authentication:signature:")) out.push(`    a request signature verified with an ordinary equality comparison rather than a constant-time one`);
+    else if (id.startsWith("authentication:signature:")) out.push(`    ${at}a request signature verified with an ordinary equality comparison rather than a constant-time one`);
     else if (id.startsWith("authentication:unset:")) out.push(`    ${at}a credential read from the environment and compared for equality, which succeeds when it is unset`);
     else out.push(`    an endpoint that accepts requests from anyone who can reach the service`);
   }
@@ -125,7 +125,15 @@ function write(projectDir, id, args, out, err) {
   out.push(`  ${JSON.stringify(written)}`);
   out.push("");
   out.push("The gate lists this finding as reviewed on every run, with the reason, and does not count it.");
-  const voids = written.id.startsWith("authentication:") ? "the route's method, path or file changes" : "the line it names changes";
+  // What the ID is made of decides what voids it: a route by its method, path and file, an unset
+  // variable by its name, and every other ID by the line it names.
+  const voids = /^authentication:(?:timing|signature):/.test(written.id)
+    ? "the line it names changes"
+    : written.id.startsWith("authentication:unset:")
+      ? "the variable it names is renamed"
+      : written.id.startsWith("authentication:")
+        ? "the route's method, path or file changes"
+        : "the line it names changes";
   out.push(`It stops applying when ${voids}` + (written.expires ? ` or after ${written.expires}` : "") + ".");
   if (!fileArg) out.push(`In factory mode, an entry a change adds to ${REVIEW_FILE} blocks unless the pipeline's allowlist approves it.`);
   return EXIT.OK;

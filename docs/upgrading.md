@@ -670,6 +670,20 @@ line and its own time. The verdict is unchanged, and so is the finding for a sui
 read the line with a pattern that ends at `passed.`, it no longer matches. The line now differs from
 run to run, so two runs' advisories are no longer equal as text.
 
+**After v1.16.3: each signature compared with `==` has its own ID.** The authentication check's
+finding for a request signature compared with an ordinary equality operator had one ID per language,
+`authentication:signature:Python`, so a snapshot or a review that held one such comparison held every
+one a later change added in that language: a second webhook verified the same way passed. Each
+comparison now has an ID of its own, `authentication:signature:<file>:<hash of the line>`, like a
+credential's, and the finding names where they are, `(hooks.py:12, billing.py:40)`. Whether a project
+has the finding is decided as before. Can turn a passing project red: one whose snapshot or review
+file holds the old language ID. That entry now matches no finding, and the gate says so, so each
+comparison blocks until it is fixed or reviewed by its new ID (`wolfproof review .` lists them).
+`wolfproof known` will not add them to an existing snapshot; delete it and run the command again to
+take in what is there now, and read the diff. `wolfproof review` also says what voids an entry by what
+its ID names: a line for a comparison, the variable for an unset credential, and a route only for an
+open route, where it said "the route's method, path or file" for every authentication ID.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

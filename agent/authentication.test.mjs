@@ -1471,6 +1471,71 @@ test("an equality-compared signature is reported even when every route is protec
   assert.deepEqual(run(fixed, authenticationFailures).failures, [], "clears once compared safely");
 });
 
+// The signature finding's ID was the language's, `authentication:signature:Python`, so a snapshot or
+// a review that took in one loose comparison took in every one a later change added in Python. Each
+// comparison now has its own ID, by file and line, as a credential's has.
+const HOOK = (n) =>
+  "import hashlib, hmac, os\n" +
+  "from fastapi import FastAPI, Header, HTTPException, Request\n" +
+  "app = FastAPI()\n" +
+  `SECRET = os.environ["HOOK_SECRET_${n}"]\n\n` +
+  `def verify_${n}(body, sig):\n` +
+  "    expected_signature = hmac.new(SECRET.encode(), body, hashlib.sha256).hexdigest()\n" +
+  "    return expected_signature == sig\n\n" +
+  `@app.post("/verify_${n}")\n` +
+  `async def receive_${n}(request: Request, x_signature: str = Header(None)):\n` +
+  `    if not verify_${n}(await request.body(), x_signature):\n` +
+  "        raise HTTPException(status_code=401)\n" +
+  '    return {"ok": True}\n';
+
+test("each signature compared loosely has its own ID and location, and one review covers only its own", () => {
+  const files = { "src/a.py": HOOK("a"), "src/b.py": HOOK("b") };
+  const r = run(files, authenticationFailures);
+  const ids = r.ids.filter((id) => id.startsWith("authentication:signature:"));
+  assert.equal(ids.length, 2, r.ids.join(", "));
+  assert.match(ids[0], /^authentication:signature:src\/a\.py:[0-9a-f]{8}$/);
+  assert.match(ids[1], /^authentication:signature:src\/b\.py:[0-9a-f]{8}$/);
+  assert.deepEqual(
+    r.located.filter((x) => ids.includes(x.id)).map((x) => [x.file, x.line]),
+    [["src/a.py", 8], ["src/b.py", 8]]
+  );
+  assert.equal(r.failures.length, 1, "one finding, naming both");
+  assert.match(r.failures[0], /constant-time one \(src\/a\.py:8, src\/b\.py:8\)\./);
+
+  // A review of a.py's comparison sets that one aside and leaves b.py's blocking, named alone.
+  const aside = run(files, (dir) => authenticationFailures(dir, { reviews: [{ id: ids[0], reason: "probe", source: "test" }] }));
+  assert.deepEqual(aside.reviewed.map((x) => x.id), [ids[0]]);
+  assert.deepEqual(aside.blockingIds.filter((id) => id.startsWith("authentication:signature:")), [ids[1]]);
+  assert.equal(aside.failures.length, 1);
+  assert.match(aside.failures[0], /constant-time one \(src\/b\.py:8\)\./);
+
+  // The ID is the line's, so an edit elsewhere in the file keeps it, and the language's old ID
+  // names nothing.
+  const moved = run({ ...files, "src/a.py": `# a comment at the top\n${files["src/a.py"]}` }, authenticationFailures);
+  assert.ok(moved.ids.includes(ids[0]), moved.ids.join(", "));
+  const old = run(files, (dir) => authenticationFailures(dir, { reviews: [{ id: "authentication:signature:Python", reason: "probe", source: "test" }] }));
+  assert.deepEqual(old.reviewed, []);
+  assert.equal(old.blockingIds.filter((id) => id.startsWith("authentication:signature:")).length, 2);
+});
+
+// Whether a language has the finding is decided as it was, over the language's files joined; the
+// IDs only say where. Two loose comparisons on one line are one place.
+test("the signature finding is detected as before; the same line twice is one ID", () => {
+  const twice = {
+    "src/main.py":
+      "import hmac, hashlib\n" +
+      "def verify(body, sig, alt):\n" +
+      "    expected_signature = hmac.new(S.encode(), body, hashlib.sha256).hexdigest()\n" +
+      "    return expected_signature == sig or expected_signature == alt\n",
+  };
+  const r = run(twice, authenticationFailures);
+  assert.deepEqual(r.ids.filter((id) => id.startsWith("authentication:signature:")).length, 1, r.ids.join(", "));
+  const report = run(twice, checkAuthentication);
+  assert.equal(report.leakySignature, true);
+  assert.deepEqual(report.leakySignatureLanguages, ["Python"]);
+  assert.deepEqual(report.signatures.map((c) => [c.file, c.line, c.language]), [["src/main.py", 4, "Python"]]);
+});
+
 // Found by hand-testing a webhook receiver that authenticated both routes, passed this gate, and
 // still served every stored callback to an unauthenticated request: its Deployment never set
 // SUPPORT_API_KEY, and `None != None` is false. The same file validated three other environment

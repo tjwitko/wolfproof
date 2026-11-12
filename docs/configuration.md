@@ -108,12 +108,15 @@ BLOCKING  sast:python-sql-injection:app.py:5df60c0d
 ```
 
 The ID is everything after the status word, here `sast:python-sql-injection:app.py:5df60c0d`. Copy it
-as printed. It has one of three shapes:
+as printed. It has one of these shapes:
 
 | check | ID | example |
 |---|---|---|
 | injection | `sast:<rule>:<file>:<hash of the line>` | `sast:python-sql-injection:app.py:5df60c0d` |
-| authentication | `authentication:<METHOD> <route>:<file>` | `authentication:GET /reports:app.py` |
+| authentication: an open route | `authentication:<METHOD> <route>:<file>` | `authentication:GET /reports:app.py` |
+| authentication: a signature compared with `==` | `authentication:signature:<file>:<hash of the line>` | `authentication:signature:hooks.py:c38eafa0` |
+| authentication: a credential compared with `==` | `authentication:timing:<file>:<hash of the line>` | `authentication:timing:app.py:a64ea7ba` |
+| authentication: a credential that compares equal when unset | `authentication:unset:<variable>` | `authentication:unset:SUPPORT_TOKEN` |
 | CodeQL | `codeql:<query>:<file>:<hash of the line>` | `codeql:js/reflected-xss:src/app.js:39f7be0b` |
 
 The last part of an injection ID is a hash of the flagged line, so it cannot be written by hand. Take it
@@ -263,8 +266,9 @@ and delete the old entry.
 - **A reason is required.** An entry without one, or with an ID or date that is not well-formed, is
   ignored and reported. `expires` is optional; after that date the finding counts again.
 - **It stops applying when the code changes.** Moving the line keeps a review; editing it, or the
-  helper it goes through, makes it a new finding to review. An authentication review names the
-  route, and holds until its method, path or file changes.
+  helper it goes through, makes it a new finding to review. A review of an open route names the
+  route, and holds until its method, path or file changes. A review of an unset credential names the
+  variable, and holds every comparison of it, a later one included.
 - **Nothing goes quiet.** An entry that matches no finding is reported as an advisory, as is one past
   its date, so the file does not keep entries that do nothing.
 - **Which findings.** The first version covers the injection (`sast`) and authentication checks.
@@ -318,14 +322,20 @@ A finding enters a snapshot only if it blocks and has an ID that survives unrela
 |---|---|---|
 | injection (`sast`), CodeQL | the rule, the file, a hash of the line | an edit elsewhere in the file |
 | authentication: open routes | the method, the path, the file | any edit that keeps the route |
-| authentication: a credential compared with `==` | the file, a hash of the line | an edit elsewhere in the file |
-| authentication: a loose signature check, an unset credential | the language; the variable's name | any edit that keeps it |
+| authentication: a credential or a signature compared with `==` | the file, a hash of the line | an edit elsewhere in the file |
+| authentication: an unset credential | the variable's name | any edit that keeps it |
 | dependencies | the ecosystem, the package, the advisory | an upgrade that leaves the advisory open |
 | a `package.json` with no lockfile | its path | any edit to it |
 | workload identity | identity-guard's rule, the file, a hash of the line | an edit elsewhere in the file |
 | Dockerfile base images past end of life | the file, the stage, the image, the product | another release of the same image |
 | empty files | the path | — |
 | test patch targets that do not exist | the test file, the target | an edit elsewhere in the test |
+
+An entry holds every finding with its ID, and two of these IDs name no single place. An unset
+credential's is the variable's name, so the entry holds every comparison of that variable, one a
+later change adds included, in any file and in any language. A dependency's is the package and the
+advisory, so the entry holds that advisory in every lockfile, one a later change adds included. Every
+other ID names the file the finding is in.
 
 Everything else keeps blocking, whatever the snapshot says:
 
