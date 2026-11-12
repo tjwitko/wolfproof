@@ -21,9 +21,9 @@ cargo, php, bundle) — the toolchain is not on `PATH` in the job. Install it th
 
 **`exit 3` and "there is no pom.xml or build.gradle"** (or "composer.json declares neither
 phpunit/phpunit nor pestphp/pest", "package.json declares no test runner", "there is no Cargo.toml",
-"there is no go.mod") — the project has tests and nothing that says how to run them. Add the build file,
-or declare the runner as a dev dependency, so that anyone — the gate included — can run the suite as
-delivered.
+"there is no go.mod", "there is no .sln, .slnx or .csproj") — the project has tests and nothing that
+says how to run them. Add the build file, or declare the runner as a dev dependency, so that anyone —
+the gate included — can run the suite as delivered.
 
 **`exit 3` and "… exited 0 and reported no test summary"** — the runner ran and named no test, so
 nothing is known to have run. For `dotnet test` the usual cause is packages that were never restored:
