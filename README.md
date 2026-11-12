@@ -281,9 +281,15 @@ there are no wildcards.
 #### A codebase that already has findings
 
 `wolfproof known .` writes the blocking findings a project has now to `.wolfproof-known.json`. Once
-it is committed, those findings are counted and do not block, and anything a later change adds
-blocks as before. The snapshot only shrinks: running the command again removes entries for fixed
-findings and never adds new ones. A hardcoded secret, a manifest no scanner read, the build and the
+it is committed, those findings are counted and do not block, and a finding a later change adds
+blocks as before. An entry holds whatever has its ID, and two IDs name no single place: an unset
+credential is known by the variable's name, and a vulnerable dependency by its package and advisory.
+So the same variable compared again, or the same package and advisory in another lockfile, is held
+by the entry already there ([what a snapshot holds](docs/configuration.md#what-a-snapshot-holds)).
+The snapshot only shrinks: running the command again removes entries for fixed findings and adds
+none, with one exception. When a lockfile is committed for a `package.json` the snapshot held as
+having none, the command adds that lockfile's findings, once ([snapshot rules](docs/configuration.md#snapshot-rules)).
+A hardcoded secret, a manifest no scanner read, the build and the
 checks gated on the task are never snapshotted, so they still block. Measured on 33 open-source
 apps, a snapshot held every finding it could; 6 then passed, and a hardcoded secret was the most
 common thing still blocking the rest (22).
