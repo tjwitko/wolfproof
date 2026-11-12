@@ -288,7 +288,7 @@ So the same variable compared again, or the same package and advisory in another
 by the entry already there ([what a snapshot holds](docs/configuration.md#what-a-snapshot-holds)).
 The snapshot only shrinks: running the command again removes entries for fixed findings and adds
 none, with one exception. When a lockfile is committed for a `package.json` the snapshot held as
-having none, the command adds that lockfile's findings, once ([the rules](docs/configuration.md#the-rules)).
+having none, the command adds that lockfile's findings, once ([snapshot rules](docs/configuration.md#snapshot-rules)).
 A hardcoded secret, a manifest no scanner read, the build and the
 checks gated on the task are never snapshotted, so they still block. Measured on 33 open-source
 apps, a snapshot held every finding it could; 6 then passed, and a hardcoded secret was the most

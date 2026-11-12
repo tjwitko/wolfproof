@@ -357,7 +357,7 @@ Everything else keeps blocking, whatever the snapshot says:
 `wolfproof known` lists what still blocks after it writes the snapshot, so it is clear at once what
 has to be fixed before the gate can be required.
 
-### The rules
+### Snapshot rules
 
 - **It only shrinks.** Run against an existing snapshot, the command removes entries that match no
   finding and never adds one. A finding that appears later blocks until it is fixed or
