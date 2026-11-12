@@ -474,7 +474,8 @@ Control: terraform-guard (`terraform`, `checkov`).
 `0.0.0.0/0`, for instance. A plan that cannot authenticate is reported as unscanned, never clean.
 
 **Reports without blocking:** checkov's findings on Terraform for any cloud, CloudFormation, ARM and
-Bicep.
+Bicep. Without checkov a Terraform run says so in one line of information; a checkov that is
+installed and did not run is could-not-run.
 
 **Covers:** blocking: Terraform on AWS; advisory: also CloudFormation, ARM, Bicep.
 
