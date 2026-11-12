@@ -628,17 +628,40 @@ mode blocks on.
 **After v1.16.3: a checkov that is installed and cannot run is no longer called "not installed".**
 The Dockerfile, template and Terraform checks each ran `checkov --version` before the scan and read
 any failure of it as absence. They now start the scan and nothing else; checkov is absent when the
-scan cannot be started. With checkov working, and with no checkov at all, nothing a run reports has
-changed: a Dockerfile and a CloudFormation, ARM or Bicep template still get "checkov is not
-installed", could-not-run in factory mode, and Terraform still gets nothing from this check, since
-checkov is optional there. What changes is the install that is there and fails, for instance one
-whose Python has lost the module. For a Dockerfile and a template the advisory now reads "checkov did
-NOT run to completion (exit 1, no output)", could-not-run as before. For Terraform, where that
-install was read as absent and nothing was said, the run now reports "checkov (.): produced no output
-(exit 1)" with what checkov printed, and in factory mode that is could-not-run, exit 3. Repair or
-remove the install. Also: "dockerfile: checkov's output could not be parsed" had no class, so factory
+scan cannot be started and nothing on `PATH` is named `checkov`. With checkov working, nothing a run
+reports has changed. With no checkov, a Dockerfile and a CloudFormation, ARM or Bicep template still
+get "checkov is not installed", could-not-run in factory mode.
+
+With no checkov, a Terraform project's run has one new line: "checkov: not installed, so its
+rules did not run over the Terraform here (.). checkov is optional for Terraform, and what it finds
+there is advisory." It is said once, naming every Terraform root. Until now such a run said nothing
+about checkov outside the toolchain report, which is in `--json` and `--version` only. The line is
+information, advisory id `checkov-absent`: no verdict moves on it in either mode, and a policy that
+blocks checkov's findings does not reach it. A pipeline that requires checkov on Terraform can map
+`checkov-absent` to `incomplete` in its policy.
+
+What else changes is the install that is there and fails. One whose Python has lost the module: for
+a Dockerfile and a template the advisory now reads "checkov did NOT run to completion (exit 1, no
+output)", could-not-run as before, and for Terraform, where that install was read as absent and
+nothing was said, the run now reports "checkov (.): produced no output (exit 1)" with what checkov
+printed. One the system cannot start at all, which is what a pipx or venv install becomes when its
+Python is upgraded or removed (a script whose `#!` line names an interpreter that is gone, or a link
+to a file that is gone): all three checks report "checkov did NOT run to completion
+(/home/me/.local/bin/checkov is on PATH and could not be started: its #! line names
+/home/me/.local/pipx/venvs/checkov/bin/python, which does not exist)". Both are could-not-run, so in
+factory mode a Terraform project with such an install is exit 3 where it was judged as if checkov
+were absent. Repair or remove the install.
+
+Also: "dockerfile: checkov's output could not be parsed" had no class, so factory
 mode blocked on it (exit 1) as an unclassified advisory. It is could-not-run, exit 3, like the same
 message for templates and Terraform. A gate run starts checkov one time fewer per check that uses it.
+
+**After v1.16.3: C# tests with no project file say so where the .NET SDK is missing too.** With no
+`.sln`, `.slnx` or `.csproj` to build them with, the test check said "there is no .sln, .slnx or
+.csproj" on a machine with the SDK and "the .NET SDK is not installed here" on one without, because it
+asked for the SDK first. It now settles what to build first, as it does for every other language, so
+the message names what the project lacks on both. The verdict is the same either way: could not run,
+exit 3. With a project file and no SDK the message is unchanged.
 
 ## Keeping current
 

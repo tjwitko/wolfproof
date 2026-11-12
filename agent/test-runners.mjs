@@ -127,8 +127,19 @@ function gradleReports(projectDir) {
   return found ? totals : null;
 }
 
-/** C#: the solution at the root, or else each test project. */
+/**
+ * C#: the solution at the root, or else each test project.
+ *
+ * What to build is settled before the SDK is asked for, as every other runner here does. The probe
+ * used to come first, so C# tests with no project file read as "the .NET SDK is not installed" on a
+ * machine without it and as "there is no .sln, .slnx or .csproj" on one with it: the same project,
+ * two things to fix, and the one in the project hidden where the SDK was missing.
+ */
 export function dotnetSuites(projectDir, files) {
+  const targets = dotnetTargets(projectDir, files);
+  if (!targets.length) {
+    return [{ noRunner: true, unavailable: `the tests are C# (${list(files)}) and there is no .sln, .slnx or .csproj to build them with` }];
+  }
   if (!installed("dotnet", ["--version"], { ...process.env, ...DOTNET_ENV })) {
     return [{ environmental: true, unavailable: "the tests are C# and the .NET SDK is not installed here (dotnet is not on PATH)" }];
   }
@@ -147,10 +158,14 @@ export function dotnetSuites(projectDir, files) {
     // nothing and exits 0 with no output. Said here, because "no summary" alone does not say why.
     noSummaryHint: unrestored(projectDir) ? "; obj/project.assets.json is missing, so the packages were never restored -- run `dotnet restore` first" : "",
   });
+  return targets.map(suite);
+}
+
+function dotnetTargets(projectDir, files) {
   const solutions = rootFiles(projectDir, /\.slnx?$/);
-  if (solutions.length === 1) return [suite(solutions[0])];
+  if (solutions.length === 1) return [solutions[0]];
   const rootProjects = rootFiles(projectDir, /\.csproj$/);
-  if (rootProjects.length === 1) return [suite(rootProjects[0])];
+  if (rootProjects.length === 1) return [rootProjects[0]];
   // Each test project, found from the test files: the nearest .csproj above each.
   const projects = new Set();
   for (const f of files) {
@@ -165,8 +180,7 @@ export function dotnetSuites(projectDir, files) {
       dir = path.dirname(dir);
     }
   }
-  if (projects.size) return [...projects].sort().map(suite);
-  return [{ noRunner: true, unavailable: `the tests are C# (${list(files)}) and there is no .sln, .slnx or .csproj to build them with` }];
+  return [...projects].sort();
 }
 
 function unrestored(projectDir) {
