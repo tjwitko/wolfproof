@@ -28,6 +28,7 @@ import { EOL, PRODUCTS, EOL_FETCHED } from "./eol-data.mjs";
 import { setting } from "../lib/settings.mjs";
 import { withIds, applyReviews } from "../lib/reviewed.mjs";
 import { locate } from "../lib/known.mjs";
+import { presentNotStarted } from "../lib/tool-on-path.mjs";
 
 const isDockerfile = (name) =>
   name === "Dockerfile" || name === "Containerfile" || /^Dockerfile\.[\w.-]+$/.test(name) || /\.[Dd]ockerfile$/.test(name);
@@ -175,12 +176,15 @@ function checkovDockerfiles(projectDir, files) {
   );
   // Not installed is found by starting the scan, not by a `checkov --version` first: the probe was a
   // second full Python start-up before every scan (candidate-rules §18). A checkov that is there and
-  // cannot run is no longer called "not installed": it falls through to the line below, with its exit.
-  if (run.error?.code === "ENOENT") {
+  // cannot run is not called "not installed": it gets the did-not-run line, with its exit. That
+  // includes one the system could not start at all, which fails with the same ENOENT as no checkov
+  // (lib/tool-on-path.mjs tells them apart).
+  const broken = run.error?.code === "ENOENT" ? presentNotStarted("checkov") : null;
+  if (run.error?.code === "ENOENT" && !broken) {
     return `dockerfile: checkov is not installed, so ${files.length} Dockerfile(s) were checked for end-of-life base images only — USER, HEALTHCHECK, unpinned tags and the rest of checkov's Dockerfile rules did not run.`;
   }
   if (run.error || run.signal || !run.stdout) {
-    return `dockerfile: checkov did NOT run to completion over the Dockerfiles (${run.signal || run.error?.message || `exit ${run.status}, no output`}). Its rules are unknown here, not clean.`;
+    return `dockerfile: checkov did NOT run to completion over the Dockerfiles (${broken || run.signal || run.error?.message || `exit ${run.status}, no output`}). Its rules are unknown here, not clean.`;
   }
   let report;
   try {

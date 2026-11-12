@@ -1389,10 +1389,40 @@ measured directly, and the killed runs were further from their unit-test jobs (o
    Terraform is exit 3. It is in `dockerfile-checkov-unavailable` now. `lib/checkov-starts.test.mjs`
    holds all of it with a stand-in checkov, so it runs where checkov is not installed.
 
-   **Left as it was, for a decision:** with no checkov, a Terraform project's run says nothing about
-   checkov outside the toolchain report, in factory mode too, while a Dockerfile or a template in the
-   same position is could-not-run. The README calls checkov optional for both. Reporting it for
-   Terraform would turn every factory-mode Terraform run on a machine without checkov into exit 3.
+   **Left as it was then, for a decision:** with no checkov, a Terraform project's run said nothing
+   about checkov outside the toolchain report, in factory mode too, while a Dockerfile or a template
+   in the same position is could-not-run. The README calls checkov optional for both. Reporting it
+   for Terraform as could-not-run would turn every factory-mode Terraform run on a machine without
+   checkov into exit 3.
+
+   **Decided, and one case the table above missed (still after v1.16.3).** The decision: a Terraform
+   run with no checkov says so in one line for all its Terraform roots, class info, id
+   `checkov-absent`. No verdict moves on it in either mode, and it is not in `validatorsRun`. The
+   roots are named after the words the line is classified by, not before them: a root whose
+   directory name has a `)` in it would otherwise make the line one factory mode cannot classify,
+   which blocks. The toolchain report was not the place a run says it, as the code's comment
+   claimed: it is in `--json` and `--version` only, and its `null` for checkov covers a checkov
+   that started and exited non-zero as well.
+
+   The case: "broken" above was a checkov that starts and fails. One the system cannot start at all
+   fails with the same `ENOENT` as no checkov: a script whose `#!` line names a Python that is gone,
+   or a link to a file that is gone, which is what a pipx or venv install becomes after its Python
+   is upgraded. So it was still "not installed" for a Dockerfile and a template, and for Terraform
+   nothing, exit 0 in factory mode. `lib/tool-on-path.mjs` tells the two apart by looking for an
+   entry named `checkov` on PATH, starting nothing, and reads the `#!` line or the link to say why.
+   Measured on four one-file projects (the three above and a `.tf` file whose plan needs no
+   provider, so its run is exit 0), default and factory mode, 40 runs each on the tree before and
+   after:
+
+   | | before | after |
+   |---|---|---|
+   | present; absent, Dockerfile or template; not executable (`EACCES`) | as after | the same advisories and exit codes, 20 of 20 runs |
+   | absent, Terraform | nothing; exit 0 | the `checkov-absent` line; exit 0, both modes |
+   | cannot start, Dockerfile or template | "checkov is not installed…"; factory mode exit 3 | "checkov did NOT run to completion (…/checkov is on PATH and could not be started: its #! line names …, which does not exist)"; factory mode exit 3 |
+   | cannot start, Terraform | nothing; factory mode exit 0 | the same message; factory mode exit 3 |
+
+   A checkov that cannot start ahead of one that can is not a case: the system tries every entry on
+   PATH before it gives `ENOENT`, so the working one runs (a test holds that).
 4. **The toolchain report is once per gate run by design**, and a switch that turned it off for tests
    would be a switch that turns it off.
 
