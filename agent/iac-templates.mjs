@@ -97,8 +97,12 @@ export function iacTemplateAdvisories(projectDir) {
   }
 
   const advisories = [];
+  // The labels written below, for factory mode: it reads a line's label against these, never by
+  // where a ")" falls (lib/advisory-classes.mjs). The label is checkov's word for the report.
+  const labels = [];
   for (const r of reports) {
     const label = LABEL[r.check_type] || r.check_type;
+    labels.push(String(label));
     const failed = r.results?.failed_checks || [];
     const parseErrors = Number(r.summary?.parsing_errors || 0);
     const byFile = new Map();
@@ -115,5 +119,5 @@ export function iacTemplateAdvisories(projectDir) {
         (parseErrors ? ` ${parseErrors} file(s) FAILED TO PARSE and were not scanned.` : "")
     );
   }
-  return { failures: [], advisories };
+  return { failures: [], advisories, labels };
 }

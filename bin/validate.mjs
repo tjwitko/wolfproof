@@ -415,7 +415,15 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       r.advisories.push(...factoryAdvisories);
       couldNotRun.push(...factoryCouldNotRun);
       r.failures.push(...judged.failures);
-      const ctx = { servesHttp: servesHttp(projectDir), couldNotRun: [...couldNotRun], terraformRoots: r.terraformRoots };
+      // The labels this run wrote, so that a label is told from its message by name and not by a
+      // ")" (lib/advisory-classes.mjs): Terraform roots, template kinds, the image.
+      const ctx = {
+        servesHttp: servesHttp(projectDir),
+        couldNotRun: [...couldNotRun],
+        terraformRoots: r.terraformRoots,
+        iacTemplateLabels: r.iacTemplateLabels,
+        trivyImages: trivy ? [trivy.image] : [],
+      };
       const kept = [];
       const classified = [];
       for (const a of r.advisories) {

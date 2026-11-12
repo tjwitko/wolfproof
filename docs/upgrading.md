@@ -589,21 +589,26 @@ delete it before the lockfile's findings have been added for the root. `--json` 
 refused root entry in `relocked` carries `member: true` when a member is among the reasons, and a
 member's entry carries `root` naming the root `package.json` whose entry is still held.
 
-**After v1.16.3: in factory mode, a Terraform directory's name no longer decides what a line about
-it means.** The lines that checkov, the plan and the resource census write about a Terraform root
-open with its path, `checkov (infra): …`, and factory mode read that label up to the first `)`. For
-a root with `)` in its name, `net (prod)` for one, every such line was an advisory it could not
-classify: a scan that found nothing blocked (exit 1), and so did a checkov that could not run, which
-is exit 3 for any other root. And a root named like the start of a message chose the line's class.
-With a directory called `a): 0 finding(s) in your own configuration — x`, checkov's findings in it
-read as its "found nothing" line, which is information, and a policy that blocks checkov's findings
-(`"checkov": "block"`) let them through with exit 0. The label is now read against the roots the
-gate scanned and never by its brackets. Verdicts move both ways, in factory mode only. A project
-blocked only by a bracket in a directory name goes to exit 0, or to exit 3 where checkov or the plan
-could not run. Findings a name was hiding from a policy block again. Can turn a passing project red:
-only one with two Terraform roots where one's path is the other's followed by `): ` and more, so
-that a line could be about either and the two readings differ. That line blocks as unclassified and
-names both roots; rename one directory. The printed lines are unchanged, and so is the default mode.
+**After v1.16.3: in factory mode, a name the project chooses no longer decides what a line under
+it means.** Some lines open with a label the gate did not choose: a Terraform root's path in
+`checkov (infra): …`, in the plan's line and in the resource census; the kind of template checkov
+reported on in `iac templates (CloudFormation): …`; the image in `trivy (app:1): …`. Factory mode
+read that label up to the first `)`, and it went wrong in two directions. For a root with `)` in
+its name, `net (prod)` for one, every such line was an advisory it could not classify: a scan that
+found nothing blocked (exit 1), and so did a checkov that could not run, which is exit 3 for any
+other root. And a label written like the end of one message and the start of another chose the
+line's class. With a directory called `a): 0 finding(s) in your own configuration (b`, a checkov
+that did not run there read as its "found nothing" line, which is information: exit 0 where every
+other root gets exit 3. Its findings read the same way, so a policy that blocks checkov's findings
+(`"checkov": "block"`) let them through with exit 0. The label is now compared with the names the
+gate wrote in this run, the roots it scanned, the kinds checkov reported and the image it was given,
+and is never read by its brackets. Verdicts move both ways, in factory mode only. A project blocked
+only by a bracket in a name goes to exit 0, or to exit 3 where the tool could not run. A could-not-run
+or a finding that a name was hiding is exit 3 again, or blocks under a policy that blocks it. Can
+turn a passing project red: only one with two Terraform roots where one's path is the other's
+followed by `): ` and more, so that a line could be about either and the two readings differ. That
+line blocks as unclassified and names both roots; rename one directory. The printed lines are
+unchanged, and so is the default mode.
 
 **After v1.16.3: the gate leaves no Python bytecode in the project.** The build check's
 `python3 -m py_compile` wrote `__pycache__/` beside every Python file it compiled, and the test

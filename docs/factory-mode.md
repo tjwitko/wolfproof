@@ -120,9 +120,11 @@ clean application in the calibration corpus, draws 100 Go SQL advisories. An adv
 cannot classify blocks, whatever the policy says. `--json` lists each advisory's id, class and
 action under `factory.advisories`.
 
-A line about one Terraform root opens with its path, `checkov (infra): …`. The path is read against
-the roots the gate scanned, so a directory's name, brackets and all, cannot change the line's class.
-If one root's path is another's followed by `): ` and more, a line can be read as being about
+Some lines open with a name the gate did not choose: a Terraform root's path in `checkov (infra): …`,
+the kind of template in `iac templates (CloudFormation): …`, the image in `trivy (app:1): …`. That
+label is compared with the names the gate wrote in this run and is never read by its brackets, so a
+name cannot change the class of the line under it, whatever characters or words it holds. If one
+Terraform root's path is another's followed by `): ` and more, a line can be read as being about
 either; when the two readings mean different things it blocks as unclassified, and names both roots.
 
 ## The allowlist and the policy
