@@ -548,6 +548,50 @@ test("without the setting a quick suite runs, and a caller's own limit is report
   });
 });
 
+// A suite killed at the limit says only that it took longer than the limit. This project's own gate
+// job was killed at 120s and then at 300s, and each new limit was set from how long the suite took in
+// other jobs, which turned out to run it 1.4 to 2 times faster. So the run that passes says how long
+// it took and what it was allowed: the number the next limit is set from, printed where the limit is.
+test("a suite that passed says how long it took, beside the limit it was given", () => {
+  const SLOW = `import test from "node:test"; test("ok", async () => { await new Promise((r) => setTimeout(r, 300)); });`;
+  run({ "package.json": "{}", "src/a.test.mjs": SLOW }, (dir) => {
+    const env = { ...process.env };
+    delete env.WOLFPROOF_TEST_TIMEOUT;
+    for (const [label, opts, limit] of [
+      ["the default", { env }, 120],
+      ["the setting", { env: { ...env, WOLFPROOF_TEST_TIMEOUT: "900" } }, 900],
+      ["a caller's own", { timeoutMs: 45_000 }, 45],
+    ]) {
+      const r = runTests(dir, opts);
+      assert.equal(r.ran, true, label);
+      assert.equal(r.timeoutMs, limit * 1000, label);
+      assert.ok(r.elapsedMs >= 300 && r.elapsedMs < limit * 1000, `${label}: ${r.elapsedMs}ms for a test that waits 300ms`);
+      const line = verdictFor(r).advisories[0];
+      const m = /^tests: ran under node --test — 1 of 1 passed in (\d+\.\d)s \(limit (\d+)s\)\.$/.exec(line);
+      assert.ok(m, `${label}: ${line}`);
+      assert.equal(Number(m[2]), limit, label);
+      assert.ok(Number(m[1]) >= 0.3 && Number(m[1]) <= r.elapsedMs / 1000, `${label}: ${line} for ${r.elapsedMs}ms`);
+    }
+  });
+});
+
+test("the time is tenths under ten seconds and whole seconds from there, rounded down; a failure's wording is as it was", () => {
+  const passed = (elapsedMs, timeoutMs, counts = { passed: 3, failed: 0, total: 3 }) =>
+    verdictFor({ ran: true, label: "node --test", exitCode: 0, counts, failing: [], elapsedMs, timeoutMs }).advisories[0];
+  assert.equal(passed(140, 120_000), "tests: ran under node --test — 3 of 3 passed in 0.1s (limit 120s).");
+  assert.equal(passed(9_999, 120_000), "tests: ran under node --test — 3 of 3 passed in 9.9s (limit 120s).");
+  assert.equal(passed(10_000, 120_000), "tests: ran under node --test — 3 of 3 passed in 10s (limit 120s).");
+  assert.equal(passed(331_400, 900_000), "tests: ran under node --test — 3 of 3 passed in 331s (limit 900s).");
+  assert.equal(passed(899_600, 900_000), "tests: ran under node --test — 3 of 3 passed in 899s (limit 900s).", "inside the limit never reads as at it");
+  assert.equal(passed(12_000, 120_000, null), "tests: ran under node --test — exit 0 in 12s (limit 120s), though the summary could not be parsed.");
+  // A result built by hand, as the tests above build them, carries no time and says nothing of one.
+  assert.equal(passed(undefined, undefined), "tests: ran under node --test — 3 of 3 passed.");
+
+  const failed = (extra) =>
+    verdictFor({ ran: true, label: "node --test", exitCode: 1, counts: { passed: 9, failed: 3, total: 12 }, failing: ["one"], output: "", ...extra }).failures[0];
+  assert.equal(failed({ elapsedMs: 331_400, timeoutMs: 900_000 }), failed({}), "a blocking finding's text does not change from run to run");
+});
+
 // --- counter parsing, against each runner's real summary ------------------
 // vitest's all-passing summary reported a nine-test suite as "1 of 1 passed": the anchored vitest
 // pattern required a `N failed |` segment that was not there, so parsing fell through to the loose

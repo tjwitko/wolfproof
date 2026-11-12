@@ -31,7 +31,8 @@ without them a test project is not recognised as one. Run `dotnet restore` first
 
 **`exit 3` and "did not finish within 120s and was killed"** — the `tests` check stopped your suite
 at its limit. If the suite is simply slow, set `WOLFPROOF_TEST_TIMEOUT` to a number of seconds it
-finishes in; if it hangs, a longer limit only makes the wait longer.
+finishes in; if it hangs, a longer limit only makes the wait longer. A run that passes says how long
+the suite took (`passed in 41s (limit 120s)`), which is the number to set the limit from.
 
 **Every test file fails in CI, but passes locally** — the workflow did not install the project's own
 dependencies, so the suite could not load its imports. Add `npm ci` (or your language's equivalent)

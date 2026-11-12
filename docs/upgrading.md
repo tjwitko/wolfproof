@@ -663,6 +663,13 @@ asked for the SDK first. It now settles what to build first, as it does for ever
 the message names what the project lacks on both. The verdict is the same either way: could not run,
 exit 3. With a project file and no SDK the message is unchanged.
 
+**After v1.16.3: the `tests` line says how long the suite took.** A suite that passes is reported as
+`tests: ran under node --test — 19 of 19 passed in 41s (limit 120s).`: the time, and the limit
+`WOLFPROOF_TEST_TIMEOUT` or its default gave it. Each suite of a project with several has its own
+line and its own time. The verdict is unchanged, and so is the finding for a suite that fails. If you
+read the line with a pattern that ends at `passed.`, it no longer matches. The line now differs from
+run to run, so two runs' advisories are no longer equal as text.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

@@ -32,6 +32,17 @@ default is 120. A suite killed at the limit is exit 3, so a suite that needs lon
 every run until this is set. A value that is not a whole number of seconds is exit 3 too, naming the
 value, rather than the default used quietly.
 
+A suite that passes says how long it took, beside the limit:
+
+```text
+  · tests: ran under node --test — 19 of 19 passed in 41s (limit 120s).
+```
+
+Set the limit from that line, read where the gate runs. A suite killed at the limit says only that it
+needed longer, and the same suite does not take the same time in every CI job. On the one run of
+this project's own where both printed it, the suite took 232s in the job that gates it and 142s, 160s
+and 198s in the jobs that only run `npm test`, on the same commit: 1.2 to 1.6 times as long.
+
 For the Action, see [Action reference → Environment](action-reference.md#environment).
 
 ## `wolfproof init`

@@ -267,7 +267,7 @@ export const failingNamesForTest = failingNames;
 
 /**
  * Runs every suite. Returns one result per suite: { ran, unavailable, timedOut, counts, failing,
- * exitCode }. Each suite gets the full time limit.
+ * exitCode, elapsedMs, timeoutMs }. Each suite gets the full time limit.
  */
 export function runSuites(projectDir, { timeoutMs, env = process.env } = {}) {
   let limitNote = "";
@@ -296,6 +296,7 @@ function runSuite(suite, timeoutMs, limitNote) {
     };
   }
 
+  const started = performance.now();
   const r = spawnSync(suite.cmd, suite.args, {
     cwd: suite.cwd,
     encoding: "utf8",
@@ -313,6 +314,7 @@ function runSuite(suite, timeoutMs, limitNote) {
       return env;
     })(),
   });
+  const elapsedMs = performance.now() - started;
 
   const output = `${r.stdout || ""}\n${r.stderr || ""}`;
   if (r.error && r.error.code === "ENOENT") {
@@ -357,7 +359,29 @@ function runSuite(suite, timeoutMs, limitNote) {
     counts,
     failing,
     output: output.slice(-4000),
+    elapsedMs,
+    timeoutMs,
   };
+}
+
+/**
+ * " in 331s (limit 900s)", for a suite that ran and passed: how long it took beside what it was
+ * allowed.
+ *
+ * The limit kills a suite that outgrows it, and a killed suite says only that it took longer than the
+ * limit. This project's own gate job was killed at 120s and then at 300s, and both times the next limit
+ * was set from how long the suite took in other jobs, which run it 1.4 to 2 times faster
+ * (docs/candidate-rules.md #18). So the run that passes says how close it came, where the limit is set.
+ *
+ * Tenths under ten seconds, whole seconds from there, rounded down so that a suite inside its limit
+ * never reads as having reached it. Nothing when the result carries no time, which is a result built
+ * by hand.
+ */
+function took(r) {
+  if (!Number.isFinite(r.elapsedMs)) return "";
+  const seconds = r.elapsedMs < 10_000 ? (Math.floor(r.elapsedMs / 100) / 10).toFixed(1) : String(Math.floor(r.elapsedMs / 1000));
+  const limit = Number.isFinite(r.timeoutMs) ? ` (limit ${r.timeoutMs / 1000}s)` : "";
+  return ` in ${seconds}s${limit}`;
 }
 
 /**
@@ -416,7 +440,7 @@ export function verdictFor(r) {
   const suiteFailed = failedCount !== null ? failedCount > 0 : r.exitCode !== 0;
 
   if (!suiteFailed) {
-    const detail = c ? `${c.passed} of ${c.total} passed` : `exit 0, though the summary could not be parsed`;
+    const detail = c ? `${c.passed} of ${c.total} passed${took(r)}` : `exit 0${took(r)}, though the summary could not be parsed`;
     return { failures: [], advisories: [`tests: ran under ${r.label} — ${detail}.`] };
   }
 
