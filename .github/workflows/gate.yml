@@ -172,16 +172,21 @@ jobs:
         #     trees had passed as pull requests. The rest of the gate took 75s in each.
         # The limit became 900: three times the limit the suite was known to exceed, since a killed run
         # does not say how much longer it needed.
-        # The suite does more here than in the unit-test jobs, which do not install checkov: it starts
-        # checkov 49 times. On the two runs since (f2da804 as a pull request and a17fc8c, its merge;
-        # the same tree, 1,054 tests) this step took 403s and 419s. If the rest of the gate is the 75s
-        # it was in the killed runs, the suite took about 328s and 344s, against 161-240s and 149-191s
-        # in the unit-test jobs of the same runs: 1.4 to 2.3 times as long. So a limit for this job
-        # cannot be set from what those jobs print, and 900 is about 2.6 times what the suite takes.
-        # The `tests` line this job prints now says how long the suite took, beside the limit. Raise
-        # the limit when that line passes 600s: the unit-test job on this job's Node took 240s and
-        # then 160s on those two runs, half an hour apart, so one run can take half as long again as
-        # another. docs/candidate-rules.md #18 has where the time goes.
+        # The suite does more here than in the unit-test jobs, which do not install checkov: it started
+        # checkov 49 times on the runs below (38 since the scans stopped asking its version first).
+        # The `tests` line this job prints says how long the suite took, beside the limit. One run
+        # has printed it so far, 721ade5 as a pull request, 1,056 tests: 232s here, in a step of 297s,
+        # against 198s, 160s and 142s in the unit-test jobs of the same run. That is 1.2 to 1.6 times
+        # as long, and 900 is 3.9 times that reading.
+        # The two runs before it did not print the time (f2da804 as a pull request and a17fc8c, its
+        # merge; 1,054 tests). Their steps took 403s and 419s, which is about 328s and 344s for the
+        # suite only if the rest of the gate took the 75s it did in the killed runs; it took 65s on
+        # the run that printed. Estimates, then, and 1.4 to 2.3 times the unit-test jobs of those runs.
+        # So a limit for this job cannot be set from what the unit-test jobs print. Raise it when this
+        # job's `tests` line passes 600s: one run can take half as long again as another (the unit-test
+        # job on this job's Node, 240s and then 160s on one tree half an hour apart; this step, 419s
+        # and then 297s on trees two tests apart, 1.4 times). docs/candidate-rules.md #18 has where
+        # the time goes.
         env:
           WOLFPROOF_TEST_TIMEOUT: "900"
         with:

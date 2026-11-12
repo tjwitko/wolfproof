@@ -1400,24 +1400,33 @@ The self job could also say how long the suite took: the `tests` line reports th
 set from a measurement needs the time.
 
 **2026-11-11, later: the `tests` line says how long the suite took.** A suite that passes is now
-reported as `tests: ran under node --test — 1054 of 1054 passed in 331s (limit 900s).`, in the CLI and
-in the Action, which print the same line. A failing suite's finding is unchanged: it blocks, and its
-text does not vary from run to run.
+reported as `tests: ran under node --test — 1056 of 1056 passed in 232s (limit 900s).`, in the CLI and
+in the Action, which print the same line. That one is the self job's, on this change's own pull
+request. A failing suite's finding is unchanged: it blocks, and its text does not vary from run to
+run.
 
-The first two runs with the limit at 900 gave the number the killed runs could not. Same tree both
-times, `f2da804` as a pull request and `a17fc8c`, its merge:
+Three runs with the limit at 900. The first two are the same tree, `f2da804` as a pull request and
+`a17fc8c`, its merge, and did not print the suite's time: theirs is the gate step less 75s, which is
+what the rest of the step took in the killed runs. The third is this change's pull request and
+printed it:
 
-| run | the self job's gate step | the suite, if the rest is the 75s it was in the killed runs | `npm test` in the unit-test jobs (node 20, 22, 24) | ratio |
-|---|---|---|---|---|
-| `f2da804` | 403s | about 328s | 161s, 240s, 230s | 1.4–2.0 |
-| `a17fc8c` | 419s | about 344s | 191s, 160s, 149s | 1.8–2.3 |
+| run | tests | the self job's gate step | the suite in the self job | `npm test` in the unit-test jobs (node 20, 22, 24) | ratio |
+|---|---|---|---|---|---|
+| `f2da804` | 1,054 | 403s | about 328s, an estimate | 161s, 240s, 230s | 1.4–2.0, an estimate |
+| `a17fc8c` | 1,054 | 419s | about 344s, an estimate | 191s, 160s, 149s | 1.8–2.3, an estimate |
+| `721ade5` | 1,056 | 297s | 232s, printed | 198s, 160s, 142s | 1.2–1.6 |
 
-So the suite takes 1.4 to 2.3 times as long in the self job as in the unit-test jobs of the same run,
-and 900 is about 2.6 times what it takes. The workflow comment had said to raise the limit when
-`npm test` in the unit-test jobs passes 450s. At these ratios that is 630s to 1,035s in the self job:
-the limit could be reached first. The trigger is now the self job's own line passing 600s. The
-unit-test job on the self job's Node (22) took 240s and then 160s on the same tree half an hour apart,
-so one run can take half as long again as another, and 600 leaves that much.
+On the run that printed, the rest of the step was 65s, not 75s. So the one direct reading is 1.2 to
+1.6 times the unit-test jobs of the same run, and 900 is 3.9 times it. The estimates put the ratio at
+1.4 to 2.3 and are not readings. What the three rows do measure is the step: 403s, 419s and 297s on
+trees two tests apart.
+
+The workflow comment had said to raise the limit when `npm test` in the unit-test jobs passes 450s.
+At 1.2 to 1.6 that is 540s to 720s in the self job, and at the estimates' 2.3 it is past the limit,
+so the number to watch is the self job's own. The trigger is now its `tests` line passing 600s. One
+run can take half as long again as another: the unit-test job on the self job's Node (22) took 240s
+and then 160s on the same tree half an hour apart, and the step 419s and then 297s, 1.4 times. 600
+leaves that much.
 
 ### 19. Injection rules for PHP and Kotlin — fixed, calibrated
 

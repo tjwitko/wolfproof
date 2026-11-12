@@ -39,8 +39,9 @@ A suite that passes says how long it took, beside the limit:
 ```
 
 Set the limit from that line, read where the gate runs. A suite killed at the limit says only that it
-needed longer, and the same suite can take twice as long in one CI job as in another: this project's
-own takes 1.4 to 2.3 times as long in the job that gates it as in the jobs that only run `npm test`.
+needed longer, and the same suite does not take the same time in every CI job. On the one run of
+this project's own where both printed it, the suite took 232s in the job that gates it and 142s, 160s
+and 198s in the jobs that only run `npm test`, on the same commit: 1.2 to 1.6 times as long.
 
 For the Action, see [Action reference → Environment](action-reference.md#environment).
 
