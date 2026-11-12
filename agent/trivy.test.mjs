@@ -39,7 +39,7 @@ test("an OS Trivy does not know, with nothing found, is not reported as clean", 
   assert.deepEqual(r.failures, []);
   assert.equal(r.advisories.length, 1, r.advisories.join("\n"));
   assert.match(r.advisories[0], /Trivy does not recognise debian kali-rolling and found no vulnerabilities/);
-  assert.equal(classifyAdvisory(r.advisories[0]).class, COULD_NOT_RUN);
+  assert.equal(classifyAdvisory(r.advisories[0], { trivyImages: ["kali"] }).class, COULD_NOT_RUN);
   // Without the warning, the same report is a clean scan.
   const clean = judgeTrivyReport({ image: "kali", report: report("kali-rolling.json") });
   assert.match(clean.advisories[0], /scanned debian kali-rolling; nothing at HIGH or above has a fixed version/);
@@ -80,7 +80,8 @@ test("every advisory the check prints has a class factory mode knows", () => {
     ...judgeTrivyReport({ image: "c", report: report("kali-rolling.json") }).advisories,
     ...judgeTrivyReport({ image: "d", report: report("scratch.json") }).advisories,
   ];
-  const classes = all.map((a) => classifyAdvisory(a));
+  // Factory mode reads the image's name off a line by being told it, not by its brackets.
+  const classes = all.map((a) => classifyAdvisory(a, { trivyImages: ["a", "b", "c", "d"] }));
   assert.ok(!classes.some((c) => c.unclassified), JSON.stringify(all));
   assert.deepEqual([...new Set(classes.map((c) => c.class))].sort(), [COULD_NOT_RUN, FINDING, INFO, NOT_CHECKED].sort());
 });

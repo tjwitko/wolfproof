@@ -6,6 +6,7 @@ import { tmpdir } from "os";
 import path from "path";
 
 import { findIacTemplates, iacTemplateAdvisories } from "./iac-templates.mjs";
+import { classifyAdvisory, FINDING, INFO } from "../lib/advisory-classes.mjs";
 
 const CFN = 'AWSTemplateFormatVersion: "2010-09-09"\nResources:\n  Bucket:\n    Type: AWS::S3::Bucket\n    Properties:\n      AccessControl: PublicRead\n';
 const CFN_NO_VERSION = 'Resources:\n  Queue:\n    Type: "AWS::SQS::Queue"\n';
@@ -75,6 +76,43 @@ test("without checkov, the templates are reported as not scanned", () => {
       console.log(JSON.stringify(iacTemplateAdvisories(${JSON.stringify(dir)})));`;
     const r = spawnSync(path.join(bin, "node"), ["--input-type=module", "-e", src], { encoding: "utf8", env: { PATH: bin } });
     assert.match(JSON.parse(r.stdout).advisories[0], /checkov is not installed, so 1 CloudFormation template\(s\) were not scanned/);
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The label of a line is checkov's name for the report it is about. Factory mode is told the labels
+// that were written and takes them off by name (lib/advisory-classes.mjs): read from the line up to
+// its first ")", a report named like the "0 finding(s)" line made its findings read as that line.
+test("the labels written are reported with the lines, whatever checkov calls a report", () => {
+  const odd = "x): checkov reports 0 finding(s), not blocking. (y";
+  const failed = (id) => ({ check_id: id, check_name: "a check", file_path: "/stack.yaml" });
+  const reports = [
+    { check_type: "cloudformation", results: { failed_checks: [] }, summary: { parsing_errors: 0 } },
+    { check_type: odd, results: { failed_checks: [failed("CKV_X_1"), failed("CKV_X_2")] }, summary: { parsing_errors: 0 } },
+    { check_type: "arm (2019)", results: { failed_checks: [failed("CKV_X_3")] }, summary: { parsing_errors: 0 } },
+  ];
+  const bin = mkdtempSync(path.join(tmpdir(), "checkov-standin-"));
+  const dir = project({ "stack.yaml": CFN });
+  try {
+    symlinkSync(process.execPath, path.join(bin, "node"));
+    writeFileSync(path.join(bin, "checkov"), `#!/bin/sh\nprintf '%s' '${JSON.stringify(reports)}'\n`, { mode: 0o755 });
+    const src = `import { iacTemplateAdvisories } from ${JSON.stringify(new URL("./iac-templates.mjs", import.meta.url).href)};
+      console.log(JSON.stringify(iacTemplateAdvisories(${JSON.stringify(dir)})));`;
+    const r = spawnSync(path.join(bin, "node"), ["--input-type=module", "-e", src], { encoding: "utf8", env: { PATH: bin } });
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.deepEqual(out.labels, ["CloudFormation", odd, "arm (2019)"]);
+    assert.equal(out.advisories.length, 3);
+    assert.ok(out.advisories[1].startsWith(`iac templates (${odd}): checkov reports 2 finding(s), not blocking — `), out.advisories[1]);
+    const classes = out.advisories.map((a) => classifyAdvisory(a, { iacTemplateLabels: out.labels }));
+    assert.deepEqual(classes.map((c) => [c.id, c.class, c.unclassified]), [
+      ["iac-checkov-summary", INFO, undefined],
+      ["iac-checkov", FINDING, undefined],
+      ["iac-checkov", FINDING, undefined],
+    ]);
+    assert.ok(classes.every((c) => !c.unclassified));
   } finally {
     rmSync(bin, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
