@@ -415,7 +415,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       r.advisories.push(...factoryAdvisories);
       couldNotRun.push(...factoryCouldNotRun);
       r.failures.push(...judged.failures);
-      const ctx = { servesHttp: servesHttp(projectDir), couldNotRun: [...couldNotRun] };
+      const ctx = { servesHttp: servesHttp(projectDir), couldNotRun: [...couldNotRun], terraformRoots: r.terraformRoots };
       const kept = [];
       const classified = [];
       for (const a of r.advisories) {
@@ -425,7 +425,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         if (action === "block") {
           r.failures.push(
             c.unclassified
-              ? `factory: an advisory factory mode cannot classify, so it cannot tell whether it means nothing was checked — ${a}`
+              ? `factory: an advisory factory mode cannot classify${c.why ? ` (${c.why})` : ""}, so it cannot tell whether it means nothing was checked — ${a}`
               : c.class === NOT_CHECKED
                 ? `factory: nothing was checked — ${a}`
                 : `factory: blocked by the pipeline's policy (${c.id}) — ${a}`
