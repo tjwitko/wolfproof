@@ -1364,6 +1364,35 @@ measured directly, and the killed runs were further from their unit-test jobs (o
    (`agent/dockerfile.mjs`, `agent/iac-templates.mjs`, `checkovAdvisory` in `lib/gate-core.mjs`): 10 of
    the 38 above. The same shape as item 1 above, with the same fix: a missing checkov is the scan
    failing to start. Not done here.
+
+   **Done after v1.16.3.** Each of the three starts checkov once, for the scan, and `ENOENT` from
+   that start is "not installed". Measured on three one-file projects (a Dockerfile, a CloudFormation
+   template, a `.tf` file), default and factory mode, checkov present, absent and broken (a `checkov`
+   on PATH that prints a traceback and exits 1):
+
+   | | before | after |
+   |---|---|---|
+   | checkov present | 3 starts a run: the toolchain report's `--version`, the check's `--version`, the scan | 2 starts; the same advisories and exit codes |
+   | absent, Dockerfile or template | "checkov is not installed…"; factory mode exit 3 | the same |
+   | absent, Terraform | nothing from this check, both modes | the same |
+   | broken, Dockerfile or template | "checkov is not installed…"; factory mode exit 3 | "checkov did NOT run to completion (exit 1, no output)"; factory mode exit 3 |
+   | broken, Terraform | nothing from this check, both modes | "checkov (.): produced no output (exit 1). …"; factory mode exit 3 |
+
+   One run of the unit suite with every checkov start counted, the self job's tools on PATH: 38
+   starts (27 `--version`, 11 scans), where the count above was 49 (38 and 11) on the same tests. So
+   the probes were 11, one a scan, not the 10 said above.
+
+   Two things this turned up. The probe read every failure of `--version` as absence, so a broken
+   install was reported as a missing one, and for Terraform not at all; the last two rows are that
+   changing. And "dockerfile: checkov's output could not be parsed" matched no advisory class, so
+   factory mode blocked on it as unclassified, exit 1 where the same message for templates and
+   Terraform is exit 3. It is in `dockerfile-checkov-unavailable` now. `lib/checkov-starts.test.mjs`
+   holds all of it with a stand-in checkov, so it runs where checkov is not installed.
+
+   **Left as it was, for a decision:** with no checkov, a Terraform project's run says nothing about
+   checkov outside the toolchain report, in factory mode too, while a Dockerfile or a template in the
+   same position is could-not-run. The README calls checkov optional for both. Reporting it for
+   Terraform would turn every factory-mode Terraform run on a machine without checkov into exit 3.
 4. **The toolchain report is once per gate run by design**, and a switch that turned it off for tests
    would be a switch that turns it off.
 

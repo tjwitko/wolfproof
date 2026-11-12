@@ -168,15 +168,17 @@ function supported(repo, now) {
 const CHECKOV_TIMEOUT_MS = 120_000;
 
 function checkovDockerfiles(projectDir, files) {
-  const probe = spawnSync("checkov", ["--version"], { encoding: "utf8" });
-  if (probe.status !== 0) {
-    return `dockerfile: checkov is not installed, so ${files.length} Dockerfile(s) were checked for end-of-life base images only — USER, HEALTHCHECK, unpinned tags and the rest of checkov's Dockerfile rules did not run.`;
-  }
   const run = spawnSync(
     "checkov",
     ["--framework", "dockerfile", "--compact", "-o", "json", ...files.flatMap((f) => ["-f", path.join(projectDir, f)])],
     { encoding: "utf8", timeout: CHECKOV_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 }
   );
+  // Not installed is found by starting the scan, not by a `checkov --version` first: the probe was a
+  // second full Python start-up before every scan (candidate-rules §18). A checkov that is there and
+  // cannot run is no longer called "not installed": it falls through to the line below, with its exit.
+  if (run.error?.code === "ENOENT") {
+    return `dockerfile: checkov is not installed, so ${files.length} Dockerfile(s) were checked for end-of-life base images only — USER, HEALTHCHECK, unpinned tags and the rest of checkov's Dockerfile rules did not run.`;
+  }
   if (run.error || run.signal || !run.stdout) {
     return `dockerfile: checkov did NOT run to completion over the Dockerfiles (${run.signal || run.error?.message || `exit ${run.status}, no output`}). Its rules are unknown here, not clean.`;
   }
