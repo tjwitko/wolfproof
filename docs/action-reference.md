@@ -42,8 +42,8 @@ Build or pull the image in an earlier step and name it. Its vulnerabilities join
 
 ```yaml
 - run: docker build -t myapp:ci .
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.3
-- uses: tjwitko/wolfproof@v1.16.3
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.4
+- uses: tjwitko/wolfproof@v1.16.4
   with:
     task-file: TASK.md
     trivy-image: myapp:ci
@@ -58,8 +58,8 @@ vulnerability database, about 140 MB. Linux runners only.
 ## Analysing the source with CodeQL
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.3
-- uses: tjwitko/wolfproof@v1.16.3
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.4
+- uses: tjwitko/wolfproof@v1.16.4
   with:
     task-file: TASK.md
     codeql: true
@@ -82,7 +82,7 @@ For a requirement every project must meet, set it in a workflow the project cann
 organisation ruleset requires, for instance:
 
 ```yaml
-      - uses: tjwitko/wolfproof@v1.16.3
+      - uses: tjwitko/wolfproof@v1.16.4
         with:
           task-file: task.txt
           baseline: |
@@ -98,8 +98,8 @@ organisation variable (Settings → Secrets and variables → Actions → Variab
 Action writes it outside the workspace, where the change cannot edit it:
 
 ```yaml
-      - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.3
-      - uses: tjwitko/wolfproof@v1.16.3
+      - uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.4
+      - uses: tjwitko/wolfproof@v1.16.4
         with:
           reviewed: ${{ vars.WOLFPROOF_REVIEWED }}
 ```
@@ -119,7 +119,7 @@ applies beside it.
 [Configuration](configuration.md#test-timeout). In the Action, set it on the step:
 
 ```yaml
-      - uses: tjwitko/wolfproof@v1.16.3
+      - uses: tjwitko/wolfproof@v1.16.4
         env:
           WOLFPROOF_TEST_TIMEOUT: "300"
 ```

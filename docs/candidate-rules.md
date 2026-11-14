@@ -1365,7 +1365,7 @@ measured directly, and the killed runs were further from their unit-test jobs (o
    the 38 above. The same shape as item 1 above, with the same fix: a missing checkov is the scan
    failing to start. Not done here.
 
-   **Done after v1.16.3.** Each of the three starts checkov once, for the scan, and `ENOENT` from
+   **Done in v1.16.4.** Each of the three starts checkov once, for the scan, and `ENOENT` from
    that start is "not installed". Measured on three one-file projects (a Dockerfile, a CloudFormation
    template, a `.tf` file), default and factory mode, checkov present, absent and broken (a `checkov`
    on PATH that prints a traceback and exits 1):
@@ -1395,7 +1395,7 @@ measured directly, and the killed runs were further from their unit-test jobs (o
    for Terraform as could-not-run would turn every factory-mode Terraform run on a machine without
    checkov into exit 3.
 
-   **Decided, and one case the table above missed (still after v1.16.3).** The decision: a Terraform
+   **Decided, and one case the table above missed (also in v1.16.4).** The decision: a Terraform
    run with no checkov says so in one line for all its Terraform roots, class info, id
    `checkov-absent`. No verdict moves on it in either mode, and it is not in `validatorsRun`. The
    roots are named after the words the line is classified by, not before them: a root whose

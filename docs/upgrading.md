@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.16.3
+wolfproof 1.16.4
   terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.3  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.3
-- uses: tjwitko/wolfproof@v1.16.3
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.4
+- uses: tjwitko/wolfproof@v1.16.4
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.16.3
+npm install --save-dev github:tjwitko/wolfproof#v1.16.4
 ```
 
 ## 3. Refresh what setup wrote
@@ -472,25 +472,25 @@ list, makes the command add nothing, say so, and keep the entry. A
 workspace whose root lockfile was already added by an earlier run is not affected: the command
 only adds once.
 
-### After v1.16.3
+### In v1.16.4
 
 Six changes of one shape: a part of the gate that could not read its input said "nothing there",
 which is the answer that passes. Each now says what it did not read, and nothing is judged over an
 input that was not read. Three of them can change a passing project's verdict, two to blocked and
 one to could-not-run; they are marked.
 
-**After v1.16.3: a `package.json` that does not parse is unscanned, not "0 checked".** The scan of
+**In v1.16.4: a `package.json` that does not parse is unscanned, not "0 checked".** The scan of
 a `package.json` with no lockfile reported one that was not JSON as `(0 checked)`, which counted as
 read: the dependency family was judged over it, and `wolfproof known` removed the entries its earlier
 scan had produced. It is now reported with the other manifests no scanner read, with the reason
 (`could not be parsed as JSON`), it blocks like them, and no dependency entry is judged while it
 stands. Can turn a passing project red: only one whose `package.json` is not valid JSON.
 
-**After v1.16.3: a Dockerfile that cannot be read is could-not-run.** It was skipped as a file
+**In v1.16.4: a Dockerfile that cannot be read is could-not-run.** It was skipped as a file
 with no `FROM`: its end-of-life finding left the run with nothing in could-not-run, and its snapshot
 entries matched nothing. The run now exits 3 naming the file, and its entries are not judged.
 
-**After v1.16.3: a code file the checks did not read is could-not-run.** Authentication, code
+**In v1.16.4: a code file the checks did not read is could-not-run.** Authentication, code
 quality, immutability, retention, secret rotation, the manifest contract and the test check stop
 reading a source file at 512 KB, and said nothing: a project whose only source file was 600 KB, with
 an open `DELETE /admin` route in it, passed, with four checks reporting it had no source files. A
@@ -505,7 +505,7 @@ Of the 34 calibration checkouts, four have such a file and now exit 3: CTFd (six
 bundles), juice-shop (`three.js`), WebGoat (`ace.js`) and NetBox (a 6 MB table of place codes in a
 `.py` file).
 
-**After v1.16.3: a YAML, SQL or Terraform file over 512 KB is named above the verdict.** Immutability,
+**In v1.16.4: a YAML, SQL or Terraform file over 512 KB is named above the verdict.** Immutability,
 retention, the Kubernetes manifest check and the IAM and manifest contracts skip one that size, or
 one they cannot open, and the "not read" line above the verdict now lists them. The run's exit code
 does not change. In factory mode the line is the `skipped-files` advisory, could-not-run by default
@@ -519,14 +519,14 @@ default mode it is a line, and the line does not change the exit code; in factor
 removed or the policy drops the advisory. The line is not all a link named `.py` gets: the build
 check compiles it by name, cannot open it, and reports a blocking finding in either mode.
 
-**After v1.16.3: dependencies declared indirectly need a lockfile.** A `pyproject.toml` with
+**In v1.16.4: dependencies declared indirectly need a lockfile.** A `pyproject.toml` with
 `dynamic = ["dependencies"]` (setuptools, reading them from a requirements file), one whose
 dependencies are only in `[tool.pdm.dev-dependencies]` or `[tool.uv] dev-dependencies`, and a
 `Gemfile` whose only declaration is `gemspec` each read as declaring nothing, so none needed a
 lockfile. Each counts as declaring now. Can turn a passing project red: commit the lockfile
 (`pip freeze`, `pdm lock`, `uv lock`, `bundle lock`), or hold the finding in a snapshot.
 
-**After v1.16.3: `wolfproof known` counts `peerDependencies` as declared when it adds a lockfile's
+**In v1.16.4: `wolfproof known` counts `peerDependencies` as declared when it adds a lockfile's
 findings.** npm 7 and later install peers and write them to the lockfile, so a peer added in the
 change that commits the lockfile had its findings added as if they were transitive. The entry
 written for a `package.json` with no lockfile now lists its peers, and the relock step compares and
@@ -535,7 +535,7 @@ peers lists none of them, so its relock is refused as "declares packages its ent
 the lockfile's findings block, and the entry is kept: review them, then delete it by hand. The scan
 without a lockfile still does not scan peers.
 
-**After v1.16.3: Helm templates and YAML that does not parse are not read as manifests.** The
+**In v1.16.4: Helm templates and YAML that does not parse are not read as manifests.** The
 Kubernetes manifest, manifest-contract and IAM-contract checks read a file that failed to parse as
 whatever the parser salvaged, and read `{{ .Values.image }}` as nested mappings rather than as the
 unexpanded value it is. Neither is read now, and the checks name the files they did not read. A
@@ -556,7 +556,7 @@ includes a file that is not a manifest and does not parse as YAML, such as a Rai
 `config/database.yml` written in ERB: three of the 34 calibration checkouts have a file that does
 not parse (juice-shop, Mastodon, RailsGoat), none of them a manifest, and none lost a finding.
 
-**After v1.16.3: in factory mode, a name added to a snapshot entry's `declared` list blocks.** The
+**In v1.16.4: in factory mode, a name added to a snapshot entry's `declared` list blocks.** The
 entry for a `package.json` with no lockfile lists what it declared when the snapshot was taken, and
 `wolfproof known` adds a new lockfile's findings only while the `package.json` declares nothing
 else. The command reads the list from the snapshot file as it is, so a change that declared a
@@ -572,7 +572,7 @@ of it included, and the edit is in the diff a reviewer reads. A snapshot kept ou
 (`wolfproof known . --file <path>`, then `--known=<file>`) cannot be edited by the change in either
 mode.
 
-**After v1.16.3: `wolfproof known` holds each workspace member to its own entry before it adds a
+**In v1.16.4: `wolfproof known` holds each workspace member to its own entry before it adds a
 root lockfile's findings.** The refusal for a dependency declared since the snapshot compared only
 the root `package.json` with the root's entry. A member's names counted as direct and were compared
 with nothing, so a change that declared express in `packages/web/package.json` and committed the
@@ -589,7 +589,7 @@ delete it before the lockfile's findings have been added for the root. `--json` 
 refused root entry in `relocked` carries `member: true` when a member is among the reasons, and a
 member's entry carries `root` naming the root `package.json` whose entry is still held.
 
-**After v1.16.3: in factory mode, a name the project chooses no longer decides what a line under
+**In v1.16.4: in factory mode, a name the project chooses no longer decides what a line under
 it means.** Some lines open with a label the gate did not choose: a Terraform root's path in
 `checkov (infra): …`, in the plan's line and in the resource census; the kind of template checkov
 reported on in `iac templates (CloudFormation): …`; the image in `trivy (app:1): …`. Factory mode
@@ -610,7 +610,7 @@ followed by `): ` and more, so that a line could be about either and the two rea
 line blocks as unclassified and names both roots; rename one directory. The printed lines are
 unchanged, and so is the default mode.
 
-**After v1.16.3: the gate leaves no Python bytecode in the project.** The build check's
+**In v1.16.4: the gate leaves no Python bytecode in the project.** The build check's
 `python3 -m py_compile` wrote `__pycache__/` beside every Python file it compiled, and the test
 check's pytest wrote one for each module the suite imported. On a checkout that does not ignore
 `__pycache__/`, the next `--factory` run read those as files the change wrote where no source
@@ -625,7 +625,7 @@ still blocks in factory mode: delete it once. Not covered: Python before 3.8 doe
 writes `.pytest_cache/`, which holds its own `.gitignore` and is not one of the directories factory
 mode blocks on.
 
-**After v1.16.3: a checkov that is installed and cannot run is no longer called "not installed".**
+**In v1.16.4: a checkov that is installed and cannot run is no longer called "not installed".**
 The Dockerfile, template and Terraform checks each ran `checkov --version` before the scan and read
 any failure of it as absence. They now start the scan and nothing else; checkov is absent when the
 scan cannot be started and nothing on `PATH` is named `checkov`. With checkov working, nothing a run
@@ -656,21 +656,21 @@ Also: "dockerfile: checkov's output could not be parsed" had no class, so factor
 mode blocked on it (exit 1) as an unclassified advisory. It is could-not-run, exit 3, like the same
 message for templates and Terraform. A gate run starts checkov one time fewer per check that uses it.
 
-**After v1.16.3: C# tests with no project file say so where the .NET SDK is missing too.** With no
+**In v1.16.4: C# tests with no project file say so where the .NET SDK is missing too.** With no
 `.sln`, `.slnx` or `.csproj` to build them with, the test check said "there is no .sln, .slnx or
 .csproj" on a machine with the SDK and "the .NET SDK is not installed here" on one without, because it
 asked for the SDK first. It now settles what to build first, as it does for every other language, so
 the message names what the project lacks on both. The verdict is the same either way: could not run,
 exit 3. With a project file and no SDK the message is unchanged.
 
-**After v1.16.3: the `tests` line says how long the suite took.** A suite that passes is reported as
+**In v1.16.4: the `tests` line says how long the suite took.** A suite that passes is reported as
 `tests: ran under node --test — 19 of 19 passed in 41s (limit 120s).`: the time, and the limit
 `WOLFPROOF_TEST_TIMEOUT` or its default gave it. Each suite of a project with several has its own
 line and its own time. The verdict is unchanged, and so is the finding for a suite that fails. If you
 read the line with a pattern that ends at `passed.`, it no longer matches. The line now differs from
 run to run, so two runs' advisories are no longer equal as text.
 
-**After v1.16.3: each signature compared with `==` has its own ID.** The authentication check's
+**In v1.16.4: each signature compared with `==` has its own ID.** The authentication check's
 finding for a request signature compared with an ordinary equality operator had one ID per language,
 `authentication:signature:Python`, so a snapshot or a review that held one such comparison held every
 one a later change added in that language: a second webhook verified the same way passed. Each
