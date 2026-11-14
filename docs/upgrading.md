@@ -474,10 +474,22 @@ only adds once.
 
 ### In v1.16.4
 
-Six changes of one shape: a part of the gate that could not read its input said "nothing there",
-which is the answer that passes. Each now says what it did not read, and nothing is judged over an
-input that was not read. Three of them can change a passing project's verdict, two to blocked and
-one to could-not-run; they are marked.
+Fifteen changes. The first seven share one shape: a part of the gate that could not read its input
+said "nothing there", which is the answer that passes. Each now says what it did not read, and
+nothing is judged over an input that was not read. The rest are about `wolfproof known`, factory
+mode, checkov, C# tests, the `tests` line and signature IDs.
+
+These can turn a passing project red. Each note says how, and what to do:
+
+- **Exit 1, in either mode:** an `authentication:signature:<Language>` entry in a snapshot or review
+  file, from before each comparison had its own ID; a `package.json` that is not valid JSON;
+  dependencies declared indirectly with no lockfile; a lockfile hand-off `wolfproof known` now
+  refuses, for a snapshot entry with no list of peers or for a workspace member.
+- **Exit 3, in either mode:** a code file the checks did not read; a Dockerfile that cannot be read.
+- **Factory mode only:** YAML the manifest checks did not read, Helm templates among it; a large
+  YAML, SQL or Terraform file, or a broken symbolic link (`skipped-files`); a name added by hand to
+  a snapshot entry's `declared` list; two Terraform roots whose names make a line readable as
+  either; a checkov that is installed and cannot start.
 
 **In v1.16.4: a `package.json` that does not parse is unscanned, not "0 checked".** The scan of
 a `package.json` with no lockfile reported one that was not JSON as `(0 checked)`, which counted as
