@@ -696,6 +696,33 @@ take in what is there now, and read the diff. `wolfproof review` also says what 
 its ID names: a line for a comparison, the variable for an unset credential, and a route only for an
 open route, where it said "the route's method, path or file" for every authentication ID.
 
+### After v1.16.4
+
+**After v1.16.4: a directory the gate cannot list is could-not-run.** Every check walks the
+project, and each read a directory it could not list as an empty one. Two shapes, both reproduced on
+v1.16.4 with a project whose only Python file, `lib/secret/b.py`, has a syntax error (exit 1 when
+readable):
+
+- **A directory that can be listed and not entered** (`chmod 644 lib`): every check skipped
+  `lib/secret/` without a word, the dependency search said "no dependency manifest was found", and
+  the run **exited 0**, in the default mode and in factory mode.
+- **A directory that cannot be listed** (`chmod 311 lib/secret`): the build check's walk threw.
+  The gate caught it as "the gate itself failed", exit 3, and lost the whole run. `wolfproof known`
+  did not catch it and ended with Node's exit 1, a code it does not have.
+
+Now each such directory is a `source_files:` entry naming it, could-not-run, exit 3 in either
+mode. The build check says it did not syntax-check the files there. When no manifest was found
+elsewhere, the dependency search says whether one is there is not known, where it said "not
+applicable". A snapshot entry naming a file under such a directory is not judged. `--json` lists
+the directories under `unreadDirectories`. Directories every check skips (`node_modules/`,
+`dist/`, `build/` and the rest) are not named.
+
+`wolfproof known` now exits 3 if anything escapes it, with "the command itself failed" and the
+reason, as the gate does.
+
+Can turn a passing project to exit 3: only one with a directory the gate's user cannot list or
+enter. Make it readable by that user, or remove it.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

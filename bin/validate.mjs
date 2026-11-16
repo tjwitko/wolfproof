@@ -649,6 +649,8 @@ function machine(result) {
       // Files a check that reads their kind skipped: over the size limit, or unreadable. `code`
       // marks the ones that are could-not-run; `coverage` below is the line for the rest.
       skippedFiles: result.coverage.skipped,
+      // Directories no check could list, so nothing under them was read; could-not-run.
+      unreadDirectories: result.coverage.unreadDirs,
       coverage: coverageLine(result.coverage),
       exitCode: result.exitCode,
       incomplete: result.incomplete,
@@ -875,6 +877,18 @@ if (invokedDirectly() && process.argv[2] === "init") {
   const { runReview } = await import("./review.mjs");
   process.exit(await runReview(process.argv.slice(3)));
 } else if (invokedDirectly() && process.argv[2] === "known") {
+  // known's contract is 0, 2 and 3. A throw that escaped it -- the build check's walk over a
+  // directory it could not list did -- ended the process with Node's 1, a code it does not have and
+  // the gate's "blocked". The command ran the gate and did not finish, so 3, said as the gate says it.
+  const crash = (err) => {
+    process.stderr.write(
+      `wolfproof known: the command itself failed: ${(err && err.stack) || err}\n` +
+        `Exit 3: it did not finish. Read the change to ${KNOWN_FILE} before committing it, if there is one.\n`
+    );
+    process.exit(EXIT.INCOMPLETE);
+  };
+  process.on("uncaughtException", crash);
+  process.on("unhandledRejection", crash);
   const { runKnown } = await import("./known.mjs");
   process.exit(await runKnown(process.argv.slice(3), { gate: { runGate, UsageError } }));
 } else if (invokedDirectly()) {

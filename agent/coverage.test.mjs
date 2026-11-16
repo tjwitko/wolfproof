@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, symlinkSync }
 import { tmpdir } from "os";
 import path from "path";
 
-import { sourceCoverage, coverageLine, skippedCodeLine, skippedFilesLine } from "./coverage.mjs";
+import { sourceCoverage, coverageLine, skippedCodeLine, skippedFilesLine, unreadDirsLine } from "./coverage.mjs";
 
 function cov(files) {
   const dir = mkdtempSync(path.join(tmpdir(), "coverage-"));
@@ -170,4 +170,41 @@ test("a project whose files are all under the limit has nothing skipped", () => 
   const c = cov({ "index.js": "\n", "app.py": "\n" });
   assert.deepEqual(c.skipped, []);
   assert.equal(coverageLine(c), null);
+});
+
+// A directory no walker could list read as an empty one. A project whose only Python file had a
+// syntax error, under a directory that could be listed and not entered, exited 0 with nothing said.
+test("a directory that cannot be listed is named, and the sentence says no check read it", { skip: process.getuid?.() === 0 && "root reads every directory" }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "coverage-"));
+  const write = (rel, body) => {
+    mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    writeFileSync(path.join(dir, rel), body);
+  };
+  const chmodded = (rel, mode) => {
+    chmodSync(path.join(dir, rel), mode);
+    try {
+      return sourceCoverage(dir);
+    } finally {
+      chmodSync(path.join(dir, rel), 0o755);
+    }
+  };
+  try {
+    write("a.py", "\n");
+    write("lib/secret/b.py", "\n");
+    write("node_modules/x/index.js", "\n");
+    const expected = [{ dir: "lib/secret", why: "not readable (EACCES)" }];
+    // It cannot be listed; its parent can be listed and not entered.
+    assert.deepEqual(chmodded("lib/secret", 0o311).unreadDirs, expected);
+    assert.deepEqual(chmodded("lib", 0o644).unreadDirs, expected);
+    assert.equal(
+      unreadDirsLine(chmodded("lib/secret", 0o311)),
+      '1 directory could not be listed, so no check read the files in it: lib/secret/, not readable (EACCES). A check that cannot list a directory says nothing about the code in it, and says "no source files" when that was the only code. Make it readable by the user the gate runs as, or remove it.'
+    );
+    // A directory every check skips is not read either way, so it is not named.
+    assert.deepEqual(chmodded("node_modules", 0o311).unreadDirs, []);
+    assert.deepEqual(sourceCoverage(dir).unreadDirs, []);
+    assert.equal(unreadDirsLine(sourceCoverage(dir)), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

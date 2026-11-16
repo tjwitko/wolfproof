@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync, readdirSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync, readdirSync, chmodSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import path from "path";
@@ -337,6 +337,69 @@ test("a second factory run does not block on bytecode the first run's build chec
       assert.ok(code === 0 || code === 3, `run ${n}: exit ${code}, and nothing in the project blocks`);
       assert.deepEqual(doc.findings, [], `run ${n}`);
     }
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+// A directory the gate cannot read. One it could not list threw out of the build check: the gate
+// said "the gate itself failed" (exit 3) and `wolfproof known`, which had no crash handler, ended with
+// Node's exit 1. One it could list and not enter was skipped by every check, and a project whose only
+// Python file had a syntax error under it exited 0.
+function unreadableProject() {
+  const d = mkdtempSync(path.join(tmpdir(), "exitcodes-"));
+  mkdirSync(path.join(d, "lib", "secret"), { recursive: true });
+  writeFileSync(path.join(d, "a.py"), "print(1)\n");
+  writeFileSync(path.join(d, "lib", "secret", "b.py"), "def broken(:\n");
+  // Committed, as the project it came from was: otherwise the uncommitted-work check blocks it.
+  for (const args of [["init", "-q"], ["add", "-A"], ["-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "a"]]) {
+    spawnSync("git", args, { cwd: d });
+  }
+  return d;
+}
+const asRoot = process.getuid?.() === 0 && "root reads every directory";
+
+test("a directory that can be listed and not entered is could-not-run, exit 3, never a pass", { skip: asRoot }, () => {
+  const d = unreadableProject();
+  chmodSync(path.join(d, "lib"), 0o644);
+  try {
+    const r = cli([d, "--json"]);
+    assert.equal(r.code, 3, `exit ${r.code}; stderr: ${r.stderr.slice(0, 300)}`);
+    const doc = JSON.parse(r.stdout);
+    assert.deepEqual(doc.unreadDirectories, [{ dir: "lib/secret", why: "not readable (EACCES)" }]);
+    assert.ok(doc.couldNotRun.some((x) => /^source_files: 1 directory could not be listed/.test(x)), doc.couldNotRun.join("\n"));
+    assert.ok(doc.couldNotRun.some((x) => /^build_check: 1 directory could not be listed/.test(x)), doc.couldNotRun.join("\n"));
+  } finally {
+    chmodSync(path.join(d, "lib"), 0o755);
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("wolfproof known over a directory that cannot be listed exits 3 and names it, with no stack trace", { skip: asRoot }, () => {
+  const d = unreadableProject();
+  chmodSync(path.join(d, "lib", "secret"), 0o311);
+  try {
+    const r = cli(["known", d]);
+    assert.equal(r.code, 3, `exit ${r.code}; stderr: ${r.stderr.slice(0, 300)}`);
+    assert.ok(noStack(r.stderr), r.stderr.slice(0, 300));
+    assert.match(r.stdout, /build_check: 1 directory could not be listed, so the files in it were not syntax-checked: lib\/secret \(EACCES\)/);
+  } finally {
+    chmodSync(path.join(d, "lib", "secret"), 0o755);
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("wolfproof known that throws exits 3, not Node's 1", () => {
+  const d = scratch();
+  try {
+    // An exception from nowhere in particular, once the command is under way.
+    const r = spawnSync(process.execPath, ["--import", "data:text/javascript,setTimeout(() => { throw new Error('injected') }, 200)", CLI, "known", path.join(d, "proj")], {
+      encoding: "utf8",
+      timeout: 120_000,
+    });
+    assert.equal(r.status, 3, `exit ${r.status}; stderr: ${(r.stderr || "").slice(0, 300)}`);
+    assert.match(r.stderr, /^wolfproof known: the command itself failed: Error: injected/m);
+    assert.match(r.stderr, /Exit 3: it did not finish\./);
   } finally {
     rmSync(d, { recursive: true, force: true });
   }

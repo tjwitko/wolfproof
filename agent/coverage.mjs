@@ -72,21 +72,29 @@ export const READ_LANGUAGES = {
  * a line above the verdict (`skippedFilesLine`). `readBy` names the check that did read a file the
  * others skipped: injection, for a file between the two limits.
  *
+ * `unreadDirs` lists the directories the walk could not list, each with the reason. Every walker in
+ * the checks skips such a directory as it skips one that is empty: a project whose only Python file
+ * had a syntax error, under a directory that could be listed and not entered, exited 0 with nothing
+ * said. The gate reports them as could-not-run (`unreadDirsLine`).
+ *
  * A lockfile is not listed. `pnpm-lock.yaml` has an extension the manifest checks read and is
  * routinely over 512 KB, and the dependency scanner, whose file it is, reads it at any size: the
  * first version of this list called a 624 KB lockfile unread code, on every run.
- * @returns {{ unread: { language: string, files: number }[], unreadFiles: number, readFiles: number, mostlyUnread: boolean, languages: Record<string, number>, skipped: { file: string, bytes: number | null, why: string, code: boolean, readBy: string | null }[] }}
+ * @returns {{ unread: { language: string, files: number }[], unreadFiles: number, readFiles: number, mostlyUnread: boolean, languages: Record<string, number>, skipped: { file: string, bytes: number | null, why: string, code: boolean, readBy: string | null }[], unreadDirs: { dir: string, why: string }[] }}
  */
 export function sourceCoverage(projectDir) {
   const unread = new Map();
   const languages = {};
   const skipped = [];
+  const unreadDirs = [];
   let readFiles = 0;
   const walk = (dir) => {
     let entries;
     try {
       entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (e) {
+      // Gone since it was listed is nothing to read. Anything else holds files no check read.
+      if (e?.code !== "ENOENT") unreadDirs.push({ dir: path.relative(projectDir, dir) || ".", why: `not readable (${e?.code || e?.message})` });
       return;
     }
     for (const e of entries) {
@@ -114,7 +122,8 @@ export function sourceCoverage(projectDir) {
   const list = [...unread].map(([language, files]) => ({ language, files })).sort((a, b) => b.files - a.files);
   const unreadFiles = list.reduce((n, l) => n + l.files, 0);
   skipped.sort((a, b) => a.file.localeCompare(b.file));
-  return { unread: list, unreadFiles, readFiles, mostlyUnread: unreadFiles > readFiles, languages, skipped };
+  unreadDirs.sort((a, b) => a.dir.localeCompare(b.dir));
+  return { unread: list, unreadFiles, readFiles, mostlyUnread: unreadFiles > readFiles, languages, skipped, unreadDirs };
 }
 
 // Why a check that reads this kind of file did not read this one, or null. The same test every
@@ -187,6 +196,21 @@ export function skippedCodeLine(cov) {
     `${SOURCE_CHECKS} stop at ${limitName(MAX_FILE_BYTES)}; injection reads up to ${limitName(SAST_MAX_BYTES)} and is the only check that reads C and C++. ` +
     `A check that skipped a file says nothing about its code, and says "no source files" when these were the only ones. ` +
     `Split the file; or, if it is generated or vendored, move it under dist/ or build/, or declare its directory a fixture with a reason.`
+  );
+}
+
+/**
+ * The sentence for directories no check could list, or null. The gate's could-not-run entry, in both
+ * modes, like a skipped code file: whatever is under one was read by nothing.
+ */
+export function unreadDirsLine(cov) {
+  const dirs = cov?.unreadDirs || [];
+  if (!dirs.length) return null;
+  const listed = dirs.slice(0, 5).map((d) => `${d.dir === "." ? "the project directory" : `${d.dir}/`}, ${d.why}`).join("; ") + (dirs.length > 5 ? `, +${dirs.length - 5} more` : "");
+  return (
+    `${dirs.length} director${dirs.length === 1 ? "y" : "ies"} could not be listed, so no check read the files in ${dirs.length === 1 ? "it" : "them"}: ${listed}. ` +
+    `A check that cannot list a directory says nothing about the code in it, and says "no source files" when that was the only code. ` +
+    `Make it readable by the user the gate runs as, or remove it.`
   );
 }
 
