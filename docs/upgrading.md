@@ -717,11 +717,21 @@ applicable". A snapshot entry naming a file under such a directory is not judged
 the directories under `unreadDirectories`. Directories every check skips (`node_modules/`,
 `dist/`, `build/` and the rest) are not named.
 
+One exception: inside a git repository, a directory `git check-ignore` reports as ignored, with no
+file under it that git tracks, is a line above the verdict, not could-not-run. The case is a
+docker-compose bind mount such as `./data/postgres`, owned by the container's user with mode 700
+and ignored: without the exception every run of that project would exit 3, and the only way out was
+`sudo chmod` or moving the volume. In factory mode the line is the `unread-ignored-dirs` advisory,
+could-not-run unless the policy accepts it. `unreadDirectories` marks each such directory
+`ignored: true`. A directory git tracks anything under, and any directory outside a git repository,
+is could-not-run as above.
+
 `wolfproof known` now exits 3 if anything escapes it, with "the command itself failed" and the
 reason, as the gate does.
 
 Can turn a passing project to exit 3: only one with a directory the gate's user cannot list or
-enter. Make it readable by that user, or remove it.
+enter, other than one git ignores. Make it readable by that user, or remove it. In factory mode an
+ignored one is exit 3 too, until the policy accepts `unread-ignored-dirs`.
 
 ## Keeping current
 

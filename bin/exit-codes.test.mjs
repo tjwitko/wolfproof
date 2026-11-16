@@ -366,7 +366,7 @@ test("a directory that can be listed and not entered is could-not-run, exit 3, n
     const r = cli([d, "--json"]);
     assert.equal(r.code, 3, `exit ${r.code}; stderr: ${r.stderr.slice(0, 300)}`);
     const doc = JSON.parse(r.stdout);
-    assert.deepEqual(doc.unreadDirectories, [{ dir: "lib/secret", why: "not readable (EACCES)" }]);
+    assert.deepEqual(doc.unreadDirectories, [{ dir: "lib/secret", why: "not readable (EACCES)", ignored: false }]);
     assert.ok(doc.couldNotRun.some((x) => /^source_files: 1 directory could not be listed/.test(x)), doc.couldNotRun.join("\n"));
     assert.ok(doc.couldNotRun.some((x) => /^build_check: 1 directory could not be listed/.test(x)), doc.couldNotRun.join("\n"));
   } finally {
@@ -401,6 +401,58 @@ test("wolfproof known that throws exits 3, not Node's 1", () => {
     assert.match(r.stderr, /^wolfproof known: the command itself failed: Error: injected/m);
     assert.match(r.stderr, /Exit 3: it did not finish\./);
   } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("a directory git ignores that cannot be listed is a line above the verdict by default, and unread-ignored-dirs in factory mode", { skip: asRoot }, () => {
+  const d = mkdtempSync(path.join(tmpdir(), "exitcodes-"));
+  mkdirSync(path.join(d, "data", "postgres"), { recursive: true });
+  writeFileSync(path.join(d, "a.py"), "print(1)\n");
+  writeFileSync(path.join(d, "data", "postgres", "pg.py"), "x = 1\n");
+  writeFileSync(path.join(d, ".gitignore"), "data/\n");
+  for (const args of [["init", "-q"], ["add", "-A"], ["-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "a"]]) {
+    spawnSync("git", args, { cwd: d });
+  }
+  const policy = path.join(d, "..", `${path.basename(d)}-policy.json`);
+  writeFileSync(policy, JSON.stringify({ advisories: { "unread-ignored-dirs": "drop" } }));
+  chmodSync(path.join(d, "data", "postgres"), 0o000);
+  try {
+    let r = cli([d, "--json"]);
+    assert.equal(r.code, 0, `exit ${r.code}; stdout: ${r.stdout.slice(0, 400)}`);
+    let doc = JSON.parse(r.stdout);
+    assert.deepEqual(doc.unreadDirectories, [{ dir: "data/postgres", why: "not readable (EACCES)", ignored: true }]);
+    assert.deepEqual(doc.couldNotRun, []);
+    assert.match(doc.coverage, /^1 directory git ignores could not be listed, so no check read the files in it: data\/postgres\//);
+    // Factory mode: an advisory like the other coverage lines, could-not-run unless the policy accepts it.
+    r = cli([d, "--json", "--factory", "--base=HEAD"]);
+    assert.equal(r.code, 3, `exit ${r.code}`);
+    doc = JSON.parse(r.stdout);
+    assert.deepEqual(doc.factory.advisories.classified.filter((c) => c.id === "unread-ignored-dirs"), [{ id: "unread-ignored-dirs", class: "could-not-run", action: "incomplete" }]);
+    r = cli([d, "--factory", "--base=HEAD", `--policy=${policy}`]);
+    assert.equal(r.code, 0, `exit ${r.code}; stdout: ${r.stdout.slice(-400)}`);
+  } finally {
+    chmodSync(path.join(d, "data", "postgres"), 0o755);
+    rmSync(d, { recursive: true, force: true });
+    rmSync(policy, { force: true });
+  }
+});
+
+test("outside a git repository a directory that cannot be listed is could-not-run, whatever .gitignore says", { skip: asRoot }, () => {
+  const d = mkdtempSync(path.join(tmpdir(), "exitcodes-"));
+  mkdirSync(path.join(d, "data", "postgres"), { recursive: true });
+  writeFileSync(path.join(d, "a.py"), "print(1)\n");
+  writeFileSync(path.join(d, "data", "postgres", "pg.py"), "x = 1\n");
+  writeFileSync(path.join(d, ".gitignore"), "data/\n");
+  chmodSync(path.join(d, "data", "postgres"), 0o000);
+  try {
+    const r = cli([d, "--json"]);
+    assert.equal(r.code, 3, `exit ${r.code}`);
+    const doc = JSON.parse(r.stdout);
+    assert.deepEqual(doc.unreadDirectories, [{ dir: "data/postgres", why: "not readable (EACCES)", ignored: false }]);
+    assert.ok(doc.couldNotRun.some((x) => /^source_files: 1 directory could not be listed/.test(x)), doc.couldNotRun.join("\n"));
+  } finally {
+    chmodSync(path.join(d, "data", "postgres"), 0o755);
     rmSync(d, { recursive: true, force: true });
   }
 });

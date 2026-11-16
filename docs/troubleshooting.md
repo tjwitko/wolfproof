@@ -92,6 +92,17 @@ entry, and no policy entry drops the message.
 (`chmod 644` on a directory lets it be listed and not entered). Every check skips such a directory,
 so the build check and the dependency search say so too. Make it readable by that user, or remove
 it. `node_modules/`, `dist/`, `build/` and the other directories every check skips are not named.
+A directory git ignores is not this entry; see the next one. One git tracks anything under, and
+any directory outside a git repository, is.
+
+**"N directory(ies) git ignores could not be listed" above the verdict** — most often a
+container's bind mount, such as `./data/postgres` in a docker-compose project, owned by the
+container's user with mode 700 and listed in `.gitignore`. Nothing in it is in the project's
+history, so the gate says it did not read it and the verdict does not change. The exception holds
+only inside a git repository, only for a directory `git check-ignore` reports as ignored, and only
+while git tracks no file under it. In factory mode the line is the `unread-ignored-dirs` advisory,
+could-not-run by default like the other lines above the verdict; a policy entry
+`{ "advisories": { "unread-ignored-dirs": "drop" } }` accepts it.
 
 **"file(s) of a kind the checks read were not read" above the verdict** — a YAML, SQL or Terraform
 file is over 512 KB, or could not be opened, so immutability, retention, the Kubernetes manifest

@@ -21,7 +21,7 @@ import path from "path";
 import { readFileSync, realpathSync, existsSync, statSync } from "fs";
 import { fileURLToPath } from "url";
 import { loadRequirements, checkBaselineInput } from "../lib/requirements.mjs";
-import { coverageLine, unreadLanguagesLine, skippedFilesLine } from "../agent/coverage.mjs";
+import { coverageLine, unreadLanguagesLine, skippedFilesLine, ignoredDirsLine } from "../agent/coverage.mjs";
 import { splitSentences, unjudgedSentences, alwaysOnCoverage } from "../agent/requirement-sentences.mjs";
 
 import { validateProject, localTools, McpClient } from "../lib/gate-core.mjs";
@@ -454,6 +454,8 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       for (const [id, line] of [
         ["unread-code", unreadLanguagesLine(coverage)],
         ["skipped-files", skippedFilesLine(coverage)],
+        // A directory git ignores that could not be listed: a bind mount, most often.
+        ["unread-ignored-dirs", ignoredDirsLine(coverage)],
       ]) {
         if (!line) continue;
         const action = actionFor({ id, class: COULD_NOT_RUN }, policy);
@@ -649,7 +651,8 @@ function machine(result) {
       // Files a check that reads their kind skipped: over the size limit, or unreadable. `code`
       // marks the ones that are could-not-run; `coverage` below is the line for the rest.
       skippedFiles: result.coverage.skipped,
-      // Directories no check could list, so nothing under them was read; could-not-run.
+      // Directories no check could list, so nothing under them was read: could-not-run, or, with
+      // `ignored`, ones git ignores and tracks nothing under, which are the `coverage` line.
       unreadDirectories: result.coverage.unreadDirs,
       coverage: coverageLine(result.coverage),
       exitCode: result.exitCode,
