@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, symlinkSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { spawnSync } from "child_process";
 import path from "path";
@@ -146,6 +146,73 @@ test("a workspace's member manifests, from `workspaces` and pnpm-workspace.yaml,
     assert.deepEqual(workspaceManifests(dir), { manifests: [], ...none });
     write("package.json", JSON.stringify({ dependencies: { lodash: "^4" } }));
     assert.deepEqual(workspaceManifests(dir), { manifests: [], ...none });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// wolfproof-qa's clean-history pass, at be41569: two ways the members were guessed at rather than
+// refused, so the root lockfile's findings in a member's direct dependencies were added through the
+// root's entry. An extglob read as a literal directory name matched nothing; a directory a pattern
+// walks that could not be listed, or a member that could not be looked at, read as no member there.
+test("a workspace's members are unknown, never none, when a pattern is an extglob or a member cannot be read", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "workspaces-"));
+  const write = (rel, text) => {
+    mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    writeFileSync(path.join(dir, rel), text);
+  };
+  const ws = (workspaces) => {
+    write("package.json", JSON.stringify({ workspaces }));
+    return workspaceManifests(dir);
+  };
+  try {
+    write("packages/web/package.json", "{}");
+    write("packages/@scope/api/package.json", "{}");
+    write("web/package.json", "{}");
+    // Every extglob form is unresolved, a leading `!(` included: it is an extglob, not an exclusion.
+    for (const p of ["packages/@(web|api)", "packages/!(legacy)", "packages/+(web)", "packages/?(web)", "packages/*(web)", "!(legacy)", "packages/we\\b"]) {
+      assert.deepEqual(ws([p]), { manifests: [], unresolved: [p], unknown: [] }, p);
+    }
+    // What is not an extglob reads as before: a scope directory is a name, and `!` is an exclusion.
+    assert.deepEqual(ws(["packages/@scope/*", "web", "!packages/web"]), {
+      manifests: ["packages/@scope/api/package.json", "web/package.json"],
+      unresolved: [],
+      unknown: [],
+    });
+    // A member reached through a symbolic link counts.
+    mkdirSync(path.join(dir, "linked"));
+    write("elsewhere/cli/package.json", "{}");
+    symlinkSync(path.join(dir, "elsewhere/cli"), path.join(dir, "linked/cli"));
+    assert.deepEqual(ws(["linked/*"]), { manifests: ["linked/cli/package.json"], unresolved: [], unknown: [] });
+
+    // The unreadable forms need permissions to mean something, which root ignores.
+    if (process.getuid?.() === 0) return;
+    const chmodded = (target, mode, workspaces) => {
+      chmodSync(path.join(dir, target), mode);
+      try {
+        return ws(workspaces);
+      } finally {
+        chmodSync(path.join(dir, target), 0o755);
+      }
+    };
+    // A directory a `*` lists that cannot be listed.
+    assert.deepEqual(chmodded("packages", 0o311, ["packages/*"]), {
+      manifests: [],
+      unresolved: [],
+      unknown: ["workspace directory packages could not be read (EACCES)"],
+    });
+    // A member that can be listed and not looked into, under `*` and named literally.
+    for (const p of ["packages/*", "packages/web"]) {
+      assert.deepEqual(chmodded("packages/web", 0o000, [p]), {
+        manifests: [],
+        unresolved: [],
+        unknown: ["workspace member packages/web could not be read (EACCES)"],
+      }, p);
+    }
+    assert.deepEqual(chmodded("packages", 0o644, ["packages/web"]).unknown, ["workspace member packages/web could not be read (EACCES)"]);
+    // A directory that is not there, or a file where a directory is expected, is no member.
+    write("notdir", "");
+    assert.deepEqual(ws(["missing/*", "notdir/*", "packages/none"]), { manifests: [], unresolved: [], unknown: [] });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

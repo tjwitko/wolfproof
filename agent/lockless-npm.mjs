@@ -13,7 +13,7 @@
 //     installs; raising the range's lower bound is the fix either way.
 // Nothing from the project is run: the versions are read from the manifest's text.
 
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, existsSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, statSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import path from "path";
@@ -163,11 +163,18 @@ export function declaredNames(text, { peers = false } = {}) {
  * The package.json of every workspace member a root manifest in `dir` names: the `workspaces` field
  * (an array, or yarn's `{ packages: [...] }`) and pnpm-workspace.yaml's `packages`, as paths
  * relative to `dir`. A pattern is a path or a glob whose segments are literal or `*`
- * (`packages/*`); anything else (`**`, `?`, `{a,b}`, `[ab]`) is listed in `unresolved` instead of
- * guessed at, and a `!` exclusion is ignored, which can only name more members, never fewer. A file
- * that names members in a form this does not read -- a pnpm-workspace.yaml that does not parse or
- * has no `packages` list, a `workspaces` that is not a list -- is described in `unknown`, since
- * "none found" would be wrong in exactly the case the caller must not get wrong.
+ * (`packages/*`); anything else (`**`, `?`, `{a,b}`, `[ab]`, an extglob such as `@(a|b)`,
+ * `!(a)` or `+(a)`, a backslash escape) is listed in `unresolved` instead of guessed at. Read as a
+ * literal name, an extglob matched no directory, so its members were dropped without a word. A `!`
+ * exclusion is ignored, which can only name more members, never fewer; a pattern that opens with
+ * `!(` is an extglob, not an exclusion, and is listed. A file that names members in a form this does
+ * not read -- a pnpm-workspace.yaml that does not parse or has no `packages` list, a `workspaces`
+ * that is not a list -- is described in `unknown`, since "none found" would be wrong in exactly the
+ * case the caller must not get wrong. So is a directory a pattern walks that cannot be listed, and a
+ * member whose package.json cannot be looked at for any reason but its absence: both were read as
+ * "no member here", and the members' findings added as if nothing had declared them. A symbolic link
+ * where a `*` matches is followed: a member it names counts, and counting one too many can only
+ * hold back a finding, never add one.
  *
  * For `wolfproof known`: a root lockfile holds every member's packages, so when it is committed for a
  * root package.json the snapshot held as having none, the members' direct dependencies have to count
@@ -212,11 +219,13 @@ export function workspaceManifests(dir) {
   }
   const manifests = new Set();
   const unresolved = [];
+  const shown = (d) => path.relative(dir, d) || ".";
+  const unread = (what, e) => unknown.push(`workspace ${what} could not be read (${e?.code || e?.message || e})`);
   for (const raw of patterns) {
     const pattern = raw.trim().replace(/\/+$/, "");
-    if (!pattern || pattern.startsWith("!")) continue;
+    if (!pattern || (pattern.startsWith("!") && !pattern.startsWith("!("))) continue;
     const segments = pattern.split("/").filter((s) => s && s !== ".");
-    if (segments.some((s) => s !== "*" && /[*?[\]{}]/.test(s))) {
+    if (segments.some((s) => s !== "*" && /[*?[\]{}()|\\]/.test(s))) {
       unresolved.push(pattern);
       continue;
     }
@@ -226,19 +235,29 @@ export function workspaceManifests(dir) {
         if (s !== "*") return [path.join(d, s)];
         try {
           return readdirSync(d, { withFileTypes: true })
-            .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+            .filter((e) => (e.isDirectory() || e.isSymbolicLink()) && !e.name.startsWith("."))
             .map((e) => path.join(d, e.name));
-        } catch {
+        } catch (e) {
+          // Not there, or not a directory: nothing to match. Anything else is a directory that holds
+          // members this could not list.
+          if (e?.code !== "ENOENT" && e?.code !== "ENOTDIR") unread(`directory ${shown(d)}`, e);
           return [];
         }
       });
     }
     for (const d of dirs) {
       const m = path.join(d, "package.json");
-      if (path.relative(dir, m) !== "package.json" && existsSync(m)) manifests.add(path.relative(dir, m));
+      if (path.relative(dir, m) === "package.json") continue;
+      let isFile = false;
+      try {
+        isFile = statSync(m).isFile();
+      } catch (e) {
+        if (e?.code !== "ENOENT" && e?.code !== "ENOTDIR") unread(`member ${shown(d)}`, e);
+      }
+      if (isFile) manifests.add(path.relative(dir, m));
     }
   }
-  return { manifests: [...manifests].sort(), unresolved, unknown };
+  return { manifests: [...manifests].sort(), unresolved, unknown: [...new Set(unknown)] };
 }
 
 /**

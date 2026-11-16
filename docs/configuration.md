@@ -395,17 +395,20 @@ has to be fixed before the gate can be required.
   so a dependency a member declared since the snapshot would otherwise have its transitive findings
   added through the root's entry. A member that declares a package its entry does not list, one
   whose entry has no list, and one that declares packages and has no entry in the snapshot each
-  refuse the lockfile: nothing is added, the command names the member and the packages, and the
-  root's entry is kept. A member that declares nothing needs no entry. So keep the members' entries
+  refuse the lockfile: nothing is added, the command names up to five such members and up to ten
+  of each one's packages, and counts the rest, and the root's entry is kept. A member that declares nothing needs no entry. So keep the members' entries
   until the lockfile's findings have been added for the root, which the command says when it keeps
   one. A member has no entry when it was added after the snapshot, had a lockfile of its own
   then, or sits under a directory the checks skip; the root's lockfile is then refused for as long
   as that member declares anything, and its findings are fixed or reviewed instead. A `!` exclusion
   in `workspaces` is not applied, so a `package.json` it excludes is held to its entry like a
   member. A `workspaces` pattern
-  the command cannot resolve (`**`, `?`, braces, brackets; `name` and `packages/*` it can), a
-  member it cannot read, or a `pnpm-workspace.yaml` it cannot parse or that has no `packages` list,
-  leaves the members unknown, so nothing is added and the entry is kept. A `peerDependency` counts as
+  the command cannot resolve (`**`, `?`, braces, brackets, an extglob such as `@(a|b)`, `!(a)` or
+  `+(a)`, a backslash; `name`, `@scope/name` and `packages/*` it can), a directory a pattern walks
+  that cannot be listed, a member it cannot read or look into, or a `pnpm-workspace.yaml` it cannot
+  parse or that has no `packages` list, leaves the members unknown, so nothing is added and the
+  entry is kept. A pattern that opens with `!(` is an extglob, not an exclusion. A symbolic link
+  that `*` matches is followed. A `peerDependency` counts as
   declared, for the entry and for the comparison: npm 7 and later install peers and write them to
   the lockfile, so a peer added with it is the change's own. In
   [factory mode](factory-mode.md) committing the lockfile does turn the build red: the base has a

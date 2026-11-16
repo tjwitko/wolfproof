@@ -590,8 +590,8 @@ the root `package.json` with the root's entry. A member's names counted as direc
 with nothing, so a change that declared express in `packages/web/package.json` and committed the
 root lockfile had the finding in qs, which express brings in, added through the root's entry. Now
 the root lockfile adds nothing while any member declares a package its own entry does not list, has
-an entry with no list, or declares packages and has no entry at all; the command names each member
-and its packages, and the root's entry is kept. This can refuse a lockfile an earlier version added
+an entry with no list, or declares packages and has no entry at all; the command names up to five
+such members, with up to ten of each one's packages, counts the rest, and keeps the root's entry. This can refuse a lockfile an earlier version added
 findings for, and then those findings block. Two cases to expect. A member's entry deleted by hand
 before the root's lockfile was added: restore it from the snapshot's history, or fix or review the
 findings. A member the snapshot never held as having no lockfile (it was added since, it had its
@@ -697,6 +697,30 @@ its ID names: a line for a comparison, the variable for an unset credential, and
 open route, where it said "the route's method, path or file" for every authentication ID.
 
 ### After v1.16.4
+
+**After v1.16.4: `wolfproof known` refuses a root lockfile when a workspace pattern is an extglob or
+a member cannot be read.** Before it adds a root lockfile's findings, the command reads which
+members the workspace has, so that their direct dependencies count as direct. Two kinds of input
+read as "no member here" and not as "not known":
+
+- **An extglob** (`packages/@(web|api)`, `packages/!(legacy)`, `packages/+(web)`) was taken as a
+  directory name and matched nothing. A pattern that opens with `!(` was dropped as an exclusion.
+- **A directory a pattern walks that could not be listed, and a member that could not be looked
+  into,** for instance for lack of permission.
+
+Either way the member's direct dependencies were not counted, and it was not held to its own
+entry. A finding one has at its locked version was added through the root's entry. So was one a
+package it declared in the same change brought in: with `packages/@(web|api)` and express added to
+`packages/web/package.json` beside the root lockfile, qs's finding was added, where `packages/*`
+refuses the lockfile. Each now leaves the members unknown: nothing is added, the command names the
+pattern or the directory, and the entry is kept, as for `packages/**`.
+
+Can turn a passing project red, only when the command adds a root lockfile's findings, and only for
+a workspace that names members with an extglob or has one it cannot read. Those findings then block
+until fixed or reviewed. Write the members as paths or `*` globs. A symbolic link that `*` matches
+is now followed, so a member reached through one counts. Through the CLI, a member that cannot be
+read usually stops a run earlier (the dependency scan, or the build check, cannot read it either),
+so the extglob is the case to expect.
 
 **After v1.16.4: a directory the gate cannot list is could-not-run.** Every check walks the
 project, and each read a directory it could not list as an empty one. Two shapes, both reproduced on
