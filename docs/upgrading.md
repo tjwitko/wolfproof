@@ -698,6 +698,23 @@ open route, where it said "the route's method, path or file" for every authentic
 
 ### After v1.16.4
 
+Nine changes. Two are the gate's own: a directory it cannot list, and a workspace member it cannot
+read or a pattern it cannot resolve, now say so instead of reading as empty. Six come with the four
+controls' patch releases, and one with the end-of-life data.
+
+These can turn a passing project red. Each note says how, and what to do:
+
+- **Exit 1, in either mode:** a credential in a project the gate is given through a symbolic link;
+  a Python HTTP Basic tuple whose parts are calls; a Dockerfile on Go 1.2 to 1.9, Python 2.1 to 2.5
+  or Ruby 1.8; a root lockfile that `wolfproof known` now refuses for a workspace that names members
+  with an extglob or has one it cannot read.
+- **Exit 3, in either mode:** a directory the gate's user cannot list or enter, unless git ignores it
+  and tracks nothing under it.
+- **Factory mode only:** a directory like that which git ignores (`unread-ignored-dirs`), until the
+  policy accepts it.
+
+One can turn a red project green: JavaScript or TypeScript that the HTTP Basic rule read as a tuple.
+
 **After v1.16.4: `wolfproof known` refuses a root lockfile when a workspace pattern is an extglob or
 a member cannot be read.** Before it adds a root lockfile's findings, the command reads which
 members the workspace has, so that their direct dependencies count as direct. Two kinds of input
@@ -811,6 +828,13 @@ never passes a `var_file`, so only a direct caller sees this.
 Can turn a passing project red: one named through a link that holds a hardcoded credential, and a
 Python file that passes Basic authentication as a tuple whose parts are calls. Can turn a red one
 green: JavaScript or TypeScript that the HTTP Basic rule read as a tuple.
+
+**After v1.16.4: the end-of-life data names older releases.** The refresh from endoflife.date on
+2026-11-17 added Python 2.1 to 2.5, Go 1.2 to 1.9 and Ruby 1.8, and changed no date it already
+held. The Dockerfile check judges a base image only by a release the data names, and said nothing
+about one it did not. So `FROM golang:1.9`, `FROM python:2.5-slim` and `FROM ruby:1.8` passed, while
+`golang:1.10` and `python:2.6` were blocked as end of life. All five now block. Can turn a passing
+project red: only one whose Dockerfile is on one of those releases.
 
 ## Keeping current
 
