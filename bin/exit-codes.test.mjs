@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync, readdirSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync, readdirSync, chmodSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import path from "path";
@@ -338,6 +338,128 @@ test("a second factory run does not block on bytecode the first run's build chec
       assert.deepEqual(doc.findings, [], `run ${n}`);
     }
   } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+// A directory the gate cannot read. One it could not list threw out of the build check: the gate
+// said "the gate itself failed" (exit 3) and `wolfproof known`, which had no crash handler, ended with
+// Node's exit 1. One it could list and not enter was skipped by every check, and a project whose only
+// Python file had a syntax error under it exited 0.
+function unreadableProject() {
+  const d = mkdtempSync(path.join(tmpdir(), "exitcodes-"));
+  mkdirSync(path.join(d, "lib", "secret"), { recursive: true });
+  writeFileSync(path.join(d, "a.py"), "print(1)\n");
+  writeFileSync(path.join(d, "lib", "secret", "b.py"), "def broken(:\n");
+  // Committed, as the project it came from was: otherwise the uncommitted-work check blocks it.
+  for (const args of [["init", "-q"], ["add", "-A"], ["-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "a"]]) {
+    spawnSync("git", args, { cwd: d });
+  }
+  return d;
+}
+const asRoot = process.getuid?.() === 0 && "root reads every directory";
+
+test("a directory that can be listed and not entered is could-not-run, exit 3, never a pass", { skip: asRoot }, () => {
+  const d = unreadableProject();
+  chmodSync(path.join(d, "lib"), 0o644);
+  try {
+    const r = cli([d, "--json"]);
+    assert.equal(r.code, 3, `exit ${r.code}; stderr: ${r.stderr.slice(0, 300)}`);
+    const doc = JSON.parse(r.stdout);
+    assert.deepEqual(doc.unreadDirectories, [{ dir: "lib/secret", why: "not readable (EACCES)", ignored: false }]);
+    assert.ok(doc.couldNotRun.some((x) => /^source_files: 1 directory could not be listed/.test(x)), doc.couldNotRun.join("\n"));
+    assert.ok(doc.couldNotRun.some((x) => /^build_check: 1 directory could not be listed/.test(x)), doc.couldNotRun.join("\n"));
+  } finally {
+    chmodSync(path.join(d, "lib"), 0o755);
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("wolfproof known over a directory that cannot be listed exits 3 and names it, with no stack trace", { skip: asRoot }, () => {
+  const d = unreadableProject();
+  chmodSync(path.join(d, "lib", "secret"), 0o311);
+  try {
+    const r = cli(["known", d]);
+    assert.equal(r.code, 3, `exit ${r.code}; stderr: ${r.stderr.slice(0, 300)}`);
+    assert.ok(noStack(r.stderr), r.stderr.slice(0, 300));
+    assert.match(r.stdout, /build_check: 1 directory could not be listed, so the files in it were not syntax-checked: lib\/secret \(EACCES\)/);
+  } finally {
+    chmodSync(path.join(d, "lib", "secret"), 0o755);
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("wolfproof known that throws exits 3, not Node's 1", () => {
+  const d = scratch();
+  try {
+    // An exception from nowhere in particular, once the command is under way.
+    const r = spawnSync(process.execPath, ["--import", "data:text/javascript,setTimeout(() => { throw new Error('injected') }, 200)", CLI, "known", path.join(d, "proj")], {
+      encoding: "utf8",
+      timeout: 120_000,
+    });
+    assert.equal(r.status, 3, `exit ${r.status}; stderr: ${(r.stderr || "").slice(0, 300)}`);
+    assert.match(r.stderr, /^wolfproof known: the command itself failed: Error: injected/m);
+    assert.match(r.stderr, /Exit 3: it did not finish\./);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("a directory git ignores that cannot be listed is a line above the verdict by default, and unread-ignored-dirs in factory mode", { skip: asRoot }, () => {
+  const d = mkdtempSync(path.join(tmpdir(), "exitcodes-"));
+  mkdirSync(path.join(d, "data", "postgres"), { recursive: true });
+  // JavaScript, which node itself checks: a Python file would need ruff, which CI does not install,
+  // and its absence alone makes the run exit 3.
+  writeFileSync(path.join(d, "a.js"), "console.log(1);\n");
+  writeFileSync(path.join(d, "data", "postgres", "pg.js"), "const x = 1;\n");
+  writeFileSync(path.join(d, ".gitignore"), "data/\n");
+  for (const args of [["init", "-q"], ["add", "-A"], ["-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "a"]]) {
+    spawnSync("git", args, { cwd: d });
+  }
+  const policy = path.join(d, "..", `${path.basename(d)}-policy.json`);
+  writeFileSync(policy, JSON.stringify({ advisories: { "unread-ignored-dirs": "drop" } }));
+  chmodSync(path.join(d, "data", "postgres"), 0o000);
+  try {
+    let r = cli([d, "--json"]);
+    let doc = JSON.parse(r.stdout);
+    assert.equal(r.code, 0, `exit ${r.code}; couldNotRun: ${JSON.stringify(doc.couldNotRun)}`);
+    assert.deepEqual(doc.unreadDirectories, [{ dir: "data/postgres", why: "not readable (EACCES)", ignored: true }]);
+    assert.deepEqual(doc.couldNotRun, []);
+    assert.match(doc.coverage, /^1 directory git ignores could not be listed, so no check read the files in it: data\/postgres\//);
+    // Factory mode: an advisory like the other coverage lines, could-not-run unless the policy accepts it.
+    r = cli([d, "--json", "--factory", "--base=HEAD"]);
+    assert.equal(r.code, 3, `exit ${r.code}`);
+    doc = JSON.parse(r.stdout);
+    assert.deepEqual(doc.factory.advisories.classified.filter((c) => c.id === "unread-ignored-dirs"), [{ id: "unread-ignored-dirs", class: "could-not-run", action: "incomplete" }]);
+    r = cli([d, "--factory", "--base=HEAD", `--policy=${policy}`]);
+    assert.equal(r.code, 0, `exit ${r.code}; stdout: ${r.stdout.slice(-400)}`);
+  } finally {
+    chmodSync(path.join(d, "data", "postgres"), 0o755);
+    rmSync(d, { recursive: true, force: true });
+    rmSync(policy, { force: true });
+  }
+});
+
+test("outside a git repository a directory that cannot be listed is could-not-run, whatever .gitignore says", { skip: asRoot }, () => {
+  const d = mkdtempSync(path.join(tmpdir(), "exitcodes-"));
+  mkdirSync(path.join(d, "data", "postgres"), { recursive: true });
+  // JavaScript, which node itself checks: a Python file would need ruff, which CI does not install,
+  // and its absence alone makes the run exit 3.
+  writeFileSync(path.join(d, "a.js"), "console.log(1);\n");
+  writeFileSync(path.join(d, "data", "postgres", "pg.js"), "const x = 1;\n");
+  writeFileSync(path.join(d, ".gitignore"), "data/\n");
+  chmodSync(path.join(d, "data", "postgres"), 0o000);
+  try {
+    const r = cli([d, "--json"]);
+    assert.equal(r.code, 3, `exit ${r.code}`);
+    const doc = JSON.parse(r.stdout);
+    assert.deepEqual(doc.unreadDirectories, [{ dir: "data/postgres", why: "not readable (EACCES)", ignored: false }]);
+    // The directory is the reason for the exit 3, and nothing else is: each entry names it.
+    assert.deepEqual(doc.couldNotRun.map((x) => x.split(":")[0]), ["build_check", "check_dependencies", "source_files"], doc.couldNotRun.join("\n"));
+    assert.ok(doc.couldNotRun.every((x) => x.includes("data/postgres")), doc.couldNotRun.join("\n"));
+    assert.match(doc.couldNotRun[2], /^source_files: 1 directory could not be listed/);
+  } finally {
+    chmodSync(path.join(d, "data", "postgres"), 0o755);
     rmSync(d, { recursive: true, force: true });
   }
 });

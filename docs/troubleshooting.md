@@ -87,6 +87,27 @@ generated or vendored bundle under `dist/` or `build/`, which every check skips,
 directory a fixture with a reason, or split it. In factory mode the last two need an allowlist
 entry, and no policy entry drops the message.
 
+**"source_files: N directory(ies) could not be listed, so no check read the files in it", exit 3**
+— the gate runs as a user who cannot list the directories named, or cannot enter their parent
+(`chmod 644` on a directory lets it be listed and not entered). Every check skips such a directory,
+so the build check and the dependency search say so too. Make it readable by that user, or remove
+it. `node_modules/`, `dist/`, `build/` and the other directories every check skips are not named.
+A directory git ignores is not this entry; see the next one. One git tracks anything under, and
+any directory outside a git repository, is.
+
+**"N directory(ies) git ignores could not be listed" above the verdict** — most often a
+container's bind mount, such as `./data/postgres` in a docker-compose project, owned by the
+container's user with mode 700 and listed in `.gitignore`. Nothing in it is in the project's
+history, so the gate says it did not read it and the verdict does not change. The exception holds
+only inside a git repository, only for a directory `git check-ignore` reports as ignored, and only
+while git tracks no file under it. The project's own ignore rules decide it: `.gitignore`,
+`.git/info/exclude` and the user's global excludes. So one ignore line is what moves such a
+directory from exit 3 to this line, and code under it that was never committed is not read. Read a
+new ignore entry for a directory the gate cannot list as you would a new exemption. In factory
+mode the line is the `unread-ignored-dirs` advisory, could-not-run by default like the other lines
+above the verdict; a policy entry
+`{ "advisories": { "unread-ignored-dirs": "drop" } }` accepts it.
+
 **"file(s) of a kind the checks read were not read" above the verdict** — a YAML, SQL or Terraform
 file is over 512 KB, or could not be opened, so immutability, retention, the Kubernetes manifest
 check and the IAM and manifest contracts say nothing about it. A symbolic link to a file that is

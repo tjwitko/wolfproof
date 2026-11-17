@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
+import { spawnSync } from "child_process";
 import path from "path";
 
-import { sourceCoverage, coverageLine, skippedCodeLine, skippedFilesLine } from "./coverage.mjs";
+import { sourceCoverage, coverageLine, skippedCodeLine, skippedFilesLine, unreadDirsLine, ignoredDirsLine, ignoredByGit } from "./coverage.mjs";
 
 function cov(files) {
   const dir = mkdtempSync(path.join(tmpdir(), "coverage-"));
@@ -170,4 +171,92 @@ test("a project whose files are all under the limit has nothing skipped", () => 
   const c = cov({ "index.js": "\n", "app.py": "\n" });
   assert.deepEqual(c.skipped, []);
   assert.equal(coverageLine(c), null);
+});
+
+// A directory no walker could list read as an empty one. A project whose only Python file had a
+// syntax error, under a directory that could be listed and not entered, exited 0 with nothing said.
+test("a directory that cannot be listed is named, and the sentence says no check read it", { skip: process.getuid?.() === 0 && "root reads every directory" }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "coverage-"));
+  const write = (rel, body) => {
+    mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    writeFileSync(path.join(dir, rel), body);
+  };
+  const chmodded = (rel, mode) => {
+    chmodSync(path.join(dir, rel), mode);
+    try {
+      return sourceCoverage(dir);
+    } finally {
+      chmodSync(path.join(dir, rel), 0o755);
+    }
+  };
+  try {
+    write("a.py", "\n");
+    write("lib/secret/b.py", "\n");
+    write("node_modules/x/index.js", "\n");
+    const expected = [{ dir: "lib/secret", why: "not readable (EACCES)", ignored: false }];
+    // It cannot be listed; its parent can be listed and not entered.
+    assert.deepEqual(chmodded("lib/secret", 0o311).unreadDirs, expected);
+    assert.deepEqual(chmodded("lib", 0o644).unreadDirs, expected);
+    assert.equal(
+      unreadDirsLine(chmodded("lib/secret", 0o311)),
+      '1 directory could not be listed, so no check read the files in it: lib/secret/, not readable (EACCES). A check that cannot list a directory says nothing about the code in it, and says "no source files" when that was the only code. Make it readable by the user the gate runs as, or remove it.'
+    );
+    // A directory every check skips is not read either way, so it is not named.
+    assert.deepEqual(chmodded("node_modules", 0o311).unreadDirs, []);
+    assert.deepEqual(sourceCoverage(dir).unreadDirs, []);
+    assert.equal(unreadDirsLine(sourceCoverage(dir)), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A docker-compose bind mount (./data/postgres, the container's user's, mode 700, ignored) made
+// every run of its project exit 3, with sudo chmod the only way out. A directory git ignores and
+// tracks nothing under is said above the verdict; one git tracks, or any outside a repository, is not.
+test("a directory that cannot be listed is a line above the verdict only when git ignores it and tracks nothing there", { skip: process.getuid?.() === 0 && "root reads every directory" }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "coverage-"));
+  const write = (rel, body) => {
+    mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    writeFileSync(path.join(dir, rel), body);
+  };
+  const git = (...args) => spawnSync("git", ["-c", "user.email=t@example.invalid", "-c", "user.name=t", ...args], { cwd: dir, encoding: "utf8" });
+  const locked = ["data/postgres", "lib/secret", "logs/keep"];
+  try {
+    write("a.py", "\n");
+    write("data/postgres/pg.py", "\n");
+    write("lib/secret/b.py", "\n");
+    write("logs/keep/c.py", "\n");
+    write(".gitignore", "data/\nlogs/\n");
+    // Outside a repository nothing is ignored, whatever .gitignore says.
+    for (const d of locked) chmodSync(path.join(dir, d), 0o000);
+    try {
+      assert.deepEqual(sourceCoverage(dir).unreadDirs.map((d) => [d.dir, d.ignored]), [["data/postgres", false], ["lib/secret", false], ["logs/keep", false]]);
+      assert.equal(ignoredByGit(dir, "data/postgres"), false);
+    } finally {
+      for (const d of locked) chmodSync(path.join(dir, d), 0o755);
+    }
+    git("init", "-q");
+    git("add", "-A");
+    git("add", "-f", "logs/keep/c.py");
+    git("commit", "-q", "-m", "a");
+    for (const d of locked) chmodSync(path.join(dir, d), 0o000);
+    try {
+      const c = sourceCoverage(dir);
+      // Ignored, nothing tracked: the line. Tracked: could-not-run. Ignored with a file force-added
+      // under it: tracked, so could-not-run.
+      assert.deepEqual(c.unreadDirs.map((d) => [d.dir, d.ignored]), [["data/postgres", true], ["lib/secret", false], ["logs/keep", false]]);
+      assert.equal(
+        ignoredDirsLine(c),
+        "1 directory git ignores could not be listed, so no check read the files in it: data/postgres/, not readable (EACCES). Git tracks nothing there, so none of it is in the project's history; a container's bind mount looks like this."
+      );
+      assert.match(coverageLine(c), /^1 directory git ignores could not be listed/);
+      assert.match(unreadDirsLine(c), /^2 directories could not be listed, so no check read the files in them: lib\/secret\/, not readable \(EACCES\); logs\/keep\/, not readable \(EACCES\)\./);
+      // The project directory itself is never ignored.
+      assert.equal(ignoredByGit(dir, "."), false);
+    } finally {
+      for (const d of locked) chmodSync(path.join(dir, d), 0o755);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

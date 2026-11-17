@@ -21,7 +21,7 @@ import path from "path";
 import { readFileSync, realpathSync, existsSync, statSync } from "fs";
 import { fileURLToPath } from "url";
 import { loadRequirements, checkBaselineInput } from "../lib/requirements.mjs";
-import { coverageLine, unreadLanguagesLine, skippedFilesLine } from "../agent/coverage.mjs";
+import { coverageLine, unreadLanguagesLine, skippedFilesLine, ignoredDirsLine } from "../agent/coverage.mjs";
 import { splitSentences, unjudgedSentences, alwaysOnCoverage } from "../agent/requirement-sentences.mjs";
 
 import { validateProject, localTools, McpClient } from "../lib/gate-core.mjs";
@@ -454,6 +454,8 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       for (const [id, line] of [
         ["unread-code", unreadLanguagesLine(coverage)],
         ["skipped-files", skippedFilesLine(coverage)],
+        // A directory git ignores that could not be listed: a bind mount, most often.
+        ["unread-ignored-dirs", ignoredDirsLine(coverage)],
       ]) {
         if (!line) continue;
         const action = actionFor({ id, class: COULD_NOT_RUN }, policy);
@@ -649,6 +651,9 @@ function machine(result) {
       // Files a check that reads their kind skipped: over the size limit, or unreadable. `code`
       // marks the ones that are could-not-run; `coverage` below is the line for the rest.
       skippedFiles: result.coverage.skipped,
+      // Directories no check could list, so nothing under them was read: could-not-run, or, with
+      // `ignored`, ones git ignores and tracks nothing under, which are the `coverage` line.
+      unreadDirectories: result.coverage.unreadDirs,
       coverage: coverageLine(result.coverage),
       exitCode: result.exitCode,
       incomplete: result.incomplete,
@@ -875,6 +880,18 @@ if (invokedDirectly() && process.argv[2] === "init") {
   const { runReview } = await import("./review.mjs");
   process.exit(await runReview(process.argv.slice(3)));
 } else if (invokedDirectly() && process.argv[2] === "known") {
+  // known's contract is 0, 2 and 3. A throw that escaped it -- the build check's walk over a
+  // directory it could not list did -- ended the process with Node's 1, a code it does not have and
+  // the gate's "blocked". The command ran the gate and did not finish, so 3, said as the gate says it.
+  const crash = (err) => {
+    process.stderr.write(
+      `wolfproof known: the command itself failed: ${(err && err.stack) || err}\n` +
+        `Exit 3: it did not finish. Read the change to ${KNOWN_FILE} before committing it, if there is one.\n`
+    );
+    process.exit(EXIT.INCOMPLETE);
+  };
+  process.on("uncaughtException", crash);
+  process.on("unhandledRejection", crash);
   const { runKnown } = await import("./known.mjs");
   process.exit(await runKnown(process.argv.slice(3), { gate: { runGate, UsageError } }));
 } else if (invokedDirectly()) {

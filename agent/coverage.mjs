@@ -11,6 +11,7 @@
 // everywhere is a line nobody reads. The languages here are the ones a project's application code is
 // written in.
 import { readdirSync, statSync, lstatSync, accessSync, constants } from "fs";
+import { spawnSync } from "child_process";
 import path from "path";
 
 import { SKIP_DIRS } from "./skip-dirs.mjs";
@@ -72,21 +73,34 @@ export const READ_LANGUAGES = {
  * a line above the verdict (`skippedFilesLine`). `readBy` names the check that did read a file the
  * others skipped: injection, for a file between the two limits.
  *
+ * `unreadDirs` lists the directories the walk could not list, each with the reason. Every walker in
+ * the checks skips such a directory as it skips one that is empty: a project whose only Python file
+ * had a syntax error, under a directory that could be listed and not entered, exited 0 with nothing
+ * said. The gate reports them as could-not-run (`unreadDirsLine`), except one git ignores and tracks
+ * nothing under (`ignored`, see `ignoredByGit`), which is a line above the verdict
+ * (`ignoredDirsLine`).
+ *
  * A lockfile is not listed. `pnpm-lock.yaml` has an extension the manifest checks read and is
  * routinely over 512 KB, and the dependency scanner, whose file it is, reads it at any size: the
  * first version of this list called a 624 KB lockfile unread code, on every run.
- * @returns {{ unread: { language: string, files: number }[], unreadFiles: number, readFiles: number, mostlyUnread: boolean, languages: Record<string, number>, skipped: { file: string, bytes: number | null, why: string, code: boolean, readBy: string | null }[] }}
+ * @returns {{ unread: { language: string, files: number }[], unreadFiles: number, readFiles: number, mostlyUnread: boolean, languages: Record<string, number>, skipped: { file: string, bytes: number | null, why: string, code: boolean, readBy: string | null }[], unreadDirs: { dir: string, why: string, ignored: boolean }[] }}
  */
 export function sourceCoverage(projectDir) {
   const unread = new Map();
   const languages = {};
   const skipped = [];
+  const unreadDirs = [];
   let readFiles = 0;
   const walk = (dir) => {
     let entries;
     try {
       entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (e) {
+      // Gone since it was listed is nothing to read. Anything else holds files no check read.
+      if (e?.code !== "ENOENT") {
+        const rel = path.relative(projectDir, dir) || ".";
+        unreadDirs.push({ dir: rel, why: `not readable (${e?.code || e?.message})`, ignored: ignoredByGit(projectDir, rel) });
+      }
       return;
     }
     for (const e of entries) {
@@ -114,7 +128,8 @@ export function sourceCoverage(projectDir) {
   const list = [...unread].map(([language, files]) => ({ language, files })).sort((a, b) => b.files - a.files);
   const unreadFiles = list.reduce((n, l) => n + l.files, 0);
   skipped.sort((a, b) => a.file.localeCompare(b.file));
-  return { unread: list, unreadFiles, readFiles, mostlyUnread: unreadFiles > readFiles, languages, skipped };
+  unreadDirs.sort((a, b) => a.dir.localeCompare(b.dir));
+  return { unread: list, unreadFiles, readFiles, mostlyUnread: unreadFiles > readFiles, languages, skipped, unreadDirs };
 }
 
 // Why a check that reads this kind of file did not read this one, or null. The same test every
@@ -191,6 +206,55 @@ export function skippedCodeLine(cov) {
 }
 
 /**
+ * The sentence for directories no check could list, or null. The gate's could-not-run entry, in both
+ * modes, like a skipped code file: whatever is under one was read by nothing.
+ */
+export function unreadDirsLine(cov) {
+  const dirs = (cov?.unreadDirs || []).filter((d) => !d.ignored);
+  if (!dirs.length) return null;
+  const listed = dirs.slice(0, 5).map((d) => `${d.dir === "." ? "the project directory" : `${d.dir}/`}, ${d.why}`).join("; ") + (dirs.length > 5 ? `, +${dirs.length - 5} more` : "");
+  return (
+    `${dirs.length} director${dirs.length === 1 ? "y" : "ies"} could not be listed, so no check read the files in ${dirs.length === 1 ? "it" : "them"}: ${listed}. ` +
+    `A check that cannot list a directory says nothing about the code in it, and says "no source files" when that was the only code. ` +
+    `Make it readable by the user the gate runs as, or remove it.`
+  );
+}
+
+/**
+ * Whether git ignores the directory `rel` under `projectDir` and tracks nothing under it. False
+ * outside a git work tree, for the project directory itself, and whenever git cannot say.
+ *
+ * A directory that cannot be listed is could-not-run, but every run of a project with a
+ * docker-compose bind mount (`./data/postgres`, owned by the container's user, mode 700, ignored)
+ * then exited 3, and the only way out was sudo chmod or moving the volume. Nothing git ignores is
+ * in the project's history or in a checkout CI makes, so not reading it is said, not judged. A
+ * directory git tracks anything under, even one force-added beneath an ignored parent, is the
+ * project's code and stays could-not-run.
+ */
+export function ignoredByGit(projectDir, rel) {
+  if (!rel || rel === ".") return false;
+  const git = (...args) => spawnSync("git", ["-C", projectDir, ...args], { encoding: "utf8", timeout: 30_000 });
+  if (git("check-ignore", "-q", "--", `${rel}/`).status !== 0) return false;
+  const tracked = git("ls-files", "-z", "--", `${rel}/`);
+  return tracked.status === 0 && tracked.stdout === "";
+}
+
+/**
+ * The sentence for directories git ignores that no check could list, or null. A line above the
+ * verdict, and factory mode's `unread-ignored-dirs` advisory, could-not-run there unless the
+ * pipeline's policy accepts it.
+ */
+export function ignoredDirsLine(cov) {
+  const dirs = (cov?.unreadDirs || []).filter((d) => d.ignored);
+  if (!dirs.length) return null;
+  const listed = dirs.slice(0, 5).map((d) => `${d.dir}/, ${d.why}`).join("; ") + (dirs.length > 5 ? `, +${dirs.length - 5} more` : "");
+  return (
+    `${dirs.length} director${dirs.length === 1 ? "y" : "ies"} git ignores could not be listed, so no check read the files in ${dirs.length === 1 ? "it" : "them"}: ${listed}. ` +
+    `Git tracks nothing there, so none of it is in the project's history; a container's bind mount looks like this.`
+  );
+}
+
+/**
  * The sentence for the other skipped files -- YAML, SQL and Terraform over the limit or unreadable,
  * a link to nothing -- or null. A line above the verdict, and factory mode's `skipped-files` advisory.
  */
@@ -208,6 +272,6 @@ export function skippedFilesLine(cov) {
  * no data or configuration file was skipped. Skipped code files are not here: they are could-not-run.
  */
 export function coverageLine(cov) {
-  const parts = [unreadLanguagesLine(cov), skippedFilesLine(cov)].filter(Boolean);
+  const parts = [unreadLanguagesLine(cov), skippedFilesLine(cov), ignoredDirsLine(cov)].filter(Boolean);
   return parts.length ? parts.join(" ") : null;
 }

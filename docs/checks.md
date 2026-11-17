@@ -15,9 +15,14 @@ A check that could not run — a scanner missing, a control unreachable — make
 never a pass. So does a code file the checks for its language did not read: one over 512 KB, which
 only injection opens (it reads up to 1 MB, and is the one check that reads C and C++), or one that
 cannot be opened. The run names the file and exits 3; split it, or move a generated bundle under
-`dist/` or `build/`. Code in a language nothing reads is named above the verdict, and so is a YAML,
-SQL or Terraform file over 512 KB. A lockfile the dependency scanner reads is not listed, whatever
-its size. `--json` lists every such file under `skippedFiles`, code or not.
+`dist/` or `build/`. So does a directory that cannot be listed, for lack of permission say: no
+check reads what is in it, and the run names it and exits 3. In a git repository, one git ignores and
+tracks nothing under, such as a container's bind mount, is named above the verdict instead; the
+project's own ignore rules decide which those are, so an ignore line can accept one. Code
+in a language nothing reads is
+named above the verdict, and so is a YAML, SQL or Terraform file over 512 KB. A lockfile the
+dependency scanner reads is not listed, whatever its size. `--json` lists every such file under
+`skippedFiles`, code or not, and every such directory under `unreadDirectories`.
 
 ## What scanners miss
 
