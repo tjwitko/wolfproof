@@ -405,7 +405,7 @@ test("wolfproof known that throws exits 3, not Node's 1", () => {
   }
 });
 
-test("a directory git ignores that cannot be listed is a line above the verdict by default, and unread-ignored-dirs in factory mode", { skip: asRoot }, () => {
+test("a directory git ignores that cannot be listed is a line above the verdict in both modes, and factory mode drops unread-ignored-dirs unless the policy names it", { skip: asRoot }, () => {
   const d = mkdtempSync(path.join(tmpdir(), "exitcodes-"));
   mkdirSync(path.join(d, "data", "postgres"), { recursive: true });
   // JavaScript, which node itself checks: a Python file would need ruff, which CI does not install,
@@ -417,7 +417,11 @@ test("a directory git ignores that cannot be listed is a line above the verdict 
     spawnSync("git", args, { cwd: d });
   }
   const policy = path.join(d, "..", `${path.basename(d)}-policy.json`);
-  writeFileSync(policy, JSON.stringify({ advisories: { "unread-ignored-dirs": "drop" } }));
+  const withPolicy = (advisories) => {
+    writeFileSync(policy, JSON.stringify({ advisories }));
+    return cli([d, "--json", "--factory", "--base=HEAD", `--policy=${policy}`]);
+  };
+  const classifiedIn = (r) => JSON.parse(r.stdout).factory.advisories.classified.filter((c) => c.id === "unread-ignored-dirs");
   chmodSync(path.join(d, "data", "postgres"), 0o000);
   try {
     let r = cli([d, "--json"]);
@@ -426,13 +430,32 @@ test("a directory git ignores that cannot be listed is a line above the verdict 
     assert.deepEqual(doc.unreadDirectories, [{ dir: "data/postgres", why: "not readable (EACCES)", ignored: true }]);
     assert.deepEqual(doc.couldNotRun, []);
     assert.match(doc.coverage, /^1 directory git ignores could not be listed, so no check read the files in it: data\/postgres\//);
-    // Factory mode: an advisory like the other coverage lines, could-not-run unless the policy accepts it.
+    // Factory mode: information, dropped by default. Git tracks nothing under the directory, so a
+    // change carries nothing from it. The line still stands above the verdict.
     r = cli([d, "--json", "--factory", "--base=HEAD"]);
-    assert.equal(r.code, 3, `exit ${r.code}`);
     doc = JSON.parse(r.stdout);
-    assert.deepEqual(doc.factory.advisories.classified.filter((c) => c.id === "unread-ignored-dirs"), [{ id: "unread-ignored-dirs", class: "could-not-run", action: "incomplete" }]);
-    r = cli([d, "--factory", "--base=HEAD", `--policy=${policy}`]);
-    assert.equal(r.code, 0, `exit ${r.code}; stdout: ${r.stdout.slice(-400)}`);
+    assert.equal(r.code, 0, `exit ${r.code}; couldNotRun: ${JSON.stringify(doc.couldNotRun)}`);
+    assert.deepEqual(classifiedIn(r), [{ id: "unread-ignored-dirs", class: "info", action: "drop" }]);
+    assert.deepEqual(doc.couldNotRun, []);
+    assert.match(doc.coverage, /^1 directory git ignores could not be listed/);
+    assert.deepEqual(doc.unreadDirectories, [{ dir: "data/postgres", why: "not readable (EACCES)", ignored: true }]);
+    r = cli([d, "--factory", "--base=HEAD"]);
+    assert.equal(r.code, 0, `exit ${r.code}`);
+    assert.match(r.stdout, /^!! 1 directory git ignores could not be listed/m);
+    // A policy that names it decides: incomplete is exit 3, block is exit 1.
+    r = withPolicy({ "unread-ignored-dirs": "incomplete" });
+    assert.equal(r.code, 3, `exit ${r.code}`);
+    assert.deepEqual(classifiedIn(r), [{ id: "unread-ignored-dirs", class: "info", action: "incomplete" }]);
+    doc = JSON.parse(r.stdout);
+    assert.equal(doc.couldNotRun.length, 1, JSON.stringify(doc.couldNotRun));
+    assert.match(doc.couldNotRun[0], /^factory: 1 directory git ignores could not be listed, so no check read the files in it: data\/postgres\//);
+    r = withPolicy({ "unread-ignored-dirs": "block" });
+    assert.equal(r.code, 1, `exit ${r.code}`);
+    assert.deepEqual(classifiedIn(r), [{ id: "unread-ignored-dirs", class: "info", action: "block" }]);
+    // A rule for the could-not-run class does not reach it, as with checkov-absent.
+    r = withPolicy({ "could-not-run": "block" });
+    assert.equal(r.code, 0, `exit ${r.code}`);
+    assert.deepEqual(classifiedIn(r), [{ id: "unread-ignored-dirs", class: "info", action: "drop" }]);
   } finally {
     chmodSync(path.join(d, "data", "postgres"), 0o755);
     rmSync(d, { recursive: true, force: true });

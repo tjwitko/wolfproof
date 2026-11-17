@@ -187,12 +187,19 @@ itself, `--known=<file>` or the Action's `known` input, which avoids both.
 ```
 
 The policy maps an advisory id, an id family (`sast` for every `sast:<category>`), or a class name to
-`block`, `drop` or `incomplete`, most specific first. The two lines the default mode prints above the
-verdict are advisories here: `unread-code` for code in a language nothing reads, `skipped-files`
-for YAML, SQL and Terraform files the checks that read them skipped — over 512 KB, unreadable, or
-a symbolic link to a file that is not there, whatever the link is named — and
-`unread-ignored-dirs` for directories git ignores that could not be listed, a container's bind
-mount for one, so an oversized data file can be accepted without accepting a language unread. A code file the
+`block`, `drop` or `incomplete`, most specific first. The lines the default mode prints above the
+verdict are advisories here. Two are could-not-run, so the run exits 3 until the policy accepts
+them: `unread-code` for code in a language nothing reads, and `skipped-files` for YAML, SQL and
+Terraform files the checks that read them skipped — over 512 KB, unreadable, or a symbolic link to
+a file that is not there, whatever the link is named. They have separate ids so an oversized data
+file can be accepted without accepting a language unread.
+
+The third, `unread-ignored-dirs`, is information and is dropped by default. It names directories
+git ignores that could not be listed, a container's bind mount for one. Git tracks nothing under
+such a directory, so a change carries nothing from it, and the line still prints above the verdict.
+A pipeline that wants such a directory to hold a run names it:
+`{ "advisories": { "unread-ignored-dirs": "incomplete" } }` for exit 3, or `"block"` for exit 1. A
+rule for the `could-not-run` class does not reach it. A code file the
 checks for its language skipped is not an advisory and no policy entry reaches it: it is in
 could-not-run in both modes, and the run exits 3 until the file is split, moved under `dist/` or
 `build/`, or its directory is declared a fixture, each of the last two a grant the allowlist

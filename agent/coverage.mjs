@@ -241,8 +241,8 @@ export function ignoredByGit(projectDir, rel) {
 
 /**
  * The sentence for directories git ignores that no check could list, or null. A line above the
- * verdict, and factory mode's `unread-ignored-dirs` advisory, could-not-run there unless the
- * pipeline's policy accepts it.
+ * verdict in both modes. In factory mode it is the `unread-ignored-dirs` advisory, information that
+ * is dropped unless the pipeline's policy names it.
  */
 export function ignoredDirsLine(cov) {
   const dirs = (cov?.unreadDirs || []).filter((d) => d.ignored);

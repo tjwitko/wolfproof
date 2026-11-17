@@ -104,9 +104,10 @@ while git tracks no file under it. The project's own ignore rules decide it: `.g
 `.git/info/exclude` and the user's global excludes. So one ignore line is what moves such a
 directory from exit 3 to this line, and code under it that was never committed is not read. Read a
 new ignore entry for a directory the gate cannot list as you would a new exemption. In factory
-mode the line is the `unread-ignored-dirs` advisory, could-not-run by default like the other lines
-above the verdict; a policy entry
-`{ "advisories": { "unread-ignored-dirs": "drop" } }` accepts it.
+mode the line is the `unread-ignored-dirs` advisory. It is information, so the run does not exit 3
+for it and the line still prints above the verdict. A policy entry
+`{ "advisories": { "unread-ignored-dirs": "incomplete" } }` makes such a directory exit 3 again, and
+`"block"` makes it exit 1.
 
 **"file(s) of a kind the checks read were not read" above the verdict** — a YAML, SQL or Terraform
 file is over 512 KB, or could not be opened, so immutability, retention, the Kubernetes manifest
