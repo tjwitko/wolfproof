@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.16.5
+wolfproof 1.16.6
   terraform-guard  v1.1.3  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.4  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.3  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.5
-- uses: tjwitko/wolfproof@v1.16.5
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.6
+- uses: tjwitko/wolfproof@v1.16.6
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.16.5
+npm install --save-dev github:tjwitko/wolfproof#v1.16.6
 ```
 
 ## 3. Refresh what setup wrote
@@ -836,9 +836,9 @@ about one it did not. So `FROM golang:1.9`, `FROM python:2.5-slim` and `FROM rub
 `golang:1.10` and `python:2.6` were blocked as end of life. All five now block. Can turn a passing
 project red: only one whose Dockerfile is on one of those releases.
 
-### After v1.16.5
+### In v1.16.6
 
-**After v1.16.5: factory mode no longer exits 3 for a directory git ignores that it cannot list.**
+**In v1.16.6: factory mode no longer exits 3 for a directory git ignores that it cannot list.**
 In v1.16.5 the `unread-ignored-dirs` advisory was could-not-run in factory mode. A pipeline that
 runs beside a container's bind mount, such as an ignored `./data/postgres` owned by the container's
 user, exited 3 on every change until its policy dropped the advisory. It is now information,
