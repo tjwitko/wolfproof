@@ -242,7 +242,8 @@ export function ignoredByGit(projectDir, rel) {
 /**
  * The sentence for directories git ignores that no check could list, or null. A line above the
  * verdict in both modes. In factory mode it is the `unread-ignored-dirs` advisory, information that
- * is dropped unless the pipeline's policy names it.
+ * is dropped unless the pipeline's policy names it. A directory only the change's own ignore rules
+ * ignore blocks there besides, as a grant the change added (ignoredDirGrants, lib/factory.mjs).
  */
 export function ignoredDirsLine(cov) {
   const dirs = (cov?.unreadDirs || []).filter((d) => d.ignored);

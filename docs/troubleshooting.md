@@ -109,6 +109,16 @@ for it and the line still prints above the verdict. A policy entry
 `{ "advisories": { "unread-ignored-dirs": "incomplete" } }` makes such a directory exit 3 again, and
 `"block"` makes it exit 1.
 
+Nobody reads a new ignore entry in factory mode, so factory mode judges it. That holds only for a
+directory the ignore files already ignored at the base, counting `.git/info/exclude` and the
+user's global excludes with them. When the change's own ignore rules are what ignore it, the run
+is **exit 1**: "N ignored-directory grant(s) this change added", naming the directory and the
+ignore file, line and pattern. Remove the rule and make the directory readable, or have the
+pipeline's allowlist approve the directory:
+`{ "exemptions": [{ "kind": "ignored-directory", "path": "data/postgres", "reason": "…" }] }`.
+A change that adds an unrelated line to the same `.gitignore`, or moves the pattern to another
+ignore file, is not affected.
+
 **"file(s) of a kind the checks read were not read" above the verdict** — a YAML, SQL or Terraform
 file is over 512 KB, or could not be opened, so immutability, retention, the Kubernetes manifest
 check and the IAM and manifest contracts say nothing about it. A symbolic link to a file that is
