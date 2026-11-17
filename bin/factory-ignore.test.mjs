@@ -388,3 +388,39 @@ test("a base whose tree holds a path above the repository's top is exit 3, and n
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+// "Git ignores the directory" means git does not descend into it, so nothing under it can be taken
+// back out by a negation. `git check-ignore -- dir/` alone also exits 0 when the rules ignore what
+// is in the directory and not the directory: `*` with `!vendor_src/`, or `vendor_src/*`. Git does
+// descend there, and with `!*.js` beside them `git status` lists vendor_src/v.js as untracked.
+// Measured on 7f56106: both exited 0 with `ignored: true`. Both forms are asked now, with and
+// without the trailing slash, and the directory is ignored only when both say so.
+
+test("a directory whose contents are ignored while the directory is negated is could-not-run in both modes", { skip: asRoot }, () => {
+  const r = repo();
+  try {
+    r.write("a.js", "console.log(1);\n").write(".gitignore", "*\n!vendor_src/\n!*.js\n!.gitignore\n").commit("base");
+    r.write("a.js", "console.log(2);\n").commit("change").lock("vendor_src");
+    defaultModeCouldNotRun(r, "vendor_src");
+    const f = cli([r.dir, "--json", "--factory", "--base=HEAD~1"]);
+    assert.equal(f.code, 3, `factory exit ${f.code}; failures: ${JSON.stringify(failures(f.doc))}`);
+    assert.deepEqual(ignoredGrants(f.doc), []);
+    assert.deepEqual(failures(f.doc), []);
+    assert.deepEqual(f.doc.unreadDirectories, [{ dir: "vendor_src", why: "not readable (EACCES)", ignored: false }]);
+  } finally {
+    r.done();
+  }
+});
+
+test("a rule over a directory's contents (vendor_src/*) does not ignore it, and the change that ignores the directory itself is a grant it added", { skip: asRoot }, () => {
+  const r = repo();
+  try {
+    r.write("a.js", "console.log(1);\n").write(".gitignore", "vendor_src/*\n").commit("base").lock("vendor_src");
+    defaultModeCouldNotRun(r, "vendor_src");
+    r.write(".gitignore", "vendor_src/\n").write("a.js", "console.log(2);\n").commit("change");
+    defaultModeUnchanged(r, "vendor_src");
+    blocksAsAdded(r, "HEAD~1", "vendor_src", ".gitignore", 1);
+  } finally {
+    r.done();
+  }
+});

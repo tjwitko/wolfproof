@@ -260,3 +260,36 @@ test("a directory that cannot be listed is a line above the verdict only when gi
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// `git check-ignore -- dir/` exits 0 both when git ignores the directory and when the rules ignore
+// only what is in it, where git still descends and a negation can take a file back out. Measured
+// with git 2.50.1 on `*`, `!vendor_src/`, `!*.js`: the trailing-slash form exits 0, the form
+// without it reports the negation, and `git status` lists vendor_src/v.js. Both forms are asked.
+test("ignoredByGit: a directory is ignored only when git ignores the directory itself, not just what is in it", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "coverage-"));
+  const git = (...args) => spawnSync("git", ["-c", "user.email=t@example.invalid", "-c", "user.name=t", ...args], { cwd: dir, encoding: "utf8" });
+  try {
+    git("init", "-q");
+    mkdirSync(path.join(dir, "vendor_src"));
+    writeFileSync(path.join(dir, "vendor_src", "v.js"), "\n");
+    const withRules = (rules) => {
+      writeFileSync(path.join(dir, ".gitignore"), rules);
+      return ignoredByGit(dir, "vendor_src");
+    };
+    // The directory itself is ignored: git does not descend.
+    assert.equal(withRules("vendor_src/\n"), true);
+    assert.equal(withRules("vendor_src\n"), true);
+    assert.equal(withRules("*\n!*.js\n!.gitignore\n"), true);
+    // Only what is in it is ignored: git descends, and v.js is untracked in the first.
+    assert.equal(withRules("*\n!vendor_src/\n!*.js\n!.gitignore\n"), false);
+    assert.equal(withRules("*\n!vendor_src/\n!.gitignore\n"), false);
+    assert.equal(withRules("vendor_src/*\n"), false);
+    assert.equal(withRules("vendor_src/**\n"), false);
+    assert.equal(withRules("vendor_src/*\n!vendor_src/*.js\n"), false);
+    // Not ignored at all.
+    assert.equal(withRules("*\n!*/\n!*.js\n!.gitignore\n"), false);
+    assert.equal(withRules("*.log\n"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

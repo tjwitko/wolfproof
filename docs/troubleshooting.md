@@ -100,7 +100,10 @@ container's bind mount, such as `./data/postgres` in a docker-compose project, o
 container's user with mode 700 and listed in `.gitignore`. Nothing in it is in the project's
 history, so the gate says it did not read it and the verdict does not change. The exception holds
 only inside a git repository, only for a directory `git check-ignore` reports as ignored, and only
-while git tracks no file under it. The project's own ignore rules decide it: `.gitignore`,
+while git tracks no file under it. The directory itself has to be ignored: `data/postgres/`. A
+rule over what is in it (`data/postgres/*`), or the directory negated after a wider rule (`*`
+then `!data/postgres/`), leaves it exit 3, because git still descends into it and a negation can
+take a file back out. The project's own ignore rules decide it: `.gitignore`,
 `.git/info/exclude` and the user's global excludes. So one ignore line is what moves such a
 directory from exit 3 to this line, and code under it that was never committed is not read. Read a
 new ignore entry for a directory the gate cannot list as you would a new exemption. In factory
