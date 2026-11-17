@@ -43,7 +43,7 @@ import {
 } from "../lib/factory.mjs";
 import { parseReviews, reviewableLine, reviewedRecord, staleReviewsLine, REVIEW_FILE } from "../lib/reviewed.mjs";
 import { parseKnown, knownRecord, knownLine, staleKnownLine, KNOWN_FILE } from "../lib/known.mjs";
-import { classifyAdvisory, actionFor, ACTIONS, COULD_NOT_RUN, NOT_CHECKED } from "../lib/advisory-classes.mjs";
+import { classifyAdvisory, actionFor, ACTIONS, COULD_NOT_RUN, INFO, NOT_CHECKED } from "../lib/advisory-classes.mjs";
 
 const EXIT = { CLEAN: 0, BLOCKED: 1, USAGE: 2, INCOMPLETE: 3 };
 
@@ -451,15 +451,20 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       // accepts it. Two ids, so a pipeline can accept a 600 KB values file without accepting a
       // language unread. A skipped code file is not among them: the gate reports it as could-not-run
       // itself, in both modes, and no policy drops it.
-      for (const [id, line] of [
-        ["unread-code", unreadLanguagesLine(coverage)],
-        ["skipped-files", skippedFilesLine(coverage)],
-        // A directory git ignores that could not be listed: a bind mount, most often.
-        ["unread-ignored-dirs", ignoredDirsLine(coverage)],
+      //
+      // A directory git ignores that could not be listed (a bind mount, most often) is information,
+      // dropped unless the policy names it: git tracks nothing under it, so nothing a change carries
+      // is there, and a pipeline that runs beside a database's volume would otherwise exit 3 on every
+      // change. Its own id, so a pipeline that wants such a directory to hold a run can say
+      // "incomplete" or "block"; a rule for the could-not-run class does not reach it.
+      for (const [id, cls, line] of [
+        ["unread-code", COULD_NOT_RUN, unreadLanguagesLine(coverage)],
+        ["skipped-files", COULD_NOT_RUN, skippedFilesLine(coverage)],
+        ["unread-ignored-dirs", INFO, ignoredDirsLine(coverage)],
       ]) {
         if (!line) continue;
-        const action = actionFor({ id, class: COULD_NOT_RUN }, policy);
-        classified.push({ id, class: COULD_NOT_RUN, action });
+        const action = actionFor({ id, class: cls }, policy);
+        classified.push({ id, class: cls, action });
         if (action === "incomplete") couldNotRun.push(`factory: ${line}`);
         else if (action === "block") r.failures.push(`factory: blocked by the pipeline's policy (${id}) — ${line}`);
       }

@@ -836,6 +836,26 @@ about one it did not. So `FROM golang:1.9`, `FROM python:2.5-slim` and `FROM rub
 `golang:1.10` and `python:2.6` were blocked as end of life. All five now block. Can turn a passing
 project red: only one whose Dockerfile is on one of those releases.
 
+### After v1.16.5
+
+**After v1.16.5: factory mode no longer exits 3 for a directory git ignores that it cannot list.**
+In v1.16.5 the `unread-ignored-dirs` advisory was could-not-run in factory mode. A pipeline that
+runs beside a container's bind mount, such as an ignored `./data/postgres` owned by the container's
+user, exited 3 on every change until its policy dropped the advisory. It is now information,
+dropped by default, as the default mode already treated it. Git tracks nothing under such a
+directory, so a change carries nothing from it. The line still prints above the verdict, and
+`--json` still lists the directory under `unreadDirectories` with `ignored: true`; the advisory's
+entry under `factory.advisories.classified` now has class `info`.
+
+A policy entry for the id still decides: `"unread-ignored-dirs": "incomplete"` restores exit 3, and
+`"block"` is exit 1. A policy's rule for the `could-not-run` class no longer reaches it. So a
+pipeline whose policy says `"could-not-run": "block"`, and which relied on that to stop at such a
+directory, needs the entry by id. A directory git tracks anything under, and any directory outside
+a git repository, is could-not-run in both modes as before.
+
+Can turn a red project green: only in factory mode, one with an ignored directory the gate's user
+cannot list. Cannot turn a passing project red.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
