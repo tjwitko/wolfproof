@@ -884,11 +884,13 @@ is unchanged.
 Can turn a passing factory run red, exit 1: only when the gate cannot list a directory, git
 ignores it and tracks nothing under it, and the ignore rules at the base did not ignore it. That
 is a change that adds the ignore line, adds a nested `.gitignore` that ignores it, or removes a
-negation (`!vendor_src/`) that kept it from being ignored, committed or not. Not affected: a
-directory already ignored at the base, whatever else the change does to ignore files, including an
-unrelated line in the same file or the pattern moved to another one; and a directory only
-`.git/info/exclude` or a global exclude ignores. With no base to compare with the run is exit 3
-as before, and no grant is judged.
+negation that kept it from being ignored (`!vendor_src/`, or `!*/` after a `*`), committed or not.
+Not affected: a directory already ignored at the base, whatever else the change does to ignore
+files, including an unrelated line in the same file or the pattern moved to another one; and a
+directory only `.git/info/exclude` or a global exclude ignores. With no base to compare with the
+run is exit 3 as before, and no grant is judged. It is also exit 3, "factory: … is not known",
+when the base's rules cannot be asked: the base tracked a `.gitignore` file where the directory is
+now, or holds an ignore file at a path git does not check out.
 
 ## Keeping current
 

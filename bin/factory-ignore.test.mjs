@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendFileSync, chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { appendFileSync, chmodSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import path from "path";
@@ -22,8 +22,8 @@ const CLI = path.resolve(__dirname, "validate.mjs");
 
 const asRoot = process.getuid?.() === 0 && "root reads every directory";
 
-function cli(args) {
-  const r = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", timeout: 120_000 });
+function cli(args, env = {}) {
+  const r = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", timeout: 120_000, env: { ...process.env, ...env } });
   let doc = null;
   try {
     doc = JSON.parse(r.stdout);
@@ -281,5 +281,110 @@ test("a project in a subdirectory is held to the repository's ignore files above
     blocksAsAdded(r, "HEAD~1", "vendor_src", ".gitignore", 2);
   } finally {
     r.done();
+  }
+});
+
+// The base's rules are asked in a temporary tree holding the base's ignore files. Git applies a
+// directory-only pattern such as `!*/` only to a path that is a directory there, so in a tree
+// without the directory the negation was skipped and `*` won: measured on 7f56106, the change below
+// exited 0 with the grant "pre-existing". The directory is made in that tree before git is asked.
+
+/** The default mode for a directory git does not ignore: exit 3, could-not-run, nothing blocking. */
+function defaultModeCouldNotRun(r, dir) {
+  const d = cli([r.dir, "--json"]);
+  assert.equal(d.code, 3, `default mode exit ${d.code}; failures: ${JSON.stringify(failures(d.doc))}`);
+  assert.deepEqual(d.doc.unreadDirectories, [{ dir, why: "not readable (EACCES)", ignored: false }]);
+  assert.deepEqual(failures(d.doc), []);
+  assert.ok(d.doc.couldNotRun.some((c) => c.startsWith("source_files: 1 directory could not be listed") && c.includes(`${dir}/`)), JSON.stringify(d.doc.couldNotRun));
+}
+
+test("factory mode blocks when the change removes a directory-only negation (!*/) that kept the directory from being ignored", { skip: asRoot }, () => {
+  const r = repo();
+  try {
+    r.write("a.js", "console.log(1);\n").write(".gitignore", "*\n!*/\n!*.js\n!.gitignore\n").commit("base").lock("vendor_src");
+    // At the base the directory is not ignored, so the run that could not list it was exit 3.
+    defaultModeCouldNotRun(r, "vendor_src");
+    r.write(".gitignore", "*\n!*.js\n!.gitignore\n").write("a.js", "console.log(2);\n").commit("change");
+    defaultModeUnchanged(r, "vendor_src");
+    // `*` was line 1 at the base too; what the change did was take away the line that overrode it.
+    blocksAsAdded(r, "HEAD~1", "vendor_src", ".gitignore", 1);
+  } finally {
+    r.done();
+  }
+});
+
+test("factory mode is exit 3, with no grant, when the directory-only negation is kept and the change adds an unrelated line", { skip: asRoot }, () => {
+  const r = repo();
+  try {
+    r.write("a.js", "console.log(1);\n").write(".gitignore", "*\n!*/\n!*.js\n!.gitignore\n").commit("base");
+    r.write(".gitignore", "*\n!*/\n!*.js\n!.gitignore\n*.log\n").write("a.js", "console.log(2);\n").commit("change").lock("vendor_src");
+    defaultModeCouldNotRun(r, "vendor_src");
+    // Git does not ignore the directory, so there is no ignore rule to judge: could-not-run, as for
+    // any directory the gate cannot list, and never blocked.
+    const f = cli([r.dir, "--json", "--factory", "--base=HEAD~1"]);
+    assert.equal(f.code, 3, `factory exit ${f.code}; failures: ${JSON.stringify(failures(f.doc))}`);
+    assert.deepEqual(ignoredGrants(f.doc), []);
+    assert.deepEqual(failures(f.doc), []);
+    assert.deepEqual(f.doc.unreadDirectories, [{ dir: "vendor_src", why: "not readable (EACCES)", ignored: false }]);
+    assert.ok(f.doc.couldNotRun.some((c) => c.startsWith("source_files: 1 directory could not be listed") && c.includes("vendor_src/")), JSON.stringify(f.doc.couldNotRun));
+  } finally {
+    r.done();
+  }
+});
+
+test("factory mode blocks when the change removes a nested directory-only negation (!pkg/*/)", { skip: asRoot }, () => {
+  const r = repo();
+  try {
+    r.write("a.js", "console.log(1);\n").write(".gitignore", "pkg/*\n!pkg/*/\n").commit("base").lock("pkg/vendor_src");
+    defaultModeCouldNotRun(r, "pkg/vendor_src");
+    r.write(".gitignore", "pkg/*\n").write("a.js", "console.log(2);\n").commit("change");
+    defaultModeUnchanged(r, "pkg/vendor_src");
+    blocksAsAdded(r, "HEAD~1", "pkg/vendor_src", ".gitignore", 1);
+  } finally {
+    r.done();
+  }
+});
+
+test("factory mode blocks when the change removes a directory-only negation from a nested .gitignore", { skip: asRoot }, () => {
+  const r = repo();
+  try {
+    r.write("a.js", "console.log(1);\n").write("pkg/.gitignore", "*\n!*/\n!.gitignore\n").commit("base").lock("pkg/vendor_src");
+    defaultModeCouldNotRun(r, "pkg/vendor_src");
+    r.write("pkg/.gitignore", "*\n!.gitignore\n").write("a.js", "console.log(2);\n").commit("change");
+    defaultModeUnchanged(r, "pkg/vendor_src");
+    blocksAsAdded(r, "HEAD~1", "pkg/vendor_src", "pkg/.gitignore", 1);
+  } finally {
+    r.done();
+  }
+});
+
+test("a base whose tree holds a path above the repository's top is exit 3, and nothing is written outside the temporary tree", { skip: asRoot }, () => {
+  // Git refuses to check such a path out, and `git archive` refuses it too, which is exit 3 for a
+  // project at the repository's top. A project in a subdirectory is archived from its own subtree,
+  // so the entry was reached: measured on 7f56106, `.gitignore` was written beside the temporary
+  // tree, in the system's temporary directory.
+  const r = repo("services/api");
+  const tmp = mkdtempSync(path.join(tmpdir(), "factory-ignore-tmpdir-"));
+  try {
+    r.write("services/api/a.js", "console.log(1);\n").commit("base");
+    const mktree = (lines) => {
+      const m = spawnSync("git", ["-C", r.top, "mktree"], { input: lines.join("\n") + "\n", encoding: "utf8" });
+      assert.equal(m.status, 0, m.stderr);
+      return m.stdout.trim();
+    };
+    const blob = spawnSync("git", ["-C", r.top, "hash-object", "-w", "--stdin"], { input: "planted\n", encoding: "utf8" }).stdout.trim();
+    const above = mktree([`100644 blob ${blob}\t.gitignore`]);
+    const tree = mktree([`040000 tree ${r.git("rev-parse", "HEAD:services").trim()}\tservices`, `040000 tree ${above}\t..`]);
+    const base = r.git("commit-tree", "-m", "crafted", tree).trim();
+    r.write(".gitignore", "vendor_src/\n").write("services/api/a.js", "console.log(2);\n").commit("change").lock("services/api/vendor_src");
+    const f = cli([r.dir, "--json", "--factory", `--base=${base}`], { TMPDIR: tmp });
+    assert.equal(existsSync(path.join(tmp, ".gitignore")), false, "the base's ../.gitignore was written outside the temporary tree");
+    assert.equal(f.code, 3, `factory exit ${f.code}; failures: ${JSON.stringify(failures(f.doc))}`);
+    assert.deepEqual(ignoredGrants(f.doc), []);
+    assert.deepEqual(ignoredFailures(f.doc), []);
+    assert.ok(f.doc.couldNotRun.some((c) => /^factory: the base's ignore files could not be read, .*\.\.\/\.gitignore/.test(c)), JSON.stringify(f.doc.couldNotRun));
+  } finally {
+    r.done();
+    rmSync(tmp, { recursive: true, force: true });
   }
 });
