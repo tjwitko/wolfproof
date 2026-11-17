@@ -90,9 +90,21 @@ Each of these is confirmed to loosen a check:
   checkov findings they hide (`checkov`, `iac-checkov` or `dockerfile-checkov`, by file type).
   checkov's findings are advisories, and hiding one that cannot block is not itself blocking:
   under the default policy an added skip is listed in the factory notes instead
+- an ignore rule over a directory the gate cannot list (`ignored-directory`) — the one place the
+  gate honours `.gitignore`. Such a directory is named above the verdict where any other is exit 3
+  ([troubleshooting](troubleshooting.md)), so a rule the change writes would take its own run from
+  exit 3 to exit 0. Factory mode asks git whether the ignore files as they were at the base already
+  ignored the directory, together with `.git/info/exclude` and the user's global excludes, which a
+  change cannot carry. If they did, nothing changes. If only the change's rules ignore it, the
+  directory is a grant the change added and blocks, naming the directory and the ignore file, line
+  and pattern. It is decided by the answer and not by whether the change touched an ignore file:
+  an unrelated line added to the same `.gitignore`, or a pattern moved to another ignore file,
+  blocks nothing, and a removed negation or a new nested `.gitignore` does block. An ignore line
+  that is not committed counts like one that is. The allowlist approves the directory by its path
 
-Not judged, because nothing honours them: a project `.gitleaks.toml`, `nosemgrep`, `.semgrepignore`
-and `.gitignore`.
+Not judged, because nothing honours them: a project `.gitleaks.toml`, `nosemgrep` and
+`.semgrepignore`. A `.gitignore` hides no file from a check; the directory above is the one thing it
+decides.
 
 Each one is compared line by line, so the same `gitleaks:allow` on a line whose credential changed is
 a new grant.
@@ -144,7 +156,7 @@ inputs, written outside the workspace.
 
 An entry approves its `kind` at its `path` or anywhere under it, and needs a `reason`; one without
 is ignored and reported. The kinds are the exemptions above plus `changed-under-exemption`,
-`skipped-location`, `moved-to-unchecked`, `server-in-test`, `reviewed-finding`, `known-finding` and `workflow-change`, which covers both
+`skipped-location`, `moved-to-unchecked`, `server-in-test`, `reviewed-finding`, `known-finding`, `ignored-directory` and `workflow-change`, which covers both
 `.github/workflows/` and `.github/actions/`. `known-declared` is the one exemption above with no
 kind here: an entry naming it is ignored and reported.
 
@@ -199,7 +211,10 @@ git ignores that could not be listed, a container's bind mount for one. Git trac
 such a directory, so a change carries nothing from it, and the line still prints above the verdict.
 A pipeline that wants such a directory to hold a run names it:
 `{ "advisories": { "unread-ignored-dirs": "incomplete" } }` for exit 3, or `"block"` for exit 1. A
-rule for the `could-not-run` class does not reach it. A code file the
+rule for the `could-not-run` class does not reach it. That is for a directory the base already
+ignored. One that only the change's own ignore rules ignore blocks as an `ignored-directory` grant
+([exemptions it judges](#exemptions-it-judges)), and no policy entry drops that: the allowlist
+approves it by path. A code file the
 checks for its language skipped is not an advisory and no policy entry reaches it: it is in
 could-not-run in both modes, and the run exits 3 until the file is split, moved under `dist/` or
 `build/`, or its directory is declared a fixture, each of the last two a grant the allowlist

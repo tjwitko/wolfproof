@@ -711,7 +711,7 @@ These can turn a passing project red. Each note says how, and what to do:
 - **Exit 3, in either mode:** a directory the gate's user cannot list or enter, unless git ignores it
   and tracks nothing under it.
 - **Factory mode only:** a directory like that which git ignores (`unread-ignored-dirs`), until the
-  policy accepts it.
+  policy accepts it. This changed twice since: see the notes in v1.16.6 and after v1.16.6.
 
 One can turn a red project green: JavaScript or TypeScript that the HTTP Basic rule read as a tuple.
 
@@ -763,7 +763,8 @@ file under it that git tracks, is a line above the verdict, not could-not-run. T
 docker-compose bind mount such as `./data/postgres`, owned by the container's user with mode 700
 and ignored: without the exception every run of that project would exit 3, and the only way out was
 `sudo chmod` or moving the volume. In factory mode the line is the `unread-ignored-dirs` advisory,
-could-not-run unless the policy accepts it. `unreadDirectories` marks each such directory
+could-not-run unless the policy accepts it (no longer so: see the notes in v1.16.6 and after
+v1.16.6). `unreadDirectories` marks each such directory
 `ignored: true`. A directory git tracks anything under, and any directory outside a git repository,
 is could-not-run as above.
 
@@ -772,7 +773,8 @@ reason, as the gate does.
 
 Can turn a passing project to exit 3: only one with a directory the gate's user cannot list or
 enter, other than one git ignores. Make it readable by that user, or remove it. In factory mode an
-ignored one is exit 3 too, until the policy accepts `unread-ignored-dirs`.
+ignored one is exit 3 too, until the policy accepts `unread-ignored-dirs`. Later versions changed
+the factory-mode part: see the notes in v1.16.6 and after v1.16.6.
 
 **In v1.16.5: the controls are terraform-guard v1.1.3, dep-audit v1.0.4, secret-guard v1.0.3
 and identity-guard v1.0.4.** Each now compares real paths when it checks that a path stays inside
@@ -855,6 +857,38 @@ a git repository, is could-not-run in both modes as before.
 
 Can turn a red project green: only in factory mode, one with an ignored directory the gate's user
 cannot list. Cannot turn a passing project red.
+
+### After v1.16.6
+
+**After v1.16.6: factory mode blocks a directory it cannot list when the change's own ignore rule
+is what ignores it.** v1.16.6 made the `unread-ignored-dirs` line information in factory mode. So
+a change that added the ignore line itself took its own run from exit 3 to exit 0, and nothing
+named the line: a project with an unlistable `vendor_src/`, and a commit adding `vendor_src/` to
+`.gitignore`, exited 0 with no blocking finding, where the same run without that line exited 3.
+
+Factory mode now asks git whether the ignore files as they were at the base already ignored the
+directory. `.git/info/exclude` and the user's global excludes count with them, since a change
+cannot carry either. A directory they ignored is as v1.16.6 left it: information, dropped, the line
+above the verdict. One that only the change's rules ignore is an `ignored-directory` grant the
+change added, **exit 1**, like every other exemption a change gives itself:
+
+```
+factory: 1 ignored-directory grant(s) this change added — vendor_src/ (.gitignore:1: vendor_src/). …
+```
+
+The pipeline's allowlist approves the directory by path, with kind `ignored-directory`. No policy
+entry drops it. `--json` lists each such directory under `factory.grants`, with `status`
+`pre-existing`, `allowlisted` or `added` and the `ignoreFile` that ignores it now. The default mode
+is unchanged.
+
+Can turn a passing factory run red, exit 1: only when the gate cannot list a directory, git
+ignores it and tracks nothing under it, and the ignore rules at the base did not ignore it. That
+is a change that adds the ignore line, adds a nested `.gitignore` that ignores it, or removes a
+negation (`!vendor_src/`) that kept it from being ignored, committed or not. Not affected: a
+directory already ignored at the base, whatever else the change does to ignore files, including an
+unrelated line in the same file or the pattern moved to another one; and a directory only
+`.git/info/exclude` or a global exclude ignores. With no base to compare with the run is exit 3
+as before, and no grant is judged.
 
 ## Keeping current
 

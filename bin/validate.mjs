@@ -34,6 +34,7 @@ import {
   resolveBase,
   materializeBase,
   judgeChange,
+  ignoredDirGrants,
   declaredOverrides,
   servesHttp,
   readPipelineInput,
@@ -415,6 +416,15 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       r.advisories.push(...factoryAdvisories);
       couldNotRun.push(...factoryCouldNotRun);
       r.failures.push(...judged.failures);
+      // A directory the gate could not list, which an ignore rule this change wrote set aside. Judged
+      // here and not with the rest of the change, because which directories those are is the run's
+      // own coverage. Nothing a check writes is an ignore file.
+      if (base) {
+        const ignored = ignoredDirGrants(projectDir, base.sha, coverage.unreadDirs, allowlist.entries);
+        if (ignored.error) couldNotRun.push(`factory: ${ignored.error}`);
+        r.failures.push(...ignored.failures);
+        judged.grants.push(...ignored.grants);
+      }
       // The labels this run wrote, so that a label is told from its message by name and not by a
       // ")" (lib/advisory-classes.mjs): Terraform roots, template kinds, the image.
       const ctx = {
@@ -456,7 +466,8 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       // dropped unless the policy names it: git tracks nothing under it, so nothing a change carries
       // is there, and a pipeline that runs beside a database's volume would otherwise exit 3 on every
       // change. Its own id, so a pipeline that wants such a directory to hold a run can say
-      // "incomplete" or "block"; a rule for the could-not-run class does not reach it.
+      // "incomplete" or "block"; a rule for the could-not-run class does not reach it. One that only
+      // this change's ignore rules ignore has already blocked, above (ignoredDirGrants).
       for (const [id, cls, line] of [
         ["unread-code", COULD_NOT_RUN, unreadLanguagesLine(coverage)],
         ["skipped-files", COULD_NOT_RUN, skippedFilesLine(coverage)],
