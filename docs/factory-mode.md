@@ -99,7 +99,9 @@ Each of these is confirmed to loosen a check:
   directory is a grant the change added and blocks, naming the directory and the ignore file, line
   and pattern. It is decided by the answer and not by whether the change touched an ignore file:
   an unrelated line added to the same `.gitignore`, or a pattern moved to another ignore file,
-  blocks nothing, and a removed negation or a new nested `.gitignore` does block. An ignore line
+  blocks nothing, and a removed negation or a new nested `.gitignore` does block. So does a rule
+  over the directory's contents (`data/postgres/*`) replaced by one over the directory
+  (`data/postgres/`): the first never ignored the directory. An ignore line
   that is not committed counts like one that is. The allowlist approves the directory by its path
 
 Not judged, because nothing honours them: a project `.gitleaks.toml`, `nosemgrep` and

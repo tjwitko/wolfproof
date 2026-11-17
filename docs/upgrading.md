@@ -884,11 +884,30 @@ is unchanged.
 Can turn a passing factory run red, exit 1: only when the gate cannot list a directory, git
 ignores it and tracks nothing under it, and the ignore rules at the base did not ignore it. That
 is a change that adds the ignore line, adds a nested `.gitignore` that ignores it, or removes a
-negation (`!vendor_src/`) that kept it from being ignored, committed or not. Not affected: a
-directory already ignored at the base, whatever else the change does to ignore files, including an
-unrelated line in the same file or the pattern moved to another one; and a directory only
-`.git/info/exclude` or a global exclude ignores. With no base to compare with the run is exit 3
-as before, and no grant is judged.
+negation that kept it from being ignored (`!vendor_src/`, or `!*/` after a `*`), committed or not.
+Not affected: a directory already ignored at the base, whatever else the change does to ignore
+files, including an unrelated line in the same file or the pattern moved to another one; and a
+directory only `.git/info/exclude` or a global exclude ignores. With no base to compare with the
+run is exit 3 as before, and no grant is judged. It is also exit 3, "factory: … is not known",
+when the base's rules cannot be asked: the base tracked a `.gitignore` file where the directory is
+now, or holds an ignore file at a path git does not check out.
+
+**After v1.16.6: a directory the gate cannot list counts as ignored only when git ignores the
+directory itself.** Since v1.16.5 the gate asked `git check-ignore -- dir/`, which also answers
+"ignored" when the rules ignore what is in the directory and not the directory. Git descends into
+such a directory, and a negation can take a file back out. With `*`, `!vendor_src/` and `!*.js` in
+`.gitignore`, `git status` lists `vendor_src/v.js` as untracked, and the gate still named an
+unlistable `vendor_src/` above the verdict as one "git ignores" and exited 0. It now asks with and
+without the trailing slash and takes the directory as ignored only when both say so.
+
+Can turn a passing run red, **exit 3**, in both modes: only for a directory the gate cannot list
+whose ignore rule is over its contents (`data/postgres/*`, `data/postgres/**`), or which is
+negated after a wider rule (`*` then `!data/postgres/`). It is could-not-run, like any other
+directory that cannot be listed. Ignore the directory itself instead: `data/postgres/`. In factory
+mode that edit is an `ignored-directory` grant the change adds, exit 1, because the base's rules
+did not ignore the directory; the pipeline's allowlist approves it by path. Not affected: a rule
+that names the directory (`data/postgres/`, `data/postgres`, `data/`, `data/*`), with or without
+other negations elsewhere.
 
 ## Keeping current
 

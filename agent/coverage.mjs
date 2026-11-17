@@ -221,8 +221,30 @@ export function unreadDirsLine(cov) {
 }
 
 /**
- * Whether git ignores the directory `rel` under `projectDir` and tracks nothing under it. False
- * outside a git work tree, for the project directory itself, and whenever git cannot say.
+ * Whether git's ignore rules ignore the directory `dir` itself, asked of the git invocation
+ * `gitArgs` selects (`-C <project>`, or a git dir and another work tree). False whenever git
+ * cannot say.
+ *
+ * Asked both ways, and true only when both say so. `check-ignore -- dir/` alone is also 0 when the
+ * rules ignore what is in the directory and not the directory: `*` with `!dir/`, or `dir/*`. Git
+ * descends into such a directory, and a negation can take a file back out. Measured with git
+ * 2.50.1 on `*`, `!vendor_src/`, `!*.js`: 0 with the slash, the negation without it, and
+ * `git status` lists vendor_src/v.js as untracked. A directory the gate cannot list was set aside
+ * as ignored on that answer from v1.16.5 on. Without the slash git answers for the directory
+ * itself, which it does not descend into once ignored, so nothing under it can be taken back out.
+ *
+ * The directory has to exist where git is asked: a directory-only pattern (`!*` with a trailing
+ * slash) applies to the path only when it is a directory on disk.
+ */
+export function gitIgnoresDir(gitArgs, dir) {
+  const ask = (p) => spawnSync("git", [...gitArgs, "check-ignore", "-q", "--", p], { encoding: "utf8", timeout: 30_000 }).status === 0;
+  return ask(dir) && ask(`${dir}/`);
+}
+
+/**
+ * Whether git ignores the directory `rel` under `projectDir` (the directory itself, gitIgnoresDir)
+ * and tracks nothing under it. False outside a git work tree, for the project directory itself,
+ * and whenever git cannot say.
  *
  * A directory that cannot be listed is could-not-run, but every run of a project with a
  * docker-compose bind mount (`./data/postgres`, owned by the container's user, mode 700, ignored)
@@ -234,7 +256,7 @@ export function unreadDirsLine(cov) {
 export function ignoredByGit(projectDir, rel) {
   if (!rel || rel === ".") return false;
   const git = (...args) => spawnSync("git", ["-C", projectDir, ...args], { encoding: "utf8", timeout: 30_000 });
-  if (git("check-ignore", "-q", "--", `${rel}/`).status !== 0) return false;
+  if (!gitIgnoresDir(["-C", projectDir], rel)) return false;
   const tracked = git("ls-files", "-z", "--", `${rel}/`);
   return tracked.status === 0 && tracked.stdout === "";
 }
