@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.16.4
+wolfproof 1.16.5
   terraform-guard  v1.1.3  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.4  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.3  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.4
-- uses: tjwitko/wolfproof@v1.16.4
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.5
+- uses: tjwitko/wolfproof@v1.16.5
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.16.4
+npm install --save-dev github:tjwitko/wolfproof#v1.16.5
 ```
 
 ## 3. Refresh what setup wrote
@@ -696,7 +696,7 @@ take in what is there now, and read the diff. `wolfproof review` also says what 
 its ID names: a line for a comparison, the variable for an unset credential, and a route only for an
 open route, where it said "the route's method, path or file" for every authentication ID.
 
-### After v1.16.4
+### In v1.16.5
 
 Nine changes. Two are the gate's own: a directory it cannot list, and a workspace member it cannot
 read or a pattern it cannot resolve, now say so instead of reading as empty. Six come with the four
@@ -715,7 +715,7 @@ These can turn a passing project red. Each note says how, and what to do:
 
 One can turn a red project green: JavaScript or TypeScript that the HTTP Basic rule read as a tuple.
 
-**After v1.16.4: `wolfproof known` refuses a root lockfile when a workspace pattern is an extglob or
+**In v1.16.5: `wolfproof known` refuses a root lockfile when a workspace pattern is an extglob or
 a member cannot be read.** Before it adds a root lockfile's findings, the command reads which
 members the workspace has, so that their direct dependencies count as direct. Two kinds of input
 read as "no member here" and not as "not known":
@@ -739,7 +739,7 @@ is now followed, so a member reached through one counts. Through the CLI, a memb
 read usually stops a run earlier (the dependency scan, or the build check, cannot read it either),
 so the extglob is the case to expect.
 
-**After v1.16.4: a directory the gate cannot list is could-not-run.** Every check walks the
+**In v1.16.5: a directory the gate cannot list is could-not-run.** Every check walks the
 project, and each read a directory it could not list as an empty one. Two shapes, both reproduced on
 v1.16.4 with a project whose only Python file, `lib/secret/b.py`, has a syntax error (exit 1 when
 readable):
@@ -774,21 +774,21 @@ Can turn a passing project to exit 3: only one with a directory the gate's user 
 enter, other than one git ignores. Make it readable by that user, or remove it. In factory mode an
 ignored one is exit 3 too, until the policy accepts `unread-ignored-dirs`.
 
-**After v1.16.4: the controls are terraform-guard v1.1.3, dep-audit v1.0.4, secret-guard v1.0.3
+**In v1.16.5: the controls are terraform-guard v1.1.3, dep-audit v1.0.4, secret-guard v1.0.3
 and identity-guard v1.0.4.** Each now compares real paths when it checks that a path stays inside
 the project. Each compared the text of the path, so a symbolic link inside the project that leads out
 of it passed, and a project reached through a link was misjudged. The notes below say what that, and
 each control's other change, does to a run. terraform-guard, secret-guard and identity-guard are
 AGPL-3.0-only from these versions, as wolfproof and dep-audit already were.
 
-**After v1.16.4: a project named through a symbolic link has its credentials scanned.** gitleaks
+**In v1.16.5: a project named through a symbolic link has its credentials scanned.** gitleaks
 scans nothing when the last part of the path it is given is a link to a directory. The gate hands
 secret-guard the project path as given, so `wolfproof ./link-to-project` reported no hardcoded
 credential whatever the project held. Reproduced on v1.16.4: a project holding a GitHub token
 exits 1 when named directly and **0 when named through a link**. secret-guard now scans the real
 directory, and both exit 1. A link earlier in the path, such as macOS's `/tmp`, was not affected.
 
-**After v1.16.4: the HTTP Basic rule reads the credential tuple in Python files only.**
+**In v1.16.5: the HTTP Basic rule reads the credential tuple in Python files only.**
 `auth=(user, password)` is Python syntax. In JavaScript and TypeScript `(a, b)` is the comma
 operator, and v1.16.4 blocked some of it as Basic authentication. A file with
 `const a = 1, auth = (b, c);` and `auth = (console.log("x"), process.env.TOKEN);` exits 1 on v1.16.4
@@ -796,7 +796,7 @@ with two "workload identity" findings, and 0 now. The `HTTPBasicAuth` and `Basic
 `Authorization: Basic` header are still read in every language. In Python the tuple's parts may now
 hold calls, so `auth=(str(os.getenv("U")), p)` blocks, where v1.16.4 passed it.
 
-**After v1.16.4: dep-audit counts more Python dependencies as direct.** It reads `requirements.txt`
+**In v1.16.5: dep-audit counts more Python dependencies as direct.** It reads `requirements.txt`
 and `pyproject.toml` entries as PEP 508. Before, these were classed as transitive:
 
 - CRLF line endings;
@@ -809,7 +809,7 @@ Names are compared after PEP 503 normalisation (`python_jose` is `python-jose`).
 does not read this field: the change shows in `check_dependencies`' own result, `direct: true`, as an
 editor or the agent loop receives it. Poetry's `[tool.poetry.dependencies]` is still not read.
 
-**After v1.16.4: a scan path or working directory through a symbolic link out of the root is
+**In v1.16.5: a scan path or working directory through a symbolic link out of the root is
 refused.** secret-guard, dep-audit and identity-guard refuse a path whose real location is outside
 `SCAN_ROOT`, and terraform-guard one outside `TF_WORKING_ROOT`. Each now also refuses a path that
 does not exist, as outside the root when it lies below a link that leaves it. Before, the text of
@@ -818,7 +818,7 @@ does not follow a link to a directory. So the gate's verdicts do not move: a pro
 is a link to Terraform outside it reports "no Terraform configuration was found" before and after.
 A caller that names its own path, such as an editor or the agent loop's model, can now be refused.
 
-**After v1.16.4: `terraform_plan` refuses a `var_file` outside the working root.** It joined
+**In v1.16.5: `terraform_plan` refuses a `var_file` outside the working root.** It joined
 `var_file` onto the working directory unchecked. terraform quotes a var file's lines in its parse
 errors, and `terraform_plan` returns up to 4,000 characters of the error, so a file outside the root
 could be read back through it. `var_file` is now resolved relative to `working_dir` and must stay
@@ -829,7 +829,7 @@ Can turn a passing project red: one named through a link that holds a hardcoded 
 Python file that passes Basic authentication as a tuple whose parts are calls. Can turn a red one
 green: JavaScript or TypeScript that the HTTP Basic rule read as a tuple.
 
-**After v1.16.4: the end-of-life data names older releases.** The refresh from endoflife.date on
+**In v1.16.5: the end-of-life data names older releases.** The refresh from endoflife.date on
 2026-11-17 added Python 2.1 to 2.5, Go 1.2 to 1.9 and Ruby 1.8, and changed no date it already
 held. The Dockerfile check judges a base image only by a release the data names, and said nothing
 about one it did not. So `FROM golang:1.9`, `FROM python:2.5-slim` and `FROM ruby:1.8` passed, while
