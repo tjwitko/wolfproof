@@ -8,10 +8,10 @@ them. You only upgrade a control separately if you wired it into an editor on it
 ```text
 $ ./node_modules/.bin/wolfproof --version
 wolfproof 1.16.4
-  terraform-guard  v1.1.2  node_modules @tjwitko/terraform-guard-mcp
-  dep-audit        v1.0.3  node_modules @tjwitko/dep-audit-mcp
-  secret-guard     v1.0.2  node_modules @tjwitko/secret-guard-mcp
-  identity-guard   v1.0.3  node_modules @tjwitko/identity-guard-mcp
+  terraform-guard  v1.1.3  node_modules @tjwitko/terraform-guard-mcp
+  dep-audit        v1.0.4  node_modules @tjwitko/dep-audit-mcp
+  secret-guard     v1.0.3  node_modules @tjwitko/secret-guard-mcp
+  identity-guard   v1.0.4  node_modules @tjwitko/identity-guard-mcp
 tools on PATH
   node             26.5.1
   go               1.27.1
@@ -756,6 +756,61 @@ reason, as the gate does.
 Can turn a passing project to exit 3: only one with a directory the gate's user cannot list or
 enter, other than one git ignores. Make it readable by that user, or remove it. In factory mode an
 ignored one is exit 3 too, until the policy accepts `unread-ignored-dirs`.
+
+**After v1.16.4: the controls are terraform-guard v1.1.3, dep-audit v1.0.4, secret-guard v1.0.3
+and identity-guard v1.0.4.** Each now compares real paths when it checks that a path stays inside
+the project. Each compared the text of the path, so a symbolic link inside the project that leads out
+of it passed, and a project reached through a link was misjudged. The notes below say what that, and
+each control's other change, does to a run. terraform-guard, secret-guard and identity-guard are
+AGPL-3.0-only from these versions, as wolfproof and dep-audit already were.
+
+**After v1.16.4: a project named through a symbolic link has its credentials scanned.** gitleaks
+scans nothing when the last part of the path it is given is a link to a directory. The gate hands
+secret-guard the project path as given, so `wolfproof ./link-to-project` reported no hardcoded
+credential whatever the project held. Reproduced on v1.16.4: a project holding a GitHub token
+exits 1 when named directly and **0 when named through a link**. secret-guard now scans the real
+directory, and both exit 1. A link earlier in the path, such as macOS's `/tmp`, was not affected.
+
+**After v1.16.4: the HTTP Basic rule reads the credential tuple in Python files only.**
+`auth=(user, password)` is Python syntax. In JavaScript and TypeScript `(a, b)` is the comma
+operator, and v1.16.4 blocked some of it as Basic authentication. A file with
+`const a = 1, auth = (b, c);` and `auth = (console.log("x"), process.env.TOKEN);` exits 1 on v1.16.4
+with two "workload identity" findings, and 0 now. The `HTTPBasicAuth` and `BasicAuth` classes and an
+`Authorization: Basic` header are still read in every language. In Python the tuple's parts may now
+hold calls, so `auth=(str(os.getenv("U")), p)` blocks, where v1.16.4 passed it.
+
+**After v1.16.4: dep-audit counts more Python dependencies as direct.** It reads `requirements.txt`
+and `pyproject.toml` entries as PEP 508. Before, these were classed as transitive:
+
+- CRLF line endings;
+- a marker with no version;
+- a version in parentheses;
+- a URL reference;
+- extras, single quotes and inline arrays in `pyproject.toml`.
+
+Names are compared after PEP 503 normalisation (`python_jose` is `python-jose`). The gate's verdict
+does not read this field: the change shows in `check_dependencies`' own result, `direct: true`, as an
+editor or the agent loop receives it. Poetry's `[tool.poetry.dependencies]` is still not read.
+
+**After v1.16.4: a scan path or working directory through a symbolic link out of the root is
+refused.** secret-guard, dep-audit and identity-guard refuse a path whose real location is outside
+`SCAN_ROOT`, and terraform-guard one outside `TF_WORKING_ROOT`. Each now also refuses a path that
+does not exist, as outside the root when it lies below a link that leaves it. Before, the text of
+the path decided. The gate names `.` and the Terraform directories its own walk finds, and the walk
+does not follow a link to a directory. So the gate's verdicts do not move: a project whose `infra`
+is a link to Terraform outside it reports "no Terraform configuration was found" before and after.
+A caller that names its own path, such as an editor or the agent loop's model, can now be refused.
+
+**After v1.16.4: `terraform_plan` refuses a `var_file` outside the working root.** It joined
+`var_file` onto the working directory unchecked. terraform quotes a var file's lines in its parse
+errors, and `terraform_plan` returns up to 4,000 characters of the error, so a file outside the root
+could be read back through it. `var_file` is now resolved relative to `working_dir` and must stay
+inside `TF_WORKING_ROOT`, so a shared `../env/prod.tfvars` inside the root still works. The gate
+never passes a `var_file`, so only a direct caller sees this.
+
+Can turn a passing project red: one named through a link that holds a hardcoded credential, and a
+Python file that passes Basic authentication as a tuple whose parts are calls. Can turn a red one
+green: JavaScript or TypeScript that the HTTP Basic rule read as a tuple.
 
 ## Keeping current
 
