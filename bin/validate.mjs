@@ -294,7 +294,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
     // .terraform/ then holds untracked provider files the change never wrote. Judged after the checks,
     // they counted as code written where no check looks -- two files on one machine and one on another,
     // with the plugin cache deciding.
-    let judged = { failures: [], notes: [], grants: [], changed: [], newProbeRoutes: [], workflows: [] };
+    let judged = { failures: [], notes: [], grants: [], changed: [], newProbeRoutes: [], workflows: [], agentFiles: [] };
     if (factory && base) {
       judged = judgeChange(projectDir, {
         sha: base.sha,
@@ -534,6 +534,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         commits: commitScan ? { scanned: !commitScan.error, count: commitScan.commits, files: commitScan.files, findings: commitScan.findings, skipped: commitScan.skipped } : null,
         newProbeRoutes: judged.newProbeRoutes,
         workflowChanges: judged.workflows,
+        agentFileChanges: judged.agentFiles,
         notes: judged.notes,
         advisories: { classified, blocked: count("block"), incomplete: count("incomplete"), dropped: count("drop") },
       };

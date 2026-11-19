@@ -929,6 +929,20 @@ hold every commit between the base and the head. That is a run outside the Actio
 clone, or a change longer than about 1,500 commits; `fetch-depth: 0` fixes both. The default mode
 is not affected.
 
+**After v1.16.7: factory mode blocks a change to a file that instructs coding agents.** Factory
+mode blocked a change under `.github/workflows/` and had no rule for `AGENTS.md`, `CLAUDE.md`,
+`.claude/`, `.mcp.json`, `.cursor/`, `.github/copilot-instructions.md`, `GEMINI.md` and the rest of
+[the list](factory-mode.md#agent-instructions). A change that edits one changes what the next agent
+run is told, which hooks run, which tools it loads and which commands it may run without asking: on
+v1.16.7, a change that rewrote `AGENTS.md` and added a `.claude/settings.json` allowing every shell
+command exited 0. Such a change now blocks, naming each file, at any depth and whatever the letter
+case, and so does a change to a file one of them links to or imports.
+
+Can turn a passing factory run red, **exit 1**: any factory change that adds, edits, renames or
+deletes one of those files, the output of `wolfproof init` and `wolfproof init --upgrade` included.
+Make such edits in a change a person reviews, or have the allowlist approve the path, kind
+`agent-instructions`. The default mode is not affected.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
