@@ -10,3 +10,4 @@ jobs:
     uses: tjwitko/wolfproof-review/.github/workflows/review.yml@v0.3.0
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+# Reviewer check for v0.3.0. Not for merging.
