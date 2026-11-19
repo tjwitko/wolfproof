@@ -909,6 +909,26 @@ did not ignore the directory; the pipeline's allowlist approves it by path. Not 
 that names the directory (`data/postgres/`, `data/postgres`, `data/`, `data/*`), with or without
 other negations elsewhere.
 
+### After v1.16.7
+
+**After v1.16.7: factory mode scans the change's commits for credentials.** secret-guard reads the
+working tree, so a credential one commit added and a later commit of the same change removed was in
+no tree the gate compared: on v1.16.7, a base, a commit adding an AWS access key ID and a commit
+removing the line exited 0 in factory mode. Factory mode now scans what each commit between the
+base and the head added, with the pipeline's own secret-guard and the same rules, and a finding
+blocks, naming the commit, the file and the line. A `gitleaks:allow` or `.gitleaksignore` entry is
+honoured when it existed at the base or the allowlist approves it, as in the tree. The Action now
+fetches the commits between the base and the head as well as the base
+([what it fetches](factory-mode.md#what-the-action-fetches)).
+
+Can turn a passing factory run red. **Exit 1**: a commit of the change added a credential, though
+the tree no longer holds it, or wrote a file under `vendor/` or another directory secret-guard does
+not scan. A credential still in the tree is now reported twice. Rotate it and rewrite the branch,
+or have the allowlist approve the file, kind `secret-in-commit`. **Exit 3**: the checkout does not
+hold every commit between the base and the head. That is a run outside the Action in a shallow
+clone, or a change longer than about 1,500 commits; `fetch-depth: 0` fixes both. The default mode
+is not affected.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

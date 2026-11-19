@@ -52,7 +52,8 @@ inputs:
     description: >-
       Factory mode: the commit the change is compared with. Defaults to the pull request's base,
       or for a push to the commit before it. The action fetches it if the checkout does not have it,
-      so the default `fetch-depth: 1` is enough.
+      and then the commits between it and the head, which are scanned for credentials, so the
+      default `fetch-depth: 1` is enough for a change of up to about 1,500 commits.
     required: false
     default: ""
   allowlist:
@@ -264,11 +265,11 @@ runs:
         fi
 
         # Factory mode compares the change with its base, so the base has to be in the checkout --
-        # and actions/checkout fetches depth 1 by default, which holds the head commit only. Fetching
-        # the base commit itself at depth 1 is enough: the gate reads its tree and diffs two trees,
-        # and needs no history between them. A push with no previous commit (a new branch) falls back
-        # to the head's parent, fetched by deepening one level. If the fetch fails anyway the gate
-        # says the base is not in the checkout and exits 3, which is the right answer.
+        # and actions/checkout fetches depth 1 by default, which holds the head commit only. So the
+        # base is fetched, and then the commits between it and the head, which the gate scans for
+        # credentials. bin/factory-fetch.mjs does both and says what each event's checkout holds.
+        # It decides nothing: if a fetch fails, the gate says the base is not in the checkout, or
+        # that the commits are not all there, and exits 3, which is the right answer.
         if [ "$FACTORY" = "true" ]; then
           BASE="$FACTORY_BASE"
           if [ -z "$BASE" ]; then
@@ -280,13 +281,7 @@ runs:
               BASE="HEAD~1"
             fi
           fi
-          if ! git -C "${{ inputs.project }}" rev-parse --verify --quiet "${BASE}^{commit}" > /dev/null; then
-            if [ "$BASE" = "HEAD~1" ]; then
-              git -C "${{ inputs.project }}" fetch --no-tags --quiet --deepen=1 origin || true
-            else
-              git -C "${{ inputs.project }}" fetch --no-tags --quiet --depth=1 origin "$BASE" || true
-            fi
-          fi
+          node "${GITHUB_ACTION_PATH}/bin/factory-fetch.mjs" "${{ inputs.project }}" "$BASE" || true
           echo "factory: comparing with base $BASE"
           ARGS+=("--factory" "--base=$BASE")
           # Outside the workspace, like the baseline: an allowlist the change can edit approves
@@ -382,6 +377,9 @@ runs:
             const n = (s) => f.grants.filter((g) => g.status === s).length;
             console.log(`factory       : base ${f.base.ref}${f.base.sha ? ` (${f.base.sha.slice(0, 12)})` : " — NOT RESOLVED"}; allowlist ${f.allowlist ? "set" : "none"}; policy ${f.policy ? "set" : "none, the defaults"}`);
             if (f.grants.length) console.log(`factory grants: ${n("pre-existing")} predate the change, ${n("allowlisted")} allowlisted, ${n("added")} added by it`);
+            // The same line the CLI prints (bin/validate.mjs commitsLine).
+            const cs = f.commits;
+            if (cs) console.log(`factory commits: ${!cs.scanned ? `${cs.count} between the base and the head, NOT all scanned for credentials (see the could-not-run list)` : !cs.count ? "none between the base and the head" : `${cs.count} between the base and the head, ${cs.files} file(s) they added to scanned for credentials, ${cs.findings.length} finding(s)`}`);
             for (const note of f.notes || []) console.log(`factory note  : ${note}`);
             for (const i of (f.allowlist && f.allowlist.ignored) || []) console.log(`factory note  : allowlist entry ignored — it ${i.why}: ${JSON.stringify(i.entry)}`);
             console.log(`factory advisories: ${f.advisories.blocked} blocked, ${f.advisories.incomplete} made the run incomplete, ${f.advisories.dropped} counted and not blocking`);

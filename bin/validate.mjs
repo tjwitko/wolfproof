@@ -41,7 +41,10 @@ import {
   parseAllowlist,
   requirementAtBase,
   isInside,
+  secretGuardAllowlist,
+  inventoryGrants,
 } from "../lib/factory.mjs";
+import { commitSecrets } from "../lib/factory-commits.mjs";
 import { parseReviews, reviewableLine, reviewedRecord, staleReviewsLine, REVIEW_FILE } from "../lib/reviewed.mjs";
 import { parseKnown, knownRecord, knownLine, staleKnownLine, KNOWN_FILE } from "../lib/known.mjs";
 import { classifyAdvisory, actionFor, ACTIONS, COULD_NOT_RUN, INFO, NOT_CHECKED } from "../lib/advisory-classes.mjs";
@@ -107,6 +110,16 @@ export function requirementsRead(text, project = {}) {
     else unread.push(c ? { ...s, notCoveredBecause: c.notCoveredBecause } : s);
   }
   return { sentences, read: sentences - covered.length - unread.length, covered, unread };
+}
+
+/**
+ * The scan of the change's commits, as one line above the verdict. The Action's renderer prints the
+ * same words (action.yml).
+ */
+export function commitsLine(c) {
+  if (!c.scanned) return `${c.count} between the base and the head, NOT all scanned for credentials (see the could-not-run list)`;
+  if (!c.count) return "none between the base and the head";
+  return `${c.count} between the base and the head, ${c.files} file(s) they added to scanned for credentials, ${c.findings.length} finding(s)`;
 }
 
 /**
@@ -290,6 +303,36 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         secretGuardEntry: controls.find((c) => c.name === "secret-guard")?.entry || null,
         policy,
       });
+    }
+    // What each commit between the base and the head added, scanned for credentials by the same
+    // secret-guard, started a second time with a temporary directory as its root: the tree's scan
+    // reads the tree, and a line one commit added and a later one removed is in neither. Before the
+    // checks, like the judgement above, and needing nothing they produce.
+    let commitScan = null;
+    if (factory && base) {
+      const sg = controls.find((c) => c.name === "secret-guard");
+      commitScan = await commitSecrets(projectDir, {
+        sha: base.sha,
+        baseKeys: () => new Set(inventoryGrants(base.dir).map((g) => g.key)),
+        allowlist: allowlist.entries,
+        gitleaksAllow: secretGuardAllowlist(sg?.entry || null),
+        reported: new Set(judged.changed.map((c) => c.path)),
+        scan: async (dir) => {
+          if (!sg?.entry) return { error: `secret-guard was ${sg?.error || "not resolved"}` };
+          const client = new McpClient("secret-guard", "node", [sg.entry], { [sg.rootVar]: dir }, dir);
+          try {
+            const tools = await client.init();
+            if (!tools.some((t) => t.name === "scan_path")) return { error: "the secret-guard that started has no scan_path tool" };
+            return { text: await client.call("scan_path", { target: "." }) };
+          } catch (err) {
+            return { error: err?.message || String(err) };
+          } finally {
+            client.proc?.kill();
+          }
+        },
+      });
+      if (commitScan.error) factoryCouldNotRun.push(`factory: ${commitScan.error}`);
+      factoryFailures.push(...commitScan.failures);
     }
     // A control the project tried to choose for itself. The pinned one runs instead, and the attempt
     // blocks: an agent that points secret-guard at an empty directory has not fixed a credential.
@@ -486,6 +529,9 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         policy: factory.policyFile ? path.resolve(factory.policyFile) : null,
         grants: judged.grants.map(({ key, ...g }) => g),
         changedFiles: judged.changed.length,
+        // The scan of the change's own commits: how many there were, how many files they added to
+        // were scanned, and each credential on a line one of them added. Null without a base.
+        commits: commitScan ? { scanned: !commitScan.error, count: commitScan.commits, files: commitScan.files, findings: commitScan.findings, skipped: commitScan.skipped } : null,
         newProbeRoutes: judged.newProbeRoutes,
         workflowChanges: judged.workflows,
         notes: judged.notes,
@@ -629,6 +675,7 @@ function human(result) {
     if (f.grants.length) {
       out.push(`factory grants : ${n("pre-existing")} predate the change, ${n("allowlisted")} allowlisted, ${n("added")} added by it`);
     }
+    if (f.commits) out.push(`factory commits: ${commitsLine(f.commits)}`);
     for (const note of f.notes) out.push(`factory note   : ${note}`);
     for (const i of f.allowlist?.ignored || []) out.push(`factory note   : allowlist entry ignored — it ${i.why}: ${JSON.stringify(i.entry)}`);
     out.push(
