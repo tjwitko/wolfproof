@@ -40,7 +40,7 @@
       "factory": {
         "expectedBlocking": 1,
         "expectedFindings": {
-          "factory: agent-instructions": 1
+          "factory: agent-instructions": 2
         }
       }
     },
@@ -64,7 +64,7 @@
         "expectedBlocking": 3,
         "expectedFindings": {
           "check_dependencies": 1,
-          "factory: agent-instructions": 1,
+          "factory: agent-instructions": 2,
           "tests": 1
         }
       }
@@ -96,7 +96,7 @@
         "expectedFindings": {
           "check_dependencies": 2,
           "dockerfile": 1,
-          "factory: agent-instructions": 1,
+          "factory: agent-instructions": 2,
           "factory: nothing checked (secret rotation)": 1,
           "immutability": 1,
           "tests": 1,
@@ -131,7 +131,7 @@
         "expectedFindings": {
           "check_dependencies": 1,
           "dockerfile": 1,
-          "factory: agent-instructions": 1,
+          "factory: agent-instructions": 2,
           "factory: nothing checked (secret rotation)": 1,
           "retention": 2,
           "terraform_plan": 1,
@@ -167,7 +167,7 @@
           "check_dependencies": 1,
           "code quality": 1,
           "dockerfile": 1,
-          "factory: agent-instructions": 1,
+          "factory: agent-instructions": 2,
           "factory: nothing checked (secret rotation)": 1,
           "retention": 1,
           "workload identity": 5
@@ -199,7 +199,7 @@
         "expectedFindings": {
           "check_dependencies": 1,
           "dockerfile": 1,
-          "factory: agent-instructions": 1,
+          "factory: agent-instructions": 2,
           "factory: nothing checked (secret rotation)": 1,
           "tests": 1,
           "workload identity": 3
@@ -230,7 +230,7 @@
         "expectedFindings": {
           "check_dependencies": 1,
           "dockerfile": 1,
-          "factory: agent-instructions": 1,
+          "factory: agent-instructions": 2,
           "factory: nothing checked (secret rotation)": 1,
           "tests": 1,
           "workload identity": 5
@@ -259,7 +259,7 @@
         "expectedBlocking": 5,
         "expectedFindings": {
           "dockerfile": 1,
-          "factory: agent-instructions": 1,
+          "factory: agent-instructions": 2,
           "factory: nothing checked (secret rotation)": 1,
           "tests": 1,
           "workload identity": 1
@@ -288,7 +288,7 @@
         "expectedBlocking": 7,
         "expectedFindings": {
           "dockerfile": 1,
-          "factory: agent-instructions": 2,
+          "factory: agent-instructions": 3,
           "factory: nothing checked (retention)": 1,
           "factory: nothing checked (secret rotation)": 1,
           "tests": 1,
@@ -325,7 +325,7 @@
         "expectedFindings": {
           "check_dependencies": 1,
           "dockerfile": 1,
-          "factory: agent-instructions": 1,
+          "factory: agent-instructions": 2,
           "iam": 2,
           "immutability": 1,
           "manifest contract": 1,
@@ -394,7 +394,7 @@
     "docker": "29.6.2"
   },
   "factory": {
-    "measured": "2026-11-19",
+    "measured": "2026-11-20",
     "base": "an empty commit before the fixture, so the whole deliverable is the change; no allowlist, no policy",
     "toolchain": {
       "node": "26.5.1",
