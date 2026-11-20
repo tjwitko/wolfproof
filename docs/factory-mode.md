@@ -23,9 +23,10 @@ wolfproof . task.txt --factory --base=origin/main
           factory: true
 ```
 
-In the Action the base defaults to the pull request's base, or for a push to the commit before it,
-and the Action fetches it: the default `fetch-depth: 1` is enough. Measured on a depth-1 clone of this
-repository, fetching the base commit itself at depth 1 is all it takes, with no history in between.
+In the Action the base defaults to the pull request's base, or for a push to the commit before it.
+The default `fetch-depth: 1` is enough, because the Action fetches what factory mode needs beside the
+head ([what the Action fetches](#what-the-action-fetches)): the base commit, and the commits between
+it and the head.
 
 ## What it refuses
 
@@ -42,6 +43,7 @@ repository, fetching the base commit itself at depth 1 is all it takes, with no 
 | changes a workflow or local action ([below](#workflows)) | not checked | **blocks**, unless the allowlist approves it |
 | leaves an advisory meaning "nothing was checked" | an advisory | **blocks** (see [Advisories](#advisories)) |
 | adds a probe route that reads, such as `GET /health` | exempt | still exempt, and **named** in the report |
+| adds a credential in one commit and removes it in a later one ([below](#credentials-in-the-changes-commits)) | not checked: the tree is clean | **blocks**, naming the commit, the file and the line, unless the allowlist approves the file |
 
 ### Where the checks do not look
 
@@ -66,6 +68,80 @@ decides what checks the change and what a passing run then does. A local action 
 Probe names are conventional, so a reading probe route stays exempt in factory mode; factory mode
 names one the change added. A write method on a probe path (`POST /health`) is not a probe, and is
 checked in both modes.
+
+### Credentials in the change's commits
+
+secret-guard scans the working tree. A change can add a credential in one commit and delete it in a
+later commit of the same branch: the tree is clean, and the value is in the branch wherever it was
+pushed, and in the target branch's history after a merge commit or a rebase merge. Measured on
+v1.16.7 with a base, a commit that adds an AWS access key ID and a commit that removes the line:
+factory mode exited 0.
+
+Factory mode scans what each commit between the base and the head added. The files a commit added
+to are written, as that commit had them, to a temporary directory, and the pipeline's secret-guard
+scans it with the same call it makes for the tree, so the rules are the same. A finding counts when
+it is on a line that commit added, and blocks:
+
+```text
+factory commits: 2 between the base and the head, 1 file(s) they added to scanned for credentials, 1 finding(s)
+BLOCKING        : 1
+  - factory: 1 credential in the commits of this change — commit e75ce0bbb783 config.js:2 (aws-access-token). …
+```
+
+`--json` lists each one under `factory.commits.findings`, with `commit`, `path`, `line`, `rule` and
+`status`. The value is never printed.
+
+What decides it:
+
+- **A credential still in the tree is reported twice**: by the tree's scan, and here with the commit
+  that added it. Removing the line clears the first and not the second.
+- **An exemption is judged as it is in the tree.** A `gitleaks:allow` comment or a `.gitleaksignore`
+  entry is honoured when it existed at the base or the allowlist approves it
+  ([exemptions it judges](#exemptions-it-judges)). One that exists only in a commit of the change
+  hides nothing: the line is scanned and the finding blocks.
+- **A merge commit is read for what it wrote itself**: lines that none of its parents has. Commits
+  merged in from the target branch are not the change's when the base holds them.
+- **A file a commit wrote where secret-guard does not scan** (`vendor/`, `node_modules/` and the
+  rest of its allowlist) blocks as [code where the checks do not look](#where-the-checks-do-not-look),
+  naming the commit, when the tree no longer shows it. The allowlist approves it the same way, kind
+  `skipped-location`.
+- **The allowlist approves a finding by its file**, kind `secret-in-commit`, path from the project:
+  `{ "kind": "secret-in-commit", "path": "test/data", "reason": "generated fixtures, never live keys" }`.
+- **Only the project's own files are read**, as in the tree's scan, when the project is a
+  subdirectory of the repository.
+- **Work that is not committed** is in no commit. The tree's scan reads it.
+
+The remedy for a real credential is to rotate it at the provider, then rewrite the branch so that
+no commit carries it. Rewriting alone does not undo the push.
+
+#### What the Action fetches
+
+`actions/checkout` fetches depth 1 by default. For a pull request that is the merge commit and
+neither parent's history; for a push it is the pushed head alone. The Action then fetches:
+
+1. **The base commit**, by itself at depth 1 (`git fetch --depth=1 origin <base>`). A push that
+   creates a branch has no commit before it, so the base is the head's parent, fetched by deepening
+   one level.
+2. **The commits between the base and the head**, by deepening the history from where the clone was
+   cut: `git fetch --deepen=50 origin <head> <base>`, then 250, then 1250, stopping as soon as no
+   commit on either side is one whose parents are missing. Both sides, because the base's own
+   history down to the fork point is what tells git where the change starts. Measured on a pull
+   request of 4 commits whose base had moved 5 past the fork point, and on a push of 4 commits: both
+   were complete after deepening by 6.
+
+The gate does not trust the fetch. It asks whether the commits are all in the checkout, and when
+they are not the scan **could not run, exit 3**, with the command to fetch them: never a pass. That
+covers a change longer than about 1,500 commits, a fetch that failed, and a run outside the Action
+in a shallow clone. `fetch-depth: 0` on `actions/checkout` always works.
+
+Two limits:
+
+- **A force-push that rewrites the branch takes the commit out of the range.** The gate reads the
+  commits between the base and the head it is given. A credential pushed in a commit that was later
+  rewritten away was still pushed, and no later run sees it.
+- **A push that creates a branch is compared with the head's parent**, the Action's default base
+  for that event, so only its last commit is in the range. Set the `base` input to the branch it
+  was cut from.
 
 ### Exemptions it judges
 
@@ -114,7 +190,9 @@ a new grant.
 ### Exit codes in factory mode
 
 A base that cannot be resolved — a ref the checkout does not have — is **exit 3**: with nothing to
-compare with, nothing self-granted can be told apart. Everything else factory mode refuses is
+compare with, nothing self-granted can be told apart. So is a checkout that does not hold every
+commit between the base and the head, or a secret-guard that could not scan them: the change's
+commits were not all read. Everything else factory mode refuses is
 **exit 1**, because the change made it and can undo it; exit 3 means "fix the environment", which
 would send it to the wrong owner.
 
@@ -227,6 +305,9 @@ approves by path.
 - **Measure behaviour.** Whether the software does what its user needs is scenario validation —
   end-to-end checks kept where the agents cannot read them — and wolfproof sits beside it, not in
   place of it. Factory mode answers a narrower question: did the change narrow its own checks?
+- **See a commit that is no longer in the branch.** The scan of the change's commits reads the
+  commits between the base and the head. A force-push that rewrites the branch takes a commit out of
+  that range, though the credential in it was still pushed.
 - **Block a reading route renamed to a probe name.** A `GET /health` is exempt by name in either mode,
   whatever it returns; factory mode names one the change added.
 - **Judge a server in a test file that nothing in the project runs.** A server written as

@@ -15,7 +15,7 @@ For setting the gate up as a required check, start with the README's
 | `secret-guard` | *(auto)* | Override path to a control server |
 | `identity-guard` | *(auto)* | Override path to a control server |
 | `factory` | `false` | `true` for [factory mode](factory-mode.md) |
-| `base` | *(the PR's base, or the commit before a push)* | Factory mode: the commit the change is compared with; fetched if missing |
+| `base` | *(the PR's base, or the commit before a push)* | Factory mode: the commit the change is compared with; fetched if missing, and then the commits between it and the head, which are scanned for credentials |
 | `allowlist` | *(none)* | Factory mode: JSON approving specific exemptions |
 | `policy` | *(none)* | Factory mode: JSON choosing what each advisory class does |
 | `reviewed` | *(none)* | JSON naming [reviewed findings](configuration.md#reviewed-findings), from outside the workspace; either mode |

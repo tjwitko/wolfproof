@@ -474,6 +474,13 @@ split, joined, reversed, base64- or hex-encoded.
 **Covers:** every file; assembly detection in Python, JavaScript/TypeScript, Go, Java, Ruby, C#,
 Rust, PHP, Kotlin.
 
+**In factory mode, the change's commits as well.** The scan above reads the working tree, so a
+credential one commit adds and a later commit removes is not in it. Factory mode also scans what
+each commit between the base and the head added, with the same rules, and a finding blocks, naming
+the commit, the file and the line. A `gitleaks:allow` or `.gitleaksignore` entry that exists only
+in a commit of the change hides nothing. A checkout without those commits is could-not-run, exit 3.
+The default mode reads the tree only. → [Factory mode](factory-mode.md#credentials-in-the-changes-commits)
+
 ### Infrastructure
 
 Control: terraform-guard (`terraform`, `checkov`).
