@@ -113,13 +113,20 @@ What decides it:
 - **A symbolic link counts at both ends.** A link with one of these names blocks when it is added,
   removed or pointed elsewhere. What it points to is an agent file too, a directory included: with
   `CLAUDE.md` linked to `docs/agent-guide.md`, an edit to `docs/agent-guide.md` blocks and is named
-  with the link. This holds for a link the base had and for one the change adds.
+  with the link. This holds for a link the base had and for one the change adds. What is under a
+  linked directory is read like the agent file that links there: a link inside it is followed in
+  turn, and an import in one of its files counts. With `.claude/rules` linked to `notes` and
+  `notes/more` linked to `scratch`, a file under `scratch/` is what the agent is told.
 - **So does a file imported with `@path`** from one of these files, up to four hops, outside code
   spans and fenced blocks, as Claude Code reads imports. The path is everything up to the first
   space (`@docs/c++/guide.md`), and a backslash keeps a space (`@Design\ Docs/api.md`). It counts
-  only when it names a file that is there.
+  only when it names a file that is there. A link in the path is followed, so `@notes/more/x.md`,
+  with `notes/more` a link to `shared`, is `shared/x.md`, and the finding names that path.
 - **What is on disk is judged, whatever the ignore rules say.** An agent file that git does not
-  track blocks as "on disk, not tracked by git", whether or not an ignore rule covers it. An ignore
+  track blocks as "on disk, not tracked by git", whether or not an ignore rule covers it. So does an
+  untracked file that an agent file on disk links to or imports: with `@notes/local.md` in
+  `CLAUDE.md` and `notes/` ignored, a `notes/local.md` written by the change blocks, though git
+  shows no change at all. An ignore
   rule is the change's to write: measured on the first version of this rule, a change that added
   `.claude/` to `.gitignore` and wrote a `.claude/settings.json` allowing every shell command exited
   0. In CI that file is never committed; in a workspace kept between runs it is live for the next
@@ -132,6 +139,11 @@ What decides it:
 - **Dependency and build trees are not searched** for untracked agent files: `node_modules/`,
   `.venv/`, `venv/`, `dist/`, `build/`, `.terraform/` and the rest of what the checks skip. An
   installed `node_modules` holds other projects' `AGENTS.md` files. A tracked file there counts.
+  That is the search of the whole tree for agent files by name. Inside an agent directory, and
+  under a directory an agent file links to, every directory is read except `.git`, since the agent
+  reads all of it: `.claude/skills/build/SKILL.md` counts, and so does `local-rules/dist/x.md`
+  with `.claude/rules` linked to `local-rules`. So a `node_modules` installed inside `.claude/`, for
+  a hook's dependencies, counts as the change's when git does not track it.
 - **A rename has two ends, and the allowlist has to approve each one that is an agent file.**
   `CLAUDE.md` renamed into an approved `.claude/commands/` still blocks, because it takes
   `CLAUDE.md` away; a command renamed out of it to `.claude/rules/` blocks for where it went.
