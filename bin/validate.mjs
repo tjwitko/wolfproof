@@ -119,7 +119,7 @@ export function requirementsRead(text, project = {}) {
 export function commitsLine(c) {
   if (!c.scanned) return `${c.count} between the base and the head, NOT all scanned for credentials (see the could-not-run list)`;
   if (!c.count) return "none between the base and the head";
-  return `${c.count} between the base and the head, ${c.files} file(s) they added to scanned for credentials, ${c.findings.length} finding(s)`;
+  return `${c.count} between the base and the head, ${c.files} file(s) they changed scanned for credentials, ${c.findings.length} finding(s)`;
 }
 
 /**

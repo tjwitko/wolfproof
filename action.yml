@@ -379,7 +379,7 @@ runs:
             if (f.grants.length) console.log(`factory grants: ${n("pre-existing")} predate the change, ${n("allowlisted")} allowlisted, ${n("added")} added by it`);
             // The same line the CLI prints (bin/validate.mjs commitsLine).
             const cs = f.commits;
-            if (cs) console.log(`factory commits: ${!cs.scanned ? `${cs.count} between the base and the head, NOT all scanned for credentials (see the could-not-run list)` : !cs.count ? "none between the base and the head" : `${cs.count} between the base and the head, ${cs.files} file(s) they added to scanned for credentials, ${cs.findings.length} finding(s)`}`);
+            if (cs) console.log(`factory commits: ${!cs.scanned ? `${cs.count} between the base and the head, NOT all scanned for credentials (see the could-not-run list)` : !cs.count ? "none between the base and the head" : `${cs.count} between the base and the head, ${cs.files} file(s) they changed scanned for credentials, ${cs.findings.length} finding(s)`}`);
             for (const note of f.notes || []) console.log(`factory note  : ${note}`);
             for (const i of (f.allowlist && f.allowlist.ignored) || []) console.log(`factory note  : allowlist entry ignored — it ${i.why}: ${JSON.stringify(i.entry)}`);
             console.log(`factory advisories: ${f.advisories.blocked} blocked, ${f.advisories.incomplete} made the run incomplete, ${f.advisories.dropped} counted and not blocking`);
