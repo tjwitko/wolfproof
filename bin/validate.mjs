@@ -48,6 +48,7 @@ import { commitSecrets } from "../lib/factory-commits.mjs";
 import { parseReviews, reviewableLine, reviewedRecord, staleReviewsLine, REVIEW_FILE } from "../lib/reviewed.mjs";
 import { parseKnown, knownRecord, knownLine, staleKnownLine, KNOWN_FILE } from "../lib/known.mjs";
 import { classifyAdvisory, actionFor, ACTIONS, COULD_NOT_RUN, INFO, NOT_CHECKED } from "../lib/advisory-classes.mjs";
+import { exitWhenWritten, exiting } from "../lib/exit-when-written.mjs";
 
 const EXIT = { CLEAN: 0, BLOCKED: 1, USAGE: 2, INCOMPLETE: 3 };
 
@@ -55,6 +56,15 @@ const EXIT = { CLEAN: 0, BLOCKED: 1, USAGE: 2, INCOMPLETE: 3 };
 // deep inside -- each of which crashed the process with Node's exit 1, which is this gate's
 // "blocked". A mistyped path was reported as a verdict on the project.
 export class UsageError extends Error {}
+
+// An exit asked for where nothing can wait for the output to be written. Caught where main() is
+// awaited, which ends the process through exitWhenWritten.
+class ExitNow extends Error {
+  constructor(code) {
+    super(`exit ${code}`);
+    this.code = code;
+  }
+}
 
 function checkInputs(projectDir, taskFile, baselineFile) {
   if (!existsSync(projectDir)) throw new UsageError(`${projectDir} does not exist`);
@@ -813,7 +823,7 @@ async function main() {
   // did not.
   if (args.includes("--help") || args.includes("-h")) {
     console.log(USAGE);
-    process.exit(EXIT.CLEAN);
+    await exitWhenWritten(EXIT.CLEAN);
   }
   if (args.includes("--version")) {
     const self = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -829,7 +839,7 @@ async function main() {
     for (const [name, v] of Object.entries(await toolchain())) {
       console.log(`  ${name.padEnd(16)} ${v === null ? "not found" : v}`);
     }
-    process.exit(EXIT.CLEAN);
+    await exitWhenWritten(EXIT.CLEAN);
   }
   const json = args.includes("--json");
   // Set by the pre-commit hook `wolfproof init` writes. It disables exactly one check, the one
@@ -841,21 +851,23 @@ async function main() {
   const baselineArg = args.find((a) => a.startsWith("--baseline"));
   if (baselineArg !== undefined && !/^--baseline=.+/.test(baselineArg)) {
     console.error("wolfproof: --baseline takes a file: --baseline=<file>");
-    process.exit(EXIT.USAGE);
+    await exitWhenWritten(EXIT.USAGE);
   }
   const baselineFile = baselineArg ? baselineArg.slice("--baseline=".length) : null;
   if (positional.length < 1) {
     console.error(USAGE);
-    process.exit(EXIT.USAGE);
+    await exitWhenWritten(EXIT.USAGE);
   }
   // Factory mode. Its options are refused without it rather than ignored: a pipeline that passes an
   // allowlist and forgets --factory believes it is in a mode it is not in.
   const factoryFlag = args.includes("--factory");
   const factoryOptions = { base: optionValue(args, "base"), allowlist: optionValue(args, "allowlist"), policy: optionValue(args, "policy") };
+  // Thrown, since the checks below call it where nothing can wait: the exit is made where main()
+  // is awaited, after the output has been written.
   const usageExit = (message) => {
     console.error(`wolfproof: ${message}`);
     if (json) process.stdout.write(`${JSON.stringify({ exitCode: EXIT.USAGE, error: message })}\n`);
-    process.exit(EXIT.USAGE);
+    throw new ExitNow(EXIT.USAGE);
   };
   for (const [name, v] of Object.entries(factoryOptions)) {
     if (v === null) usageExit(`--${name} takes a value: --${name}=<${name === "base" ? "ref" : "file"}>`);
@@ -903,13 +915,17 @@ async function main() {
     console.error(`wolfproof: ${err.message}`);
     console.error("usage: wolfproof <project-dir> [task-file] [--baseline=<file>] [--json] [--pre-commit]");
     if (json) process.stdout.write(`${JSON.stringify({ exitCode: EXIT.USAGE, error: err.message })}\n`);
-    process.exit(EXIT.USAGE);
+    await exitWhenWritten(EXIT.USAGE);
   } finally {
     console.log = narrate;
   }
+  // A crash handler that fired while the gate was still running has printed its own document and
+  // chosen the exit code.
+  if (exiting()) return;
   wroteResult = true;
   process.stdout.write(`${json ? machine(result) : human(result)}\n`);
-  process.exit(result.exitCode);
+  // Not process.exit: on a pipe that cut the document at 64 KB (lib/exit-when-written.mjs).
+  await exitWhenWritten(result.exitCode);
 }
 
 // Whether this file was executed rather than imported.
@@ -942,7 +958,7 @@ if (invokedDirectly() && process.argv[2] === "init") {
   await runInit(process.argv.slice(3));
 } else if (invokedDirectly() && process.argv[2] === "review") {
   const { runReview } = await import("./review.mjs");
-  process.exit(await runReview(process.argv.slice(3)));
+  await exitWhenWritten(await runReview(process.argv.slice(3)));
 } else if (invokedDirectly() && process.argv[2] === "known") {
   // known's contract is 0, 2 and 3. A throw that escaped it -- the build check's walk over a
   // directory it could not list did -- ended the process with Node's 1, a code it does not have and
@@ -952,25 +968,29 @@ if (invokedDirectly() && process.argv[2] === "init") {
       `wolfproof known: the command itself failed: ${(err && err.stack) || err}\n` +
         `Exit 3: it did not finish. Read the change to ${KNOWN_FILE} before committing it, if there is one.\n`
     );
-    process.exit(EXIT.INCOMPLETE);
+    exitWhenWritten(EXIT.INCOMPLETE);
   };
   process.on("uncaughtException", crash);
   process.on("unhandledRejection", crash);
   const { runKnown } = await import("./known.mjs");
-  process.exit(await runKnown(process.argv.slice(3), { gate: { runGate, UsageError } }));
+  await exitWhenWritten(await runKnown(process.argv.slice(3), { gate: { runGate, UsageError } }));
 } else if (invokedDirectly()) {
   const json = process.argv.includes("--json");
   const crash = (err) => {
     const r = failClosed(err, { json, wroteResult });
+    // One crash is reported. A second, while the first is being written, would put a second
+    // document on stdout.
+    if (exiting()) return;
     if (r.stdout) process.stdout.write(r.stdout);
     process.stderr.write(r.stderr);
-    process.exit(r.code);
+    exitWhenWritten(r.code);
   };
   process.on("uncaughtException", crash);
   process.on("unhandledRejection", crash);
   try {
     await main();
   } catch (err) {
-    crash(err);
+    if (err instanceof ExitNow) await exitWhenWritten(err.code);
+    else crash(err);
   }
 }
