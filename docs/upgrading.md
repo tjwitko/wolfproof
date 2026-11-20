@@ -915,7 +915,7 @@ other negations elsewhere.
 working tree, so a credential one commit added and a later commit of the same change removed was in
 no tree the gate compared: on v1.16.7, a base, a commit adding an AWS access key ID and a commit
 removing the line exited 0 in factory mode. Factory mode now scans what each commit between the
-base and the head added, with the pipeline's own secret-guard and the same rules, and a finding
+base and the head added, and each commit's message, with the pipeline's own secret-guard and the same rules, and a finding
 blocks, naming the commit, the file and the line. A `gitleaks:allow` or `.gitleaksignore` entry is
 honoured when it existed at the base or the allowlist approves it, as in the tree. The Action now
 fetches the commits between the base and the head as well as the base

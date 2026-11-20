@@ -189,13 +189,13 @@ pushed, and in the target branch's history after a merge commit or a rebase merg
 v1.16.7 with a base, a commit that adds an AWS access key ID and a commit that removes the line:
 factory mode exited 0.
 
-Factory mode scans what each commit between the base and the head added. The files a commit added
-to are written, as that commit had them, to a temporary directory, and the pipeline's secret-guard
-scans it with the same call it makes for the tree, so the rules are the same. A finding counts when
-it is on a line that commit added, and blocks:
+Factory mode scans what each commit between the base and the head added. The files a commit
+changed are written, as that commit left them, to a temporary directory, and the pipeline's
+secret-guard scans it with the same call it makes for the tree, so the rules are the same. A finding
+counts unless a parent of the commit already held it, and blocks:
 
 ```text
-factory commits: 2 between the base and the head, 1 file(s) they added to scanned for credentials, 1 finding(s)
+factory commits: 2 between the base and the head, 1 file(s) they changed scanned for credentials, 1 finding(s)
 BLOCKING        : 1
   - factory: 1 credential in the commits of this change — commit e75ce0bbb783 config.js:2 (aws-access-token). …
 ```
@@ -211,6 +211,17 @@ What decides it:
   entry is honoured when it existed at the base or the allowlist approves it
   ([exemptions it judges](#exemptions-it-judges)). One that exists only in a commit of the change
   hides nothing: the line is scanned and the finding blocks.
+- **A commit's message is scanned too.** A credential pasted into one is pushed with the commit.
+  The finding names the commit and the line of the message. A message has no path, so only an
+  approval of the whole project covers it: `{ "kind": "secret-in-commit", "path": "." }`.
+- **A finding is the commit's unless a parent already held it**: unless the lines the finding
+  spans, first to last, stand together and in the same order in the parent's scanned copy of the
+  file. So a credential the base held, moved within the file, is not the commit's; and a private
+  key committed with its lines out of order, then put in order by a later commit, is that later
+  commit's, though every line of it was already there. It is decided by the text, so no
+  `.gitattributes` or diff setting has a say.
+- **Every line counts in a file the parent's scan did not read**: a new file, one that was a
+  symbolic link, and one renamed out of a directory secret-guard does not scan.
 - **A merge commit is read for what it wrote itself**: lines that none of its parents has. Commits
   merged in from the target branch are not the change's when the base holds them.
 - **A file a commit wrote where secret-guard does not scan** (`vendor/`, `node_modules/` and the
@@ -246,8 +257,13 @@ they are not the scan **could not run, exit 3**, with the command to fetch them:
 covers a change longer than about 1,500 commits, a fetch that failed, and a run outside the Action
 in a shallow clone. `fetch-depth: 0` on `actions/checkout` always works.
 
-Two limits:
+Three limits:
 
+- **A file the scanner skips by its name is not read in a commit either**, as it is not in the
+  tree: gitleaks' own configuration skips images, PDFs, lockfiles and `go.sum`. Measured: a key in
+  `k.png` or `package-lock.json` is not found. And a file renamed from such a name is compared with
+  the copy that was never scanned, so a key added as `k.png` and renamed unchanged to `k.txt` by the
+  next commit is not reported.
 - **A force-push that rewrites the branch takes the commit out of the range.** The gate reads the
   commits between the base and the head it is given. A credential pushed in a commit that was later
   rewritten away was still pushed, and no later run sees it.

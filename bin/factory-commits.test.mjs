@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
-import { randomInt } from "crypto";
+import { generateKeyPairSync, randomInt } from "crypto";
 import { tmpdir } from "os";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -114,7 +114,7 @@ test("a credential one commit adds and the next removes: factory mode blocks and
     // The same line above the verdict in the text report.
     const text = cli([r.dir, "--factory", `--base=${base}`]);
     assert.equal(text.code, 1);
-    assert.match(text.stdout, /^factory commits: 2 between the base and the head, 1 file\(s\) they added to scanned for credentials, 1 finding\(s\)$/m);
+    assert.match(text.stdout, /^factory commits: 2 between the base and the head, 2 file\(s\) they changed scanned for credentials, 1 finding\(s\)$/m);
 
     // The default mode is as it was: it reads the tree, and the tree is clean.
     const d = cli([r.dir, "--json"]);
@@ -243,5 +243,47 @@ test("a depth-1 checkout without the commits in between is exit 3, never a pass;
   } finally {
     o.done();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a credential in a commit's message blocks, naming the commit and the line of the message", { skip }, () => {
+  const r = repo();
+  try {
+    const key = keyId();
+    const base = r.write("a.js", "export const a = 1;\n").commit("base");
+    r.write("a.js", "export const a = 2;\n");
+    r.git("add", "-A");
+    r.git("commit", "-q", "-m", "Fix the upload", "-m", `It failed until the key ${key} was set.`);
+    const told = r.git("rev-parse", "HEAD");
+    const f = factory(r, base);
+    assert.equal(f.code, 1, say(f));
+    assert.deepEqual(f.doc.couldNotRun, []);
+    assert.equal(failures(f.doc).length, 1, say(f));
+    assert.ok(failures(f.doc)[0].startsWith(`factory: 1 credential in the commits of this change — commit ${told.slice(0, 12)} message, line 3 (aws-access-token). `), failures(f.doc)[0]);
+    assert.deepEqual(f.doc.factory.commits.findings, [{ commit: told, message: true, line: 3, rule: "aws-access-token", status: "added" }]);
+    assert.ok(!f.stdout.includes(key), "the value is not in the report");
+    // The default mode is as it was.
+    assert.equal(cli([r.dir, "--json"]).code, 0);
+  } finally {
+    r.done();
+  }
+});
+
+test("a private key committed with its lines out of order, then put in order by the next commit, is the second commit's", { skip }, () => {
+  const r = repo();
+  try {
+    // Generated here: nothing key-shaped is written in this file.
+    const pem = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).trim().split("\n");
+    const base = r.write("a.js", "export const a = 1;\n").commit("base");
+    // In reverse, no rule matches it: the tree's scan passes on this commit.
+    r.write("k.txt", [...pem].reverse().join("\n") + "\n").commit("the lines, last first");
+    assert.equal(cli([r.dir, "--json"]).code, 0, "reversed, it is not a finding");
+    r.write("k.txt", pem.join("\n") + "\n");
+    const ordered = r.commit("put them in order");
+    r.remove("k.txt").commit("delete it");
+    // Every line's text was in the parent's copy. The credential was not.
+    blocksOnCommit(factory(r, base), ordered, "k.txt:1", "private-key");
+  } finally {
+    r.done();
   }
 });
