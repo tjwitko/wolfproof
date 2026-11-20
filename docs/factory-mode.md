@@ -41,6 +41,7 @@ it and the head.
 | edits the task file, or a baseline inside the project | checked against the edited text (the pre-commit hook blocks the edit) | checked against the base's text, and the edit **blocks** |
 | adds the task file | read | **blocks**: in a factory the requirements predate the change |
 | changes a workflow or local action ([below](#workflows)) | not checked | **blocks**, unless the allowlist approves it |
+| changes a file that instructs coding agents ([below](#agent-instructions)) | not checked | **blocks**, naming the file, unless the allowlist approves it |
 | leaves an advisory meaning "nothing was checked" | an advisory | **blocks** (see [Advisories](#advisories)) |
 | adds a probe route that reads, such as `GET /health` | exempt | still exempt, and **named** in the report |
 | adds a credential in one commit and removes it in a later one ([below](#credentials-in-the-changes-commits)) | not checked: the tree is clean | **blocks**, naming the commit, the file and the line, unless the allowlist approves the file |
@@ -62,6 +63,117 @@ A change that adds, edits, renames or deletes a file under `.github/workflows/`,
 `.github/actions/` where local actions live, blocks. A workflow, and a local action it calls,
 decides what checks the change and what a passing run then does. A local action kept anywhere else
 (`uses: ./tools/deploy`) is not covered.
+
+### Agent instructions
+
+A change that adds, edits, renames or deletes a file that instructs coding agents blocks. Those
+files decide what the next agent run in the repository is told, which hooks run around it, which
+tools it loads and which commands it may run without asking. A change that edits one has edited its
+own supervisor, as a change that edits a workflow has edited its own review. Measured on v1.16.7: a
+change that rewrote `AGENTS.md` and added a `.claude/settings.json` allowing every shell command
+exited 0 in factory mode.
+
+```text
+BLOCKING        : 1
+  - factory: 2 file(s) that instruct coding agents changed — .claude/settings.json (added), AGENTS.md (changed). …
+```
+
+What counts, at any depth and whatever the letter case:
+
+| file | why |
+|---|---|
+| `AGENTS.md` | the instructions Codex, Cursor, Copilot, Gemini CLI and Claude Code read, the nearest one to the work first |
+| `AGENTS.override.md` | Codex reads it before the `AGENTS.md` beside it |
+| `AGENT.md` | the older name of `AGENTS.md`, which agents.md still tells projects to link to it |
+| `CLAUDE.md`, `CLAUDE.local.md` | Claude Code's instructions, loaded from the working directory, every directory above it and each subdirectory it works in |
+| `GEMINI.md` | Gemini CLI's context file, read from the working directory, its parents and its subdirectories |
+| `.mcp.json`, `.vscode/mcp.json` | the MCP servers Claude Code and VS Code start for the project: the tools the agent is given, and commands run to start them |
+| everything under `.claude/` | Claude Code's settings (permission rules, hooks, environment), rules, skills, commands, subagents, output styles and workflows |
+| everything under `.cursor/`, and `.cursorrules` | Cursor's rules, `hooks.json` and the scripts it runs, `mcp.json` and commands |
+| everything under `.gemini/` | Gemini CLI's settings (hooks, MCP servers), commands, a system prompt override and its `.env` |
+| everything under `.codex/` | Codex's project configuration |
+| everything under `.agents/` | skills that Copilot and Codex load |
+| `.github/copilot-instructions.md`, and everything under `.github/instructions/`, `.github/prompts/`, `.github/agents/`, `.github/chatmodes/`, `.github/skills/` and `.github/hooks/` | Copilot's instructions, prompt files, custom agents (and chat modes, their older form), skills and hooks |
+
+Each name was checked against the tool's own documentation on 2026-11-19: Claude Code's memory,
+settings and `.claude` directory pages; agents.md; Cursor's rules, hooks and MCP pages; GitHub's
+repository instructions page and Copilot customization cheat sheet; VS Code's MCP configuration
+reference; Gemini CLI's configuration and custom commands pages; and OpenAI's AGENTS.md guide for
+Codex. Two older names are the exception: `.cursorrules`, which Cursor's rules page no longer names,
+and `.github/chatmodes/`, which VS Code's custom agents page no longer names. Both are kept because
+older projects still carry them and a file there is nothing else.
+
+What decides it:
+
+- **Paths are from the repository's root**, like a workflow's, even when the project is a
+  subdirectory: an agent working in `services/api` is told what the `AGENTS.md` above it says.
+  `packages/api/CLAUDE.md` counts like the one at the root.
+- **Letter case is ignored.** A checkout on a case-insensitive filesystem reads `claude.md` as
+  `CLAUDE.md`.
+- **A symbolic link counts at both ends.** A link with one of these names blocks when it is added,
+  removed or pointed elsewhere. What it points to is an agent file too, a directory included: with
+  `CLAUDE.md` linked to `docs/agent-guide.md`, an edit to `docs/agent-guide.md` blocks and is named
+  with the link. This holds for a link the base had and for one the change adds.
+- **So does a file imported with `@path`** from one of these files, up to four hops, outside code
+  spans and fenced blocks, as Claude Code reads imports. The path is everything up to the first
+  space (`@docs/c++/guide.md`), and a backslash keeps a space (`@Design\ Docs/api.md`). It counts
+  only when it names a file that is there.
+- **What is on disk is judged, whatever the ignore rules say.** An agent file that git does not
+  track blocks as "on disk, not tracked by git", whether or not an ignore rule covers it. An ignore
+  rule is the change's to write: measured on the first version of this rule, a change that added
+  `.claude/` to `.gitignore` and wrote a `.claude/settings.json` allowing every shell command exited
+  0. In CI that file is never committed; in a workspace kept between runs it is live for the next
+  agent run. So **factory mode expects a fresh checkout**. In a workspace a person or an agent has
+  worked in, a `CLAUDE.local.md` or a `.claude/settings.local.json` left there counts as the
+  change's, and Claude Code writes the second one itself when an approval is saved. Run the gate on
+  a fresh checkout, or approve the path.
+- **The machine's own ignore files are not read**: neither `.git/info/exclude` nor the user's global
+  excludes file. The same tree gives the same answer on every machine.
+- **Dependency and build trees are not searched** for untracked agent files: `node_modules/`,
+  `.venv/`, `venv/`, `dist/`, `build/`, `.terraform/` and the rest of what the checks skip. An
+  installed `node_modules` holds other projects' `AGENTS.md` files. A tracked file there counts.
+- **A rename has two ends, and the allowlist has to approve each one that is an agent file.**
+  `CLAUDE.md` renamed into an approved `.claude/commands/` still blocks, because it takes
+  `CLAUDE.md` away; a command renamed out of it to `.claude/rules/` blocks for where it went.
+
+The allowlist approves a file, or a directory of them, kind `agent-instructions`:
+
+```json
+{ "exemptions": [
+  { "kind": "agent-instructions", "path": ".claude/skills", "reason": "skills are reviewed by the platform team in CODEOWNERS" }
+] }
+```
+
+An entry approves every later change to that path, so use one only where a person reviews those
+files' changes.
+
+**`wolfproof init` writes two of these files**, `AGENTS.md` and `.mcp.json`, and `wolfproof init
+--upgrade` rewrites them, so a factory change that carries its output blocks. It blocked before
+this rule as well: the stanza it writes in `AGENTS.md` quotes the `identity-guard:allow` comment,
+which factory mode reads as an opt-out the change added. Run `wolfproof init` and its upgrades in a
+change a person reviews, outside the factory. A pipeline that must carry it approves
+`agent-instructions` for `AGENTS.md` and `.mcp.json` and `identity-guard:allow` for `AGENTS.md`,
+and removes the entries afterwards.
+
+Left out, each for a reason:
+
+- **Git hook managers** (`.husky/`, `.pre-commit-config.yaml`, `lefthook.yml`). They run for every
+  committer, person or agent, and are build tooling like `package.json` scripts and a `Makefile`:
+  code the project runs, which the checks read as code. A hook is also not what gates a factory
+  change; the pipeline is.
+- **`.vscode/settings.json`.** It can hold agent settings, and it is mostly editor settings that
+  change for ordinary reasons. Headless agents do not read it.
+- **Ignore files for agents** (`.cursorignore`, `.geminiignore`) and `.worktreeinclude`. They narrow
+  what an agent reads or copy files that are already on the machine; they do not tell it to do
+  anything.
+- **A Claude Code plugin's own files**: `.claude-plugin/`, and the `agents/`, `commands/`,
+  `skills/` and `hooks/` directories beside it. They instruct agents wherever the plugin is
+  installed, not the agents working in this repository, and in a plugin's repository they are the
+  deliverable: counting them would block every change to it. The one case where they are live here,
+  a repository that installs its own plugin from a local path, is wired in `.claude/settings.json`,
+  which is in the list; later edits to the plugin's files are not seen.
+- **Other tools' files** (Windsurf, Cline, Roo, Aider, Continue, Amazon Q, Junie, Kiro, opencode,
+  Zed). Their documentation was not checked for this list, so they are not in it.
 
 ### Probe routes
 
@@ -236,7 +348,7 @@ inputs, written outside the workspace.
 
 An entry approves its `kind` at its `path` or anywhere under it, and needs a `reason`; one without
 is ignored and reported. The kinds are the exemptions above plus `changed-under-exemption`,
-`skipped-location`, `moved-to-unchecked`, `server-in-test`, `reviewed-finding`, `known-finding`, `ignored-directory` and `workflow-change`, which covers both
+`skipped-location`, `moved-to-unchecked`, `server-in-test`, `reviewed-finding`, `known-finding`, `ignored-directory`, `agent-instructions` and `workflow-change`, which covers both
 `.github/workflows/` and `.github/actions/`. `known-declared` is the one exemption above with no
 kind here: an entry naming it is ignored and reported.
 
@@ -313,6 +425,11 @@ approves by path.
 - **Judge a server in a test file that nothing in the project runs.** A server written as
   `server.test.js` blocks once a start script, a Dockerfile, a Procfile or application code refers to
   it; one that is run only by something outside the repository looks like any other test.
+- **Follow an agent's instructions into the code they run.** A change to `.claude/settings.json`
+  blocks; a change to a script one of its hooks runs, or to a local MCP server that `.mcp.json`
+  starts, does not, unless the script is under one of the [listed paths](#agent-instructions). The
+  same holds for a local action kept outside `.github/actions/`. Nor does it see instructions kept
+  outside the repository: a user's own `~/.claude`, an organisation's managed settings.
 - **Protect its own invocation.** A change that edits `.github/workflows/` blocks, but only in a run
   that is in factory mode — and a pull request's workflows run as the pull request wrote them, so a
   change that removes `factory: true` is judged in the default mode, which does not check workflows.
