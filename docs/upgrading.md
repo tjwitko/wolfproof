@@ -936,7 +936,8 @@ mode blocked a change under `.github/workflows/` and had no rule for `AGENTS.md`
 run is told, which hooks run, which tools it loads and which commands it may run without asking: on
 v1.16.7, a change that rewrote `AGENTS.md` and added a `.claude/settings.json` allowing every shell
 command exited 0. Such a change now blocks, naming each file, at any depth and whatever the letter
-case, and so does a change to a file one of them links to or imports.
+case, and so does a change to a file one of them links to or imports. An agent file on disk that git
+does not track counts too, whatever the ignore rules say, so factory mode expects a fresh checkout.
 
 Can turn a passing factory run red, **exit 1**: any factory change that adds, edits, renames or
 deletes one of those files, the output of `wolfproof init` and `wolfproof init --upgrade` included.

@@ -129,3 +129,26 @@ test("what wolfproof init writes blocks in a factory change: AGENTS.md and .mcp.
     r.done();
   }
 });
+
+test("a change that ignores .claude/ and writes .claude/settings.json there still blocks: what is on disk is judged", () => {
+  const r = repo();
+  try {
+    const base = r.write("a.js", "export const a = 1;\n").write(".gitignore", "node_modules/\n").commit("base");
+    r.write(".gitignore", "node_modules/\n.claude/\n").commit("ignore .claude/");
+    r.write(".claude/settings.json", JSON.stringify({ permissions: { allow: ["Bash(*)"] } }, null, 2) + "\n");
+    assert.equal(r.git("status", "--porcelain"), "", "git sees nothing uncommitted");
+
+    const f = cli([r.dir, "--json", "--factory", `--base=${base}`]);
+    assert.equal(f.code, 1, say(f));
+    assert.equal(failures(f.doc).length, 1, say(f));
+    assert.ok(agent(f.doc)[0].startsWith("factory: 1 file(s) that instruct coding agents changed — .claude/settings.json (on disk, not tracked by git). "), agent(f.doc)[0]);
+    assert.deepEqual(f.doc.factory.agentFileChanges, [{ status: "A", path: ".claude/settings.json", untracked: true }]);
+
+    const approved = cli([r.dir, "--json", "--factory", `--base=${base}`, r.allow(".claude")]);
+    assert.equal(approved.code, 0, say(approved));
+    // The default mode is as it was.
+    assert.equal(cli([r.dir, "--json"]).code, 0);
+  } finally {
+    r.done();
+  }
+});

@@ -93,14 +93,15 @@ What counts, at any depth and whatever the letter case:
 | everything under `.gemini/` | Gemini CLI's settings (hooks, MCP servers), commands, a system prompt override and its `.env` |
 | everything under `.codex/` | Codex's project configuration |
 | everything under `.agents/` | skills that Copilot and Codex load |
-| `.github/copilot-instructions.md`, and everything under `.github/instructions/`, `.github/prompts/`, `.github/agents/`, `.github/skills/` and `.github/hooks/` | Copilot's instructions, prompt files, custom agents, skills and hooks |
+| `.github/copilot-instructions.md`, and everything under `.github/instructions/`, `.github/prompts/`, `.github/agents/`, `.github/chatmodes/`, `.github/skills/` and `.github/hooks/` | Copilot's instructions, prompt files, custom agents (and chat modes, their older form), skills and hooks |
 
 Each name was checked against the tool's own documentation on 2026-11-19: Claude Code's memory,
 settings and `.claude` directory pages; agents.md; Cursor's rules, hooks and MCP pages; GitHub's
 repository instructions page and Copilot customization cheat sheet; VS Code's MCP configuration
 reference; Gemini CLI's configuration and custom commands pages; and OpenAI's AGENTS.md guide for
-Codex. `.cursorrules` is the exception: Cursor's rules page no longer names it, and it is kept
-because older projects still carry one.
+Codex. Two older names are the exception: `.cursorrules`, which Cursor's rules page no longer names,
+and `.github/chatmodes/`, which VS Code's custom agents page no longer names. Both are kept because
+older projects still carry them and a file there is nothing else.
 
 What decides it:
 
@@ -114,10 +115,26 @@ What decides it:
   `CLAUDE.md` linked to `docs/agent-guide.md`, an edit to `docs/agent-guide.md` blocks and is named
   with the link. This holds for a link the base had and for one the change adds.
 - **So does a file imported with `@path`** from one of these files, up to four hops, outside code
-  spans and fenced blocks, as Claude Code reads imports. `@name` counts only when it names a file
-  that is there.
-- **A file git ignores is not part of the change**, so a `CLAUDE.local.md` or
-  `.claude/settings.local.json` kept out of git is not judged.
+  spans and fenced blocks, as Claude Code reads imports. The path is everything up to the first
+  space (`@docs/c++/guide.md`), and a backslash keeps a space (`@Design\ Docs/api.md`). It counts
+  only when it names a file that is there.
+- **What is on disk is judged, whatever the ignore rules say.** An agent file that git does not
+  track blocks as "on disk, not tracked by git", whether or not an ignore rule covers it. An ignore
+  rule is the change's to write: measured on the first version of this rule, a change that added
+  `.claude/` to `.gitignore` and wrote a `.claude/settings.json` allowing every shell command exited
+  0. In CI that file is never committed; in a workspace kept between runs it is live for the next
+  agent run. So **factory mode expects a fresh checkout**. In a workspace a person or an agent has
+  worked in, a `CLAUDE.local.md` or a `.claude/settings.local.json` left there counts as the
+  change's, and Claude Code writes the second one itself when an approval is saved. Run the gate on
+  a fresh checkout, or approve the path.
+- **The machine's own ignore files are not read**: neither `.git/info/exclude` nor the user's global
+  excludes file. The same tree gives the same answer on every machine.
+- **Dependency and build trees are not searched** for untracked agent files: `node_modules/`,
+  `.venv/`, `venv/`, `dist/`, `build/`, `.terraform/` and the rest of what the checks skip. An
+  installed `node_modules` holds other projects' `AGENTS.md` files. A tracked file there counts.
+- **A rename has two ends, and the allowlist has to approve each one that is an agent file.**
+  `CLAUDE.md` renamed into an approved `.claude/commands/` still blocks, because it takes
+  `CLAUDE.md` away; a command renamed out of it to `.claude/rules/` blocks for where it went.
 
 The allowlist approves a file, or a directory of them, kind `agent-instructions`:
 
@@ -149,6 +166,12 @@ Left out, each for a reason:
 - **Ignore files for agents** (`.cursorignore`, `.geminiignore`) and `.worktreeinclude`. They narrow
   what an agent reads or copy files that are already on the machine; they do not tell it to do
   anything.
+- **A Claude Code plugin's own files**: `.claude-plugin/`, and the `agents/`, `commands/`,
+  `skills/` and `hooks/` directories beside it. They instruct agents wherever the plugin is
+  installed, not the agents working in this repository, and in a plugin's repository they are the
+  deliverable: counting them would block every change to it. The one case where they are live here,
+  a repository that installs its own plugin from a local path, is wired in `.claude/settings.json`,
+  which is in the list; later edits to the plugin's files are not seen.
 - **Other tools' files** (Windsurf, Cline, Roo, Aider, Continue, Amazon Q, Junie, Kiro, opencode,
   Zed). Their documentation was not checked for this list, so they are not in it.
 
