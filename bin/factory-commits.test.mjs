@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
-import { generateKeyPairSync, randomInt } from "crypto";
+import { createHash, createPrivateKey, randomInt } from "crypto";
 import { tmpdir } from "os";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -38,6 +38,29 @@ function keyId() {
     [chars[i], chars[j]] = [chars[j], chars[i]];
   }
   return ["A", "K", "I", "A"].join("") + chars.slice(0, 16).join("");
+}
+
+// The lines of a private key, the same key on every run: an Ed25519 key in PKCS#8 whose 32 secret
+// bytes are the hash of a sentence. It is made here, so nothing key-shaped is written in this file,
+// and it opens nothing.
+//
+// It was a new 2048-bit RSA key each run, and what the scanner made of the text depended on the
+// draw. Measured with gitleaks 8.30.1 and the pipeline's rules, on text of that key's shape (the two
+// label lines around a random base64 body, 28 lines):
+//   - lines in reverse order: 36 of 60,000 were a generic-api-key finding, each on a body ending in
+//     "=" padding, as about 7 real keys in 10 do. "key" or "api" in any letter case a few characters
+//     before the "=" reads as a name being assigned, and the line after it as the value. The gate's
+//     run on e33ffdc failed on the test below, which commits the key reversed and expects no finding.
+//   - lines in reverse order, no padding: 1 of 200,000 (square-access-token, on a line starting EAAA).
+//   - lines in order: 5 of 120,000 were no finding at all. Each held "false" in some letter case, and
+//     gitleaks' default allowlist drops any secret that does. That is the scanner missing a key,
+//     which no choice of key here mends.
+// One fixed text is read the same way every time: if a rule ever reads this one differently, the
+// test fails on every run and not on one in a thousand.
+function privateKeyLines() {
+  const secret = createHash("sha256").update("wolfproof test fixture: a key that opens nothing").digest();
+  const der = Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), secret]);
+  return createPrivateKey({ key: der, format: "der", type: "pkcs8" }).export({ type: "pkcs8", format: "pem" }).trim().split("\n");
 }
 
 function cli(args, env = {}) {
@@ -272,8 +295,7 @@ test("a credential in a commit's message blocks, naming the commit and the line 
 test("a private key committed with its lines out of order, then put in order by the next commit, is the second commit's", { skip }, () => {
   const r = repo();
   try {
-    // Generated here: nothing key-shaped is written in this file.
-    const pem = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).trim().split("\n");
+    const pem = privateKeyLines();
     const base = r.write("a.js", "export const a = 1;\n").commit("base");
     // In reverse, no rule matches it: the tree's scan passes on this commit.
     r.write("k.txt", [...pem].reverse().join("\n") + "\n").commit("the lines, last first");
