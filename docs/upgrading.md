@@ -944,6 +944,18 @@ deletes one of those files, the output of `wolfproof init` and `wolfproof init -
 Make such edits in a change a person reviews, or have the allowlist approve the path, kind
 `agent-instructions`. The default mode is not affected.
 
+**After v1.16.7: `--json` through a pipe is written whole.** The gate wrote its result and then
+ended the process. A write to a pipe is asynchronous on macOS and Linux, so a document larger than
+the pipe's buffer was cut there: on v1.16.7 on macOS, a 417,136-byte document reached `spawnSync`,
+a shell's `$(...)` or `| jq` as 65,536 bytes that do not parse, with the exit code of a finished
+run. Redirected to a file it was whole, which is why the Action, which redirects, never showed it.
+The process now ends when stdout and stderr have handed everything over, on every exit: a verdict,
+a usage error, a crash, `wolfproof review` and `wolfproof known`. Exit codes are unchanged, and a
+reader that closes early still gets the code.
+
+No verdict changes. A script that read `--json` through a pipe and fell back on a parse error now
+gets the document.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
