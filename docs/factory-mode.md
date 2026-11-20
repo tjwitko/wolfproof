@@ -113,11 +113,15 @@ What decides it:
 - **A symbolic link counts at both ends.** A link with one of these names blocks when it is added,
   removed or pointed elsewhere. What it points to is an agent file too, a directory included: with
   `CLAUDE.md` linked to `docs/agent-guide.md`, an edit to `docs/agent-guide.md` blocks and is named
-  with the link. This holds for a link the base had and for one the change adds.
+  with the link. This holds for a link the base had and for one the change adds. What is under a
+  linked directory is read like the agent file that links there: a link inside it is followed in
+  turn, and an import in one of its files counts. With `.claude/rules` linked to `notes` and
+  `notes/more` linked to `scratch`, a file under `scratch/` is what the agent is told.
 - **So does a file imported with `@path`** from one of these files, up to four hops, outside code
   spans and fenced blocks, as Claude Code reads imports. The path is everything up to the first
   space (`@docs/c++/guide.md`), and a backslash keeps a space (`@Design\ Docs/api.md`). It counts
-  only when it names a file that is there.
+  only when it names a file that is there. A link in the path is followed, so `@notes/more/x.md`,
+  with `notes/more` a link to `shared`, is `shared/x.md`, and the finding names that path.
 - **What is on disk is judged, whatever the ignore rules say.** An agent file that git does not
   track blocks as "on disk, not tracked by git", whether or not an ignore rule covers it. So does an
   untracked file that an agent file on disk links to or imports: with `@notes/local.md` in
