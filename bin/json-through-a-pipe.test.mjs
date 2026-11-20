@@ -131,3 +131,90 @@ test("exitWhenWritten: a reader that has gone away does not hold the process ope
     assert.equal(ended, code, err.slice(-500));
   }
 });
+
+// A failure that arrives after the exit has begun. It was dropped whole: measured on c54b4a9, an
+// exception delivered while a clean verdict was being flushed left exit 0 and nothing on stderr,
+// and `wolfproof known`, whose handler had no such guard, printed "Exit 3: it did not finish" and
+// exited 0. The code already chosen stands and stdout gets no second document, but the failure is
+// said, and the exit waits for it to be written.
+
+test("writeBeforeExit: what is written after the exit has begun arrives whole, and the code is still the first one", () => {
+  for (const code of [0, 1, 3]) {
+    // Little on stdout, so that without the wait both streams are flushed at once and the late megabyte is cut.
+    const r = child(`
+      const { writeBeforeExit, exitCodeChosen } = await import(${JSON.stringify(HELPER)});
+      if (exitCodeChosen() !== null) throw new Error("a code is chosen before anything asked to end");
+      writeBeforeExit("before the exit, an ordinary write\\n");
+      process.stdout.write("the document\\n");
+      exitWhenWritten(${code});
+      writeBeforeExit("L".repeat(1 << 20) + "\\nlate, and the code is " + exitCodeChosen() + "\\n");
+      exitWhenWritten(2);
+    `);
+    assert.equal(r.status, code, r.stderr.slice(-300));
+    assert.equal(r.stdout, "the document\n");
+    assert.ok(r.stderr.startsWith("before the exit, an ordinary write\n"));
+    assert.ok(r.stderr.endsWith(`\nlate, and the code is ${code}\n`), `${r.stderr.length} bytes of stderr arrived, ending ${JSON.stringify(r.stderr.slice(-40))}`);
+    assert.equal(r.stderr.length, 35 + (1 << 20) + 25);
+  }
+});
+
+// Delivered at the one moment that is certain to be after the exit began and before anything was
+// flushed: inside exitWhenWritten's own empty write to stdout. Handed to the handlers as Node hands
+// one over, so no timer has to land in a window.
+const LATE = `data:text/javascript,${encodeURIComponent(`
+  const write = process.stdout.write.bind(process.stdout);
+  let once = false;
+  process.stdout.write = (chunk, ...rest) => {
+    if (chunk === "" && !once) {
+      once = true;
+      process.emit("uncaughtException", new Error("injected late"), "uncaughtException");
+    }
+    return write(chunk, ...rest);
+  };
+`)}`;
+const late = (args) => spawnSync(process.execPath, ["--import", LATE, CLI, ...args], { encoding: "utf8", maxBuffer: 1 << 28, timeout: 120_000 });
+
+test("a failure after the gate has begun to exit is said on stderr, with the first exit code and one document", () => {
+  const clean = project(0);
+  const blocked = project(3);
+  try {
+    const cases = [
+      [0, [clean.dir, "--json"]],
+      [1, [blocked.dir, "--json", "--factory", `--base=${blocked.base}`]],
+    ];
+    for (const [code, args] of cases) {
+      const r = late(args);
+      assert.equal(r.status, code, `exit ${r.status}; stderr: ${r.stderr.slice(-600)}`);
+      let doc;
+      assert.doesNotThrow(() => (doc = JSON.parse(r.stdout)), "stdout is one document");
+      assert.equal(doc.exitCode, code);
+      assert.ok(!doc.incomplete, "and it is the verdict, not a crash document");
+      assert.match(r.stderr, /^wolfproof: something failed after the exit had begun: Error: injected late$/m);
+      assert.match(r.stderr, new RegExp(`^The exit code already chosen, ${code}, stands, and nothing more is written to stdout\\.$`, "m"));
+      assert.doesNotMatch(r.stderr, /Exit 3/, "it does not claim a code the process does not end with");
+    }
+    // Without --json the verdict is text, and there is still one of it.
+    const text = late([clean.dir]);
+    assert.equal(text.status, 0, text.stderr.slice(-600));
+    assert.match(text.stderr, /^wolfproof: something failed after the exit had begun: Error: injected late$/m);
+    assert.doesNotMatch(text.stdout, /injected late|the gate itself failed/);
+  } finally {
+    clean.done();
+    blocked.done();
+  }
+});
+
+test("wolfproof known says the same of a failure after it has begun to exit, and does not claim exit 3", () => {
+  const p = project(0);
+  try {
+    const plain = spawnSync(process.execPath, [CLI, "known", p.dir], { encoding: "utf8", timeout: 120_000 });
+    const r = late(["known", p.dir]);
+    assert.equal(r.status, plain.status, `exit ${r.status} with the failure, ${plain.status} without; stderr: ${r.stderr.slice(-600)}`);
+    assert.notEqual(r.status, null);
+    assert.match(r.stderr, /^wolfproof known: something failed after the exit had begun: Error: injected late$/m);
+    assert.match(r.stderr, new RegExp(`^The exit code already chosen, ${plain.status}, stands`, "m"));
+    assert.doesNotMatch(r.stderr, /Exit 3: it did not finish/);
+  } finally {
+    p.done();
+  }
+});

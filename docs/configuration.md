@@ -453,6 +453,10 @@ mode: `wolfproof known . --file <path>` writes one there.
 default 1, and still writes one document: `{"exitCode": 3, "incomplete": true, "error": "..."}`. A
 usage error writes `{"exitCode": 2, "error": "..."}`.
 
+The gate ends when its output has been read, and has no time limit of its own: a reader that keeps
+the pipe open and stops reading makes it wait, as any program waits on a full pipe, so a caller
+that cannot wait sets its own limit.
+
 The report also carries `toolchain` — each scanner on `PATH` and its version — and `scannedAt`, the
 time the run started, and `reviewed`: each [reviewed finding](#reviewed-findings) with its ID,
 location, reason, reviewer, expiry and the list it came from; and `reviewable`: the IDs of the

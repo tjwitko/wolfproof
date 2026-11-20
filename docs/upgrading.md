@@ -956,6 +956,17 @@ reader that closes early still gets the code.
 No verdict changes. A script that read `--json` through a pipe and fell back on a parse error now
 gets the document.
 
+**After v1.16.7: a failure after the gate has begun to exit is said on stderr.** With the change
+above, an exception or rejection that arrived while the verdict was being written out was dropped:
+a clean run exited 0 with no trace of it, and `wolfproof known` printed "Exit 3: it did not finish"
+and exited with the code it already had. Both now write two lines to stderr, the failure and the
+exit code that stands, and the process ends when they have been read. The exit code is the one
+already chosen and stdout still holds one document. No verdict changes.
+
+The gate has no time limit of its own on its output: a reader that keeps the pipe open and stops
+reading makes it wait, as any program waits on a full pipe. Set your own limit on the call if you
+cannot wait.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
