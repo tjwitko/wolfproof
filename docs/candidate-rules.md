@@ -2797,6 +2797,120 @@ same for speed. Before it ships:
    paths in Semgrep's results are the ones it was given, which stay absolute, so nothing should
    move; a result that reports a path relative to the working directory would show up here.
 
+### 38. Files gitleaks' default path allowlist never reads are not places factory mode knows the checks do not look — open
+
+Factory mode blocks a change that writes where a check does not look, so that "the scan found
+nothing" cannot mean "the scan was not shown it". For the secret scan it learns those places from
+`secretGuardAllowlist` (`lib/factory.mjs`), which reads the `[allowlist] paths` of secret-guard's
+`gitleaks/extra-rules.toml`: `.terraform/`, `.external_modules/`, `node_modules/`, `vendor/`,
+`.venv/`, `__pycache__/`. gitleaks has a path allowlist of its own in its default configuration,
+which secret-guard extends, and nothing in wolfproof reads that one. Not fixed here; this entry
+records the measurements and the options.
+
+**Measured** on c54b4a9 with gitleaks 8.30.1 and secret-guard v1.0.3, through the CLI:
+
+- *Tree.* A change that commits an AWS access key ID in `go.sum` and in a comment in `art.svg`
+  exits 0 in default mode and in factory mode, with nothing in `couldNotRun`.
+- *Commits.* `go.sum` committed with a key, renamed unchanged to `config.js` by the next commit,
+  deleted by a third: factory mode exits 0. Three commits, one file scanned, no finding, nothing
+  listed as skipped. The commit scan already treats a file renamed out of a place secret-guard does
+  not scan as new (`candidates()` in `lib/factory-commits.mjs`), and `vendor/x.js` renamed to
+  `y.js` is caught that way; `go.sum` is not on the list it is given.
+- *By path.* One name for each kind of path the default list covers, 60 in all, each holding a
+  key: secret-guard's scan of the tree read one of them. A change that commits a key in one of the
+  other 59 exits 0 in factory mode for 45 of them, with nothing said about the path. Of the 14
+  that exit 1, three sit under `vendor/`, which secret-guard's own list names, and one under
+  `venv/`, which every source check skips; the other ten are code files where the workload
+  identity check read the AWS key for its own reason. With a GitHub token in a comment, which only
+  the secret scan reads, those ten exit 0 in both modes: `bootstrap.js`, `src/bootstrap-app.js`,
+  `angular.config.js`, `jquery-ui.custom.js`, `plotly-setup.js`, `swagger-ui-init.js`,
+  `bower_components/x/y.js`, `.mvn/wrapper/MavenWrapperDownloader.java`, `env/lib64/x.py`,
+  `lib/python3.11/x.py`.
+
+**The default list**, all 25 patterns, from `config/gitleaks.toml` at v8.30.1:
+
+```
+gitleaks\.toml
+(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$
+(?i)\.(?:eot|[ot]tf|woff2?)$
+(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|.dll|pdb|exe|gltf)$
+go\.(?:mod|sum|work(?:\.sum)?)$
+(?:^|/)vendor/modules\.txt$
+(?:^|/)vendor/(?:github\.com|golang\.org/x|google\.golang\.org|gopkg\.in|istio\.io|k8s\.io|sigs\.k8s\.io)(?:/.*)?$
+(?:^|/)gradlew(?:\.bat)?$
+(?:^|/)gradle\.lockfile$
+(?:^|/)mvnw(?:\.cmd)?$
+(?:^|/)\.mvn/wrapper/MavenWrapperDownloader\.java$
+(?:^|/)node_modules(?:/.*)?$
+(?:^|/)(?:deno\.lock|npm-shrinkwrap\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$
+(?:^|/)bower_components(?:/.*)?$
+(?:^|/)(?:angular|bootstrap|jquery(?:-?ui)?|plotly|swagger-?ui)[a-zA-Z0-9.-]*(?:\.min)?\.js(?:\.map)?$
+(?:^|/)javascript\.json$
+(?:^|/)(?:Pipfile|poetry)\.lock$
+(?i)(?:^|/)(?:v?env|virtualenv)/lib(?:64)?(?:/.*)?$
+(?i)(?:^|/)(?:lib(?:64)?/python[23](?:\.\d{1,2})+|python/[23](?:\.\d{1,2})+/lib(?:64)?)(?:/.*)?$
+(?i)(?:^|/)[a-z0-9_.]+-[0-9.]+\.dist-info(?:/.+)?$
+(?:^|/)vendor/(?:bundle|ruby)(?:/.*?)?$
+\.gem$
+verification-metadata\.xml
+Database.refactorlog
+(?:^|/)\.git$
+```
+
+Four things about it that the names alone do not say:
+
+- **Several reach further than they read.** `go\.(?:mod|sum|…)$` has no anchor on the left:
+  `mango.sum` and `logo.mod` were not read. `.v2` and `.bin` are any file with that ending;
+  `settings.v2` was not read. `gitleaks\.toml`, `verification-metadata\.xml` and
+  `Database.refactorlog` match anywhere in a path.
+- **Application code is on it.** Any `.js` file whose name starts with `bootstrap`, `angular`,
+  `jquery`, `plotly` or `swagger-ui` is a library to this list. `bootstrap.js` is also what
+  projects call the file that starts the application.
+- **One entry does not do what it says.** `.dll` in the fourth pattern has a dot where none was
+  meant, so it matches `x.adll` and not `x.dll`: `lib.dll` was the one name of the 60 that was read.
+- **Archives are not read either, and no pattern says so.** Text holding a token under the names
+  `data.zip`, `data.tar`, `data.gz` and `data.7z` was not read; under `data.tgz` and `app.jar` it
+  was. Whatever is done about the list has to ask the scanner, not only parse the list.
+
+**Options.**
+
+1. *wolfproof reads the default list too.* Since secret-guard-mcp#4 the defaults are a file beside
+   `extra-rules.toml`, so `secretGuardAllowlist` can read both; the commit scan and
+   `uncheckedLocation` take the same list, and both measured cases close through code that exists.
+   What it costs: every change that touches a lockfile, an image, a font or a PDF blocks in factory
+   mode as code where the checks do not look, until the allowlist approves the path, and an
+   approval of `package-lock.json` is then standing permission to put a credential in it. The
+   patterns are Go regular expressions: the ones with `(?i)` do not compile as JavaScript, and the
+   reading today is `new RegExp(m[1])`. With a secret-guard older than #4 there is no file, so the
+   fallback list in `lib/factory.mjs` would have to carry a copy. Archives stay unlisted.
+2. *secret-guard reads the files.* The defaults being a file, entries can be taken out of it:
+   lockfiles, `go.sum`, `.svg`, the `bootstrap|angular|…` pattern, `javascript.json`, the wrappers.
+   Measured on the 35 calibration projects with every default path pattern removed: 451 findings
+   became 459, the scan took 63 s against 43 s, and the 8 new ones were in two files. Seven were
+   `generic-api-key` on lines of gitea's `go.sum` whose module name holds a keyword (`oauth2`,
+   `token`, `kin-openapi`), read with the `h1:` hash as the value: false, and blocking. One was a
+   commented-out `api_key` in railsgoat's `bootstrap-image-gallery-main.js`: the thing the pattern
+   hides. Seventeen lockfiles and module files and 5,152 SVGs were in that set, and no other file
+   gave a finding. What it costs: a second departure from upstream's file, which the integrity test in
+   secret-guard would have to list; false positives in `go.sum` wherever a module is named for a
+   keyword; and time on binary files if those patterns go too. It needs no change in wolfproof and
+   no approval from anyone, which is the difference from option 1.
+3. *secret-guard reads them with the vendor-format rules only.* A second pass over the files the
+   list skips, without the heuristic rules (`generic-api-key`, `jwt`, `curl-auth-header`,
+   `authenticated-url`). On the calibration set that is 0 new findings, since all 8 above were
+   heuristic. It finds an AWS key, a private key or a GitHub token in a lockfile and not a password
+   in one. What it costs: a second gitleaks run on every scan, a second config to keep in step, and
+   a result that has to say which files got which rules.
+4. *Close the commit route alone.* Scan the destination of every rename, whatever the source was.
+   That catches `go.sum` renamed to `config.js` without knowing the list, at one more file per
+   rename. It does nothing for the tree case, and nothing for a key that stays in `go.sum`.
+
+Options 2 and 3 make the scanner read more; option 1 makes factory mode say what it does not read.
+Reading is the better end to fix where the false positives are few, which the measurement says
+they are outside `go.sum`. A mix is possible: read the text ones (option 2 or 3), and have
+wolfproof list only what is still unread, binaries and archives, which changes rarely enough for an
+approval to mean something.
+
 ### 12. Considered and deferred
 
 - **Split-string secrets** (`"abc" + "def"`). Missed, as the review says. The rest of its claim did not
