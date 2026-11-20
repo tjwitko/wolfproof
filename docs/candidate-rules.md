@@ -2733,6 +2733,70 @@ second run's where they differ.
 - A dependency advisory's ID has no file, so a held advisory covers the same advisory in any
   lockfile, a new service's included. Documented rather than changed.
 
+### 37. The injection check takes minutes on a few hundred files when the gate is started outside the project — open
+
+Measured on main, default mode: the gate took 97 s on a repository of 600 one-line `.js` files,
+nearly all of it in Semgrep, and did not finish in 10 minutes at 6,000. Nothing in those files is
+slow to parse or to match. Not fixed here; this entry records the cause.
+
+**The cause is where Semgrep is started, not what it scans.** `agent/sast.mjs` names every file on
+Semgrep's command line, as absolute paths, and starts Semgrep in whatever directory the gate was
+started in. When a named file is not under that directory, Semgrep 1.180.0 starts one
+`semgrep-core -rpc` process for it before the scan. Watching the process tree for 100 named files:
+
+| Semgrep started | processes it started | `semgrep-core -rpc` among them | wall time |
+|---|---|---|---|
+| in the project | 8 | 3 | 1.6 s |
+| in an unrelated directory | 147 | 103 | 13.7 s |
+
+That is about 0.12 s a file on the machine these were taken on, and it is linear. The check alone
+(`sastScan`), on 54d6808:
+
+| files | gate started elsewhere, project named by path | gate started in the project |
+|---|---|---|
+| 600 | 73.6 s and 79.1 s | 5.3 s and 5.5 s |
+| 6,000 | not run; about 12 minutes by the rate above | 42.6 s |
+
+Through the CLI on 600 files it was 189.6 s against 46.2 s, on a machine busy with other runs; the
+check-alone figures are the ones to compare. At 6,000 the files go to Semgrep 400 at a time, and
+400 files is about 48 s, well inside the 300 s limit on each run, so the run is slow and not hung:
+no chunk times out, and the first pass alone is fifteen of them.
+
+**What it does not follow.** Each of these was 12.4 to 14.6 s for the same 100 files named from
+outside: the gate's rules or one rule, the gate's flags or the fewest that run, `-j 8`, no
+`--timeout`, JavaScript, Python or Go. Naming the directory in place of the files took 2.3 s.
+Whether the project is a git repository made no difference, and for named files Semgrep ran three
+git commands wherever it was started. "Under the directory it was started in" is the whole condition: started in the
+project's parent it was as fast as started in the project.
+
+**Who meets it.** A run started in the repository does not: the Action, whose project is in the
+workspace it starts in, the pre-commit hook, `wolfproof .`. A run that names a project somewhere else does:
+`wolfproof /path/to/project`, the corpus and calibration runners, and this repository's own tests,
+whose projects are in the temp directory. That is why it went unnoticed where the gate is used and
+is paid in full where it is measured.
+
+**Why the files are named at all.** A directory target honours the project's `.semgrepignore`, and
+the project writes that file. Probed again here with `src/` and `*.js` in one: naming the directory
+scanned 0 of 150 files, from inside the project and from outside. Naming the files scanned 150 of
+150 and reported the one finding, from outside, from inside the project and from its parent. So
+the naming has to stay, and the fix is not to pass the directory.
+
+**Candidate fix.** Give Semgrep a working directory the files are under: `cwd` on the one
+`spawnSync` in `run()`, which the first pass and the helper passes share. The project's parent
+keeps Semgrep from starting inside the directory the change wrote; the project itself would do the
+same for speed. Before it ships:
+
+1. Show that nothing the project can write changes what a named file's scan reports when Semgrep
+   starts in or above the project. `.semgrepignore` is probed above and does not. A `.semgrep/`
+   directory, a `.semgrep.yml` and a `semgrep.yml` are not, and `--config` is always given, so they
+   should not be read, but that is an expectation and not a measurement.
+2. Run it on Linux. Every figure here is macOS, Semgrep 1.180.0, where the slow run's process tree
+   also showed the system's `security` command 38 times against 2; the count of
+   `semgrep-core -rpc` processes is the thing to compare, not the seconds.
+3. Run the calibration set and the corpus before and after and diff the findings by name. The
+   paths in Semgrep's results are the ones it was given, which stay absolute, so nothing should
+   move; a result that reports a path relative to the working directory would show up here.
+
 ### 12. Considered and deferred
 
 - **Split-string secrets** (`"abc" + "def"`). Missed, as the review says. The rest of its claim did not
