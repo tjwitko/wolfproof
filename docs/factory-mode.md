@@ -119,7 +119,10 @@ What decides it:
   space (`@docs/c++/guide.md`), and a backslash keeps a space (`@Design\ Docs/api.md`). It counts
   only when it names a file that is there.
 - **What is on disk is judged, whatever the ignore rules say.** An agent file that git does not
-  track blocks as "on disk, not tracked by git", whether or not an ignore rule covers it. An ignore
+  track blocks as "on disk, not tracked by git", whether or not an ignore rule covers it. So does an
+  untracked file that an agent file on disk links to or imports: with `@notes/local.md` in
+  `CLAUDE.md` and `notes/` ignored, a `notes/local.md` written by the change blocks, though git
+  shows no change at all. An ignore
   rule is the change's to write: measured on the first version of this rule, a change that added
   `.claude/` to `.gitignore` and wrote a `.claude/settings.json` allowing every shell command exited
   0. In CI that file is never committed; in a workspace kept between runs it is live for the next
