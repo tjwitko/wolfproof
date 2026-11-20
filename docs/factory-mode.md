@@ -99,6 +99,14 @@ What decides it:
   entry is honoured when it existed at the base or the allowlist approves it
   ([exemptions it judges](#exemptions-it-judges)). One that exists only in a commit of the change
   hides nothing: the line is scanned and the finding blocks.
+- **A commit's message is scanned too.** A credential pasted into one is pushed with the commit.
+  The finding names the commit and the line of the message. A message has no path, so only an
+  approval of the whole project covers it: `{ "kind": "secret-in-commit", "path": "." }`.
+- **A line is the commit's when the parent's copy of the file did not hold its text.** A line moved
+  within a file, or written a second time, adds nothing. No `.gitattributes` or diff setting has a
+  say.
+- **Every line counts in a file the parent's scan did not read**: a new file, one that was a
+  symbolic link, and one renamed out of a directory secret-guard does not scan.
 - **A merge commit is read for what it wrote itself**: lines that none of its parents has. Commits
   merged in from the target branch are not the change's when the base holds them.
 - **A file a commit wrote where secret-guard does not scan** (`vendor/`, `node_modules/` and the

@@ -245,3 +245,26 @@ test("a depth-1 checkout without the commits in between is exit 3, never a pass;
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a credential in a commit's message blocks, naming the commit and the line of the message", { skip }, () => {
+  const r = repo();
+  try {
+    const key = keyId();
+    const base = r.write("a.js", "export const a = 1;\n").commit("base");
+    r.write("a.js", "export const a = 2;\n");
+    r.git("add", "-A");
+    r.git("commit", "-q", "-m", "Fix the upload", "-m", `It failed until the key ${key} was set.`);
+    const told = r.git("rev-parse", "HEAD");
+    const f = factory(r, base);
+    assert.equal(f.code, 1, say(f));
+    assert.deepEqual(f.doc.couldNotRun, []);
+    assert.equal(failures(f.doc).length, 1, say(f));
+    assert.ok(failures(f.doc)[0].startsWith(`factory: 1 credential in the commits of this change — commit ${told.slice(0, 12)} message, line 3 (aws-access-token). `), failures(f.doc)[0]);
+    assert.deepEqual(f.doc.factory.commits.findings, [{ commit: told, message: true, line: 3, rule: "aws-access-token", status: "added" }]);
+    assert.ok(!f.stdout.includes(key), "the value is not in the report");
+    // The default mode is as it was.
+    assert.equal(cli([r.dir, "--json"]).code, 0);
+  } finally {
+    r.done();
+  }
+});
