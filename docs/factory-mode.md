@@ -139,6 +139,11 @@ What decides it:
 - **Dependency and build trees are not searched** for untracked agent files: `node_modules/`,
   `.venv/`, `venv/`, `dist/`, `build/`, `.terraform/` and the rest of what the checks skip. An
   installed `node_modules` holds other projects' `AGENTS.md` files. A tracked file there counts.
+  That is the search of the whole tree for agent files by name. Inside an agent directory, and
+  under a directory an agent file links to, every directory is read except `.git`, since the agent
+  reads all of it: `.claude/skills/build/SKILL.md` counts, and so does `local-rules/dist/x.md`
+  with `.claude/rules` linked to `local-rules`. So a `node_modules` installed inside `.claude/`, for
+  a hook's dependencies, counts as the change's when git does not track it.
 - **A rename has two ends, and the allowlist has to approve each one that is an agent file.**
   `CLAUDE.md` renamed into an approved `.claude/commands/` still blocks, because it takes
   `CLAUDE.md` away; a command renamed out of it to `.claude/rules/` blocks for where it went.
