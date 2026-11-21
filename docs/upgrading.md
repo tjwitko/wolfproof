@@ -953,7 +953,8 @@ that can fail to load is loaded. The gate, `wolfproof known` and `wolfproof revi
 "could not start" and the reason, and in `--json` mode the gate writes
 `{"exitCode": 3, "incomplete": true, "error": "the gate could not start: ..."}`; `wolfproof init`
 exits 70, its own code for failed. `wolfproof review` had no handler at all, and a throw that
-escapes it is now exit 3 too.
+escapes it is now exit 3 too. One that arrives after it has begun to exit leaves the code it chose
+and its output whole, and is said on stderr, as for the gate and `wolfproof known` (below).
 
 If a job treated exit 1 from a broken installation as findings, it now sees exit 3. Under Node 20 a
 module preloaded with `--import` can still throw before any line of the CLI has run, in its first

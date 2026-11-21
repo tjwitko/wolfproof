@@ -990,9 +990,24 @@ if (invokedDirectly() && process.argv[2] === "init") {
   standDown();
   await runInit(process.argv.slice(3));
 } else if (invokedDirectly() && process.argv[2] === "review") {
-  // review installs no handler: the one from before it started stays, and a throw that escapes it
-  // is exit 3, which is in its contract, where Node's 1 is not.
+  // review's contract is 0, 2 and 3, and it had no handler: a throw that escaped it was Node's 1.
+  //
+  // Its own handler, and not the one from before it started left in place. That one ends the
+  // process at once, which is right while nothing has been written and wrong after: measured on
+  // b122cf2, a failure delivered while a 214,804-byte list was being flushed gave a reader on a
+  // pipe 65,536 bytes of it and exit 3 in place of 0, and after a usage error, 3 in place of 2.
   const { runReview } = await import("./review.mjs").catch(notLoaded);
+  const crash = (err) => {
+    if (exiting()) return reportAfterExitBegan("wolfproof review", err);
+    process.stderr.write(
+      `wolfproof review: the command itself failed: ${(err && err.stack) || err}\n` +
+        `Exit 3: it did not finish. If it was writing an entry, read the file before committing it.\n`
+    );
+    exitWhenWritten(EXIT.INCOMPLETE);
+  };
+  process.on("uncaughtException", crash);
+  process.on("unhandledRejection", crash);
+  standDown();
   await exitWhenWritten(await runReview(process.argv.slice(3)));
 } else if (invokedDirectly() && process.argv[2] === "known") {
   // known's contract is 0, 2 and 3. A throw that escaped it -- the build check's walk over a
