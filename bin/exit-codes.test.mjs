@@ -392,8 +392,23 @@ test("wolfproof known over a directory that cannot be listed exits 3 and names i
 test("wolfproof known that throws exits 3, not Node's 1", () => {
   const d = scratch();
   try {
-    // An exception from nowhere in particular, once the command is under way.
-    const r = spawnSync(process.execPath, ["--import", "data:text/javascript,setTimeout(() => { throw new Error('injected') }, 200)", CLI, "known", path.join(d, "proj")], {
+    // An exception from nowhere in particular, once the command is under way: thrown on the turn
+    // of the event loop after the command's handler, a function named `crash`, is registered.
+    //
+    // It was thrown 200 ms after start. Under Node 20 the handler is in place only once the whole
+    // of the CLI's module graph has been read, and on a slow runner that took longer: run
+    // 44657815324 (node 20 only) got Node's own report and exit 1. Measured in a node:20 container
+    // on c54b4a9, the handler was in place after about 75 ms, and after one to two seconds on a
+    // fifth of a CPU. What happens before the command is loaded is bin/could-not-start.test.mjs's.
+    const underWay = `data:text/javascript,${encodeURIComponent(`
+      const on = process.on.bind(process);
+      process.on = (event, listener) => {
+        const r = on(event, listener);
+        if (event === "uncaughtException" && listener.name === "crash") setImmediate(() => { throw new Error("injected"); });
+        return r;
+      };
+    `)}`;
+    const r = spawnSync(process.execPath, ["--import", underWay, CLI, "known", path.join(d, "proj")], {
       encoding: "utf8",
       timeout: 120_000,
     });
