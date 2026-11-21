@@ -66,7 +66,7 @@ const { commitSecrets } = await import("../lib/factory-commits.mjs").catch(notLo
 const { parseReviews, reviewableLine, reviewedRecord, staleReviewsLine, REVIEW_FILE } = await import("../lib/reviewed.mjs").catch(notLoaded);
 const { parseKnown, knownRecord, knownLine, staleKnownLine, KNOWN_FILE } = await import("../lib/known.mjs").catch(notLoaded);
 import { classifyAdvisory, actionFor, ACTIONS, COULD_NOT_RUN, INFO, NOT_CHECKED } from "../lib/advisory-classes.mjs";
-import { exitWhenWritten, exiting } from "../lib/exit-when-written.mjs";
+import { exitCodeChosen, exitWhenWritten, exiting, writeBeforeExit } from "../lib/exit-when-written.mjs";
 
 const EXIT = { CLEAN: 0, BLOCKED: 1, USAGE: 2, INCOMPLETE: 3 };
 
@@ -120,6 +120,19 @@ export function failClosed(err, { json, wroteResult }) {
 }
 
 let wroteResult = false;
+
+/**
+ * A failure that arrives after the exit has begun: while a verdict is being flushed, or while an
+ * earlier failure's report is. The code already chosen stands, since a code once chosen is not
+ * replaced, and stdout gets nothing, since it has had its one document. It used to be dropped
+ * whole: a rejection that fired while a clean verdict was being written left exit 0 and no trace.
+ */
+function reportAfterExitBegan(name, err) {
+  writeBeforeExit(
+    `${name}: something failed after the exit had begun: ${(err && err.stack) || err}\n` +
+      `The exit code already chosen, ${exitCodeChosen()}, stands, and nothing more is written to stdout.\n`
+  );
+}
 
 /**
  * How many sentences of a requirement text a task-gated check read; of the rest, which an always-on
@@ -986,6 +999,7 @@ if (invokedDirectly() && process.argv[2] === "init") {
   // directory it could not list did -- ended the process with Node's 1, a code it does not have and
   // the gate's "blocked". The command ran the gate and did not finish, so 3, said as the gate says it.
   const crash = (err) => {
+    if (exiting()) return reportAfterExitBegan("wolfproof known", err);
     process.stderr.write(
       `wolfproof known: the command itself failed: ${(err && err.stack) || err}\n` +
         `Exit 3: it did not finish. Read the change to ${KNOWN_FILE} before committing it, if there is one.\n`
@@ -1000,10 +1014,10 @@ if (invokedDirectly() && process.argv[2] === "init") {
 } else if (invokedDirectly()) {
   const json = process.argv.includes("--json");
   const crash = (err) => {
+    // One document on stdout and one exit code. A failure after the exit has begun gets neither,
+    // and is said on stderr.
+    if (exiting()) return reportAfterExitBegan("wolfproof", err);
     const r = failClosed(err, { json, wroteResult });
-    // One crash is reported. A second, while the first is being written, would put a second
-    // document on stdout.
-    if (exiting()) return;
     if (r.stdout) process.stdout.write(r.stdout);
     process.stderr.write(r.stderr);
     exitWhenWritten(r.code);
