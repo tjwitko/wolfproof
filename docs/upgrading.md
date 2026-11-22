@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.16.7
+wolfproof 1.17.0
   terraform-guard  v1.1.3  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.4  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.0.4  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.16.7
-- uses: tjwitko/wolfproof@v1.16.7
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.17.0
+- uses: tjwitko/wolfproof@v1.17.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.16.7
+npm install --save-dev github:tjwitko/wolfproof#v1.17.0
 ```
 
 ## 3. Refresh what setup wrote
@@ -909,9 +909,9 @@ did not ignore the directory; the pipeline's allowlist approves it by path. Not 
 that names the directory (`data/postgres/`, `data/postgres`, `data/`, `data/*`), with or without
 other negations elsewhere.
 
-### After v1.16.7
+### In v1.17.0
 
-**After v1.16.7: factory mode scans the change's commits for credentials.** secret-guard reads the
+**In v1.17.0: factory mode scans the change's commits for credentials.** secret-guard reads the
 working tree, so a credential one commit added and a later commit of the same change removed was in
 no tree the gate compared: on v1.16.7, a base, a commit adding an AWS access key ID and a commit
 removing the line exited 0 in factory mode. Factory mode now scans what each commit between the
@@ -929,7 +929,7 @@ hold every commit between the base and the head. That is a run outside the Actio
 clone, or a change longer than about 1,500 commits; `fetch-depth: 0` fixes both. The default mode
 is not affected.
 
-**After v1.16.7: factory mode blocks a change to a file that instructs coding agents.** Factory
+**In v1.17.0: factory mode blocks a change to a file that instructs coding agents.** Factory
 mode blocked a change under `.github/workflows/` and had no rule for `AGENTS.md`, `CLAUDE.md`,
 `.claude/`, `.mcp.json`, `.cursor/`, `.github/copilot-instructions.md`, `GEMINI.md` and the rest of
 [the list](factory-mode.md#agent-instructions). A change that edits one changes what the next agent
@@ -944,7 +944,7 @@ deletes one of those files, the output of `wolfproof init` and `wolfproof init -
 Make such edits in a change a person reviews, or have the allowlist approve the path, kind
 `agent-instructions`. The default mode is not affected.
 
-**After v1.16.7: a gate that cannot start exits 3, not 1.** The crash handler was installed by
+**In v1.17.0: a gate that cannot start exits 3, not 1.** The crash handler was installed by
 the CLI's own code, which runs only after every module it imports has loaded. So a failure before
 then ended with Node's exit 1, which is "blocked": on v1.16.7, a copy of the package whose
 dependencies are not installed exits 1 from every command, and under Node 20 so does an exception
@@ -960,7 +960,7 @@ If a job treated exit 1 from a broken installation as findings, it now sees exit
 module preloaded with `--import` can still throw before any line of the CLI has run, in its first
 few milliseconds, and that is still Node's exit 1; under Node 22 no such moment was found.
 
-**After v1.16.7: `--json` through a pipe is written whole.** The gate wrote its result and then
+**In v1.17.0: `--json` through a pipe is written whole.** The gate wrote its result and then
 ended the process. A write to a pipe is asynchronous on macOS and Linux, so a document larger than
 the pipe's buffer was cut there: on v1.16.7 on macOS, a 417,136-byte document reached `spawnSync`,
 a shell's `$(...)` or `| jq` as 65,536 bytes that do not parse, with the exit code of a finished
@@ -972,7 +972,7 @@ reader that closes early still gets the code.
 No verdict changes. A script that read `--json` through a pipe and fell back on a parse error now
 gets the document.
 
-**After v1.16.7: a failure after the gate has begun to exit is said on stderr.** With the change
+**In v1.17.0: a failure after the gate has begun to exit is said on stderr.** With the change
 above, an exception or rejection that arrived while the verdict was being written out was dropped:
 a clean run exited 0 with no trace of it, and `wolfproof known` printed "Exit 3: it did not finish"
 and exited with the code it already had. Both now write two lines to stderr, the failure and the
@@ -983,7 +983,7 @@ The gate has no time limit of its own on its output: a reader that keeps the pip
 reading makes it wait, as any program waits on a full pipe. Set your own limit on the call if you
 cannot wait.
 
-**After v1.16.7: an option the command does not define is a usage error.** Each command picked
+**In v1.17.0: an option the command does not define is a usage error.** Each command picked
 out the options it knew and stepped over any other. On v1.16.7, on a clean project,
 `wolfproof <project> --factroy` ran the default mode and exited 0, `--json=1` wrote the report as
 text, and `wolfproof known <project> --json` wrote its snapshot. Each is now exit 2, naming the
@@ -997,7 +997,7 @@ Can turn a passing run into **exit 2**: any call that passes an option the comma
 The Action and the hook `wolfproof init` writes pass none. A directory whose name begins with a
 dash has to be given as `./-name`.
 
-**After v1.16.7: a credential that holds "true", "false" or "null" is reported.** The gate now
+**In v1.17.0: a credential that holds "true", "false" or "null" is reported.** The gate now
 pins secret-guard v1.0.4. gitleaks' built-in allowlist dismisses any secret matching
 `(?i)^true|false|null$`, which reads as "starts with true, or contains false, or ends with null",
 in any letter case and for every rule. Measured on v1.16.7, one committed file per project: a
@@ -1013,7 +1013,7 @@ binary no longer brings newer rules, and 8.30.1 is the one to install.
 Can turn a passing run red, **exit 1**: a credential with one of those words in it, which was in
 the tree all along. Rotate it.
 
-**After v1.16.7: a secret scan that did not happen, or did not read everything, is exit 3.** Up to
+**In v1.17.0: a secret scan that did not happen, or did not read everything, is exit 3.** Up to
 secret-guard v1.0.3 each of these came back as a clean scan, and v1.0.4 makes each an error:
 
 - **A configuration gitleaks cannot load.** A clean project with `SECRET_GUARD_CONFIG` naming a

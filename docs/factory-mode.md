@@ -17,7 +17,7 @@ wolfproof . task.txt --factory --base=origin/main
 ```
 
 ```yaml
-      - uses: tjwitko/wolfproof@v1.16.7
+      - uses: tjwitko/wolfproof@v1.17.0
         with:
           task-file: task.txt
           factory: true
