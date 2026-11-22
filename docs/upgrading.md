@@ -1030,10 +1030,11 @@ secret-guard v1.0.3 each of these came back as a clean scan, and v1.0.4 makes ea
 
 One path is set aside, so that v1.16.5's rule holds: a directory git ignores that the gate could
 not list itself, such as a container's bind mount. The scanner did not read it either, the line
-above the verdict already says so, and the verdict is as it was, exit 0 before and after (and the
-[grant](factory-mode.md#exemptions-it-judges) in factory mode when the change's own ignore line is
-what ignores it). The gate reads the list of unread paths secret-guard sends with its error and
-sets the scan's error aside only when every path on it lies in such a directory.
+above the verdict already says so, and the verdict is as it was, exit 0 before and after. In
+factory mode a directory only the change's own ignore line ignores is still
+[the grant the change added](factory-mode.md#exemptions-it-judges), exit 1. The gate reads the
+list of unread paths secret-guard sends with its error and sets the error aside only when every
+path on it lies in such a directory.
 
 Nothing else is set aside, and each of these, measured, went from exit 0 on v1.16.7 to exit 3:
 
@@ -1045,7 +1046,7 @@ Nothing else is set aside, and each of these, measured, went from exit 0 on v1.1
   reads. One under `node_modules/` is not reported: gitleaks does not walk there.
 
 Outside a git repository nothing is ignored, so a directory that cannot be listed adds a
-`scan_path` entry to the three the run already had; the exit code was 3 and is 3.
+`scan_path` entry to those the run already had; the exit code was 3 and is 3.
 
 When the scan found credentials as well, they block as before and what was not read is a
 could-not-run entry beside them, so the run is exit 3 where it was exit 1. In factory mode the
