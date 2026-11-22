@@ -48,9 +48,11 @@ function keyId() {
 // draw. Measured with gitleaks 8.30.1 and the pipeline's rules, on text of that key's shape (the two
 // label lines around a random base64 body, 28 lines):
 //   - lines in reverse order: 36 of 60,000 were a generic-api-key finding, each on a body ending in
-//     "=" padding, as about 7 real keys in 10 do. "key" or "api" in any letter case a few characters
-//     before the "=" reads as a name being assigned, and the line after it as the value. The gate's
-//     run on e33ffdc failed on the test below, which commits the key reversed and expects no finding.
+//     "=" padding, as about 7 real keys in 10 do. One of the rule's words a few characters before the
+//     "=" reads as a name being assigned, and the line after it as the value: "api" as api, Api or
+//     API, and access, auth, credential, creds, key, passwd, password, secret or token in any letter
+//     case. The gate's run on e33ffdc failed on the test below, which commits the key reversed and
+//     expects no finding.
 //   - lines in reverse order, no padding: 1 of 200,000 (square-access-token, on a line starting EAAA).
 //   - lines in order: 5 of 120,000 were no finding at all. Each held "false" in some letter case, and
 //     gitleaks' default allowlist drops any secret that does. That is the scanner missing a key,
@@ -218,7 +220,7 @@ test("a file a commit wrote under vendor/, where secret-guard does not scan, blo
     assert.equal(f.code, 1, say(f));
     assert.deepEqual(f.doc.couldNotRun, []);
     assert.equal(failures(f.doc).length, 1, say(f));
-    assert.ok(failures(f.doc)[0].startsWith(`factory: 1 file a commit of this change wrote where secret-guard's gitleaks allowlist does not scan — commit ${added.slice(0, 12)} vendor/keys/k.js. `), failures(f.doc)[0]);
+    assert.ok(failures(f.doc)[0].startsWith(`factory: 1 file a commit of this change wrote where secret-guard's scan does not read — commit ${added.slice(0, 12)} vendor/keys/k.js. `), failures(f.doc)[0]);
     assert.equal(f.doc.factory.commits.skipped.length, 1);
   } finally {
     r.done();

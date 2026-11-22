@@ -48,8 +48,20 @@ it and the head.
 
 ### Where the checks do not look
 
-`dist/`, `build/`, `venv/`, `node_modules/`, and `vendor/` and the rest of secret-guard's gitleaks
-allowlist.
+`dist/`, `build/`, `venv/`, `node_modules/`, and everything the pinned secret-guard says it does not
+read (`gitleaks/unread-paths.json`): third-party trees, images, fonts, Office files, PDFs, `.exe`,
+gems, rule files and archives. A change that adds, edits or renames a file to one of those paths
+blocks, whatever the file holds, so a real image blocks too. A list that is there and cannot be read
+is exit 3. A secret-guard older than the list gets wolfproof's fallback, a copy of the pinned
+release's list, which does not name the text kinds that older scanner also skips.
+
+The allowlist approves one with the kind `skipped-location`. For a kind skipped for its **name**
+(images, fonts, binaries, gems, rule files, archives), the message asks for the file's path. An entry
+naming its directory also works, and then covers anything written there later.
+
+gitleaks takes a file for an archive when its name holds the ending, so `app.browser.js`,
+`deploy.target.yaml` and `messages.pt.br.json` count. A file whose first bytes are a binary format's
+is not read under any name either, and that one factory mode cannot see: nothing in its path says so.
 
 ### Servers in test files
 
@@ -236,8 +248,8 @@ What decides it:
   symbolic link, and one renamed out of a directory secret-guard does not scan.
 - **A merge commit is read for what it wrote itself**: lines that none of its parents has. Commits
   merged in from the target branch are not the change's when the base holds them.
-- **A file a commit wrote where secret-guard does not scan** (`vendor/`, `node_modules/` and the
-  rest of its allowlist) blocks as [code where the checks do not look](#where-the-checks-do-not-look),
+- **A file a commit wrote where secret-guard does not read** (`vendor/`, `node_modules/`, an image,
+  an archive and the [rest of its list](#where-the-checks-do-not-look)) blocks as [code where the checks do not look](#where-the-checks-do-not-look),
   naming the commit, when the tree no longer shows it. The allowlist approves it the same way, kind
   `skipped-location`.
 - **The allowlist approves a finding by its file**, kind `secret-in-commit`, path from the project:
@@ -272,10 +284,9 @@ in a shallow clone. `fetch-depth: 0` on `actions/checkout` always works.
 Three limits:
 
 - **A file the scanner skips by its name is not read in a commit either**, as it is not in the
-  tree: gitleaks' own configuration skips images, PDFs, lockfiles and `go.sum`. Measured: a key in
-  `k.png` or `package-lock.json` is not found. And a file renamed from such a name is compared with
-  the copy that was never scanned, so a key added as `k.png` and renamed unchanged to `k.txt` by the
-  next commit is not reported.
+  tree. A commit that writes one [blocks for that](#where-the-checks-do-not-look), and a file renamed
+  from such a name counts as new, so a key added as `k.png` and renamed to `k.txt` is found. A file
+  whose first bytes are a binary format's is not read and not reported.
 - **A force-push that rewrites the branch takes the commit out of the range.** The gate reads the
   commits between the base and the head it is given. A credential pushed in a commit that was later
   rewritten away was still pushed, and no later run sees it.

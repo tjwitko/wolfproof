@@ -364,6 +364,11 @@ So that a clean verdict is read for what it is:
   formats get advisories only.
 - **Helm templates, until rendered.** The manifest checks skip a file with an unquoted `{{ … }}`
   where YAML expects a value, and name it; run `helm template` and gate the output.
+- **Files the secret scan does not read.** Third-party trees, images, fonts, Office files, PDFs,
+  `.exe`, gems, rule files and archives. gitleaks takes a file for an archive when its name holds the
+  ending, so `app.browser.js` and `messages.pt.br.json` are among them. Text that begins with a binary
+  format's first bytes, such as `%PDF-`, is not read under any name. In [factory mode](docs/factory-mode.md#where-the-checks-do-not-look)
+  a change that writes to one of these paths blocks; the first-bytes case has no path to block on.
 - **Requirements nobody stated.**
 
 → [What it checks, in full](docs/checks.md): languages and frameworks, the four controls, how the

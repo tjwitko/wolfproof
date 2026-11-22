@@ -63,6 +63,7 @@ const {
   inventoryGrants,
 } = await import("../lib/factory.mjs").catch(notLoaded);
 const { commitSecrets } = await import("../lib/factory-commits.mjs").catch(notLoaded);
+const { secretGuardUnread } = await import("../lib/secret-guard-unread.mjs").catch(notLoaded);
 const { parseReviews, reviewableLine, reviewedRecord, staleReviewsLine, REVIEW_FILE } = await import("../lib/reviewed.mjs").catch(notLoaded);
 const { parseKnown, knownRecord, knownLine, staleKnownLine, KNOWN_FILE } = await import("../lib/known.mjs").catch(notLoaded);
 const { optionProblems } = await import("../lib/cli-flags.mjs").catch(notLoaded);
@@ -338,6 +339,10 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
     // with the plugin cache deciding.
     let judged = { failures: [], notes: [], grants: [], changed: [], newProbeRoutes: [], workflows: [], agentFiles: [] };
     if (factory && base) {
+      // A list that is there and cannot be read: the judgement below runs on the fallback, and the
+      // run is could-not-run, so a pattern the gate could not read is never one it quietly dropped.
+      const unread = secretGuardUnread(controls.find((c) => c.name === "secret-guard")?.entry || null);
+      if (unread.error) factoryCouldNotRun.push(`factory: ${unread.error}`);
       judged = judgeChange(projectDir, {
         sha: base.sha,
         baseDir: base.dir,

@@ -1057,6 +1057,44 @@ Can turn a passing run into **exit 3**: a project holding anything the user the 
 read, apart from the ignored directory above, or a `SECRET_GUARD_CONFIG` that does not load. Make
 the path readable by that user, or remove it.
 
+### After v1.17.0
+
+**After v1.17.0: the secret scan reads text files it used to skip.** The secret-guard this release
+pins takes out of gitleaks' default path allowlist the entries that hid text: lockfiles, `go.mod`,
+`go.sum`, `go.work`, `.svg`, the gradle and maven wrappers, any `.js` named for a library such as
+`bootstrap.js`, `javascript.json`, `verification-metadata.xml`, `.refactorlog`, `.gltf`, `.socket`,
+`.bin` and `.v2`. In `go.sum`, `generic-api-key` skips a line of exactly the form
+`<module> <version> h1:<hash>`; every other rule reads it, and a password on any other line is
+reported. On the 35 calibration projects the findings went from 451 to 452, none lost, and the new
+one is a commented-out API key in a file named for a library.
+
+Can turn a passing run red, **exit 1**: a credential in one of those files. Measured, v1.17.0 against
+this version, in default mode and in factory mode:
+
+| The change | default | factory |
+|---|---|---|
+| an AWS access key ID in `go.sum` | 0 to 1 | 0 to 1 |
+| a GitHub token in a comment in `art.svg` | 0 to 1 | 0 to 1 |
+| the same in `bootstrap.js`, or a file named for angular, jquery, plotly or swagger-ui | 0 to 1 | 0 to 1 |
+| the same under `bower_components/`, `env/lib64/` or `lib/python3.11/`, which stay unread | 0 | 0 to 1 |
+| `go.sum` with a key, renamed to `config.js`, then deleted, in three commits | 0 | 0 to 1 |
+| `package-lock.json` edited, no credential | 0 | 0 |
+
+**After v1.17.0: factory mode blocks a write where the secret scan still does not look.** Its list
+now comes from the pinned secret-guard (`gitleaks/unread-paths.json`): third-party trees, images,
+fonts, Office files, PDFs, `.exe`, gems, rule files and archives. A list that is there and cannot be
+read is exit 3. Default mode is unchanged by this.
+
+Can turn a passing factory run red, **exit 1**: a change that adds, edits or renames a file to such
+a path. Text holding a token named `logo.png` or `data.zip` was 0 and is 1, and so is the same file
+renamed to `config.js` and deleted. So is a real image. Over the last 100 commits of wolfproof and of
+the four controls (446 commits, since three have fewer), 2 would have blocked on this rule alone,
+both edits to secret-guard's own `gitleaks/default.gitleaks.toml`. Approve a path with the kind
+`skipped-location`, by the file's path for a kind skipped by its name.
+
+gitleaks takes a file for an archive when its **name holds** an archive's ending, so
+`app.browser.js`, `deploy.target.yaml` and `messages.pt.br.json` are unread and block as well.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

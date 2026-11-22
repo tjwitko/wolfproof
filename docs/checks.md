@@ -484,7 +484,10 @@ aside is a directory git ignores that the gate itself could not list, which is
 
 **The rules** are gitleaks 8.30.1's default rules, read from secret-guard's own copy, whatever
 gitleaks binary is installed, and a connection-string rule of secret-guard's. The copy differs from
-gitleaks' in one allowlist entry, which dismissed any credential that contained "false".
+gitleaks' in one allowlist entry, which dismissed any credential that contained "false", and in its
+path allowlist, so that lockfiles, `go.sum`, `.svg`, build wrappers and `.js` files named for a library
+are read. In `go.sum`, `generic-api-key` skips a line of exactly the form `<module> <version>
+h1:<hash>`; a value of a hash's shape written there is not reported.
 
 **In factory mode, the change's commits as well.** The scan above reads the working tree, so a
 credential one commit adds and a later commit removes is not in it. Factory mode also scans what
@@ -677,6 +680,12 @@ Listed so that a clean verdict is read for what it is.
   say so. Render it (`helm template`) and run the gate over the output; the workload-identity
   control reads templates as it always did. A template whose every expression is quoted parses as a
   manifest holding those strings, and is read as one.
+- **Files the secret scan does not read.** Third-party trees, images, fonts, Office files, PDFs,
+  `.exe`, gems, rule files and archives. gitleaks takes a file for an archive when its name holds the
+  ending, so `app.browser.js` and `messages.pt.br.json` are among them. Text that begins with a binary
+  format's first bytes, such as `%PDF-`, is not read under any name. In [factory mode](factory-mode.md#where-the-checks-do-not-look) a
+  change that writes to one of these paths blocks, from the list the pinned secret-guard publishes
+  (`gitleaks/unread-paths.json`). The first-bytes case has no path to block on.
 - **Requirements nobody stated.** The task-gated checks run only when the task or a baseline states
   the requirement.
 - **A commit made with `--no-verify`.** The hook is a convenience. CI with the gate as a required check
