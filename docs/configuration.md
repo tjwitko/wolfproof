@@ -451,7 +451,8 @@ mode: `wolfproof known . --file <path>` writes one there.
 
 `--json` writes one machine-readable document. Even when the gate crashes it exits 3, never Node's
 default 1, and still writes one document: `{"exitCode": 3, "incomplete": true, "error": "..."}`. A
-usage error writes `{"exitCode": 2, "error": "..."}`.
+usage error writes `{"exitCode": 2, "error": "..."}`. An option the gate does not define is one: it is
+never stepped over.
 
 The gate ends when its output has been read, and has no time limit of its own: a reader that keeps
 the pipe open and stops reading makes it wait, as any program waits on a full pipe, so a caller

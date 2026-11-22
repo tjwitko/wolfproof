@@ -19,6 +19,7 @@ import { existsSync, readFileSync, writeFileSync, statSync } from "fs";
 import path from "path";
 
 import { KNOWN_FILE, KNOWN_FAMILIES, familyOf, parseKnown } from "../lib/known.mjs";
+import { optionProblems } from "../lib/cli-flags.mjs";
 
 const EXIT = { OK: 0, USAGE: 2, INCOMPLETE: 3 };
 const USAGE = "usage: wolfproof known <project-dir> [task-file] [--codeql] [--file <path>]";
@@ -75,7 +76,15 @@ export async function runKnown(args, { env = process.env, gate = null } = {}) {
     if (err.length) process.stderr.write(`${err.join("\n")}\n`);
     return code;
   };
-  if (args.includes("--help")) {
+  // An option that is not one of these was stepped over: `wolfproof known <project> --json` wrote
+  // its snapshot and its text and exited 0 (lib/cli-flags.mjs).
+  const problems = optionProblems(args, { flags: ["--help", "-h", "--codeql"], values: ["--file"], separate: true });
+  if (problems.length) {
+    err.push(`wolfproof known: ${problems.join("; ")}`);
+    err.push(USAGE);
+    return done(EXIT.USAGE);
+  }
+  if (args.includes("--help") || args.includes("-h")) {
     err.push(USAGE);
     return done(EXIT.OK);
   }

@@ -983,6 +983,20 @@ The gate has no time limit of its own on its output: a reader that keeps the pip
 reading makes it wait, as any program waits on a full pipe. Set your own limit on the call if you
 cannot wait.
 
+**After v1.16.7: an option the command does not define is a usage error.** Each command picked
+out the options it knew and stepped over any other. On v1.16.7, on a clean project,
+`wolfproof <project> --factroy` ran the default mode and exited 0, `--json=1` wrote the report as
+text, and `wolfproof known <project> --json` wrote its snapshot. Each is now exit 2, naming the
+option and the nearest one the command has, as `wolfproof init` already did: the gate,
+`wolfproof known` and `wolfproof review`, for an option that is not theirs, for one that takes no
+value and was given one, and for one written with a single dash. In `--json` mode the gate writes
+`{"exitCode": 2, "error": "unknown option ..."}`. It is asked before anything else, so
+`wolfproof --version --no-such-flag` is exit 2 as well.
+
+Can turn a passing run into **exit 2**: any call that passes an option the command does not have.
+The Action and the hook `wolfproof init` writes pass none. A directory whose name begins with a
+dash has to be given as `./-name`.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
