@@ -380,7 +380,8 @@ injection rules are calibrated, and every known blind spot.
 
 **Exit 3 is the one that matters.** It means the project was not fully checked. It is not a pass,
 and it is not a normal failure. Treating it as either is the failure mode this project exists to
-remove. A gate that crashes exits 3 too.
+remove. A gate that crashes exits 3 too, and so does one that cannot start, for example because a
+dependency is not installed.
 
 `wolfproof init` has its own codes — see [Configuration](docs/configuration.md#wolfproof-init).
 

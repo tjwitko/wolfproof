@@ -218,3 +218,61 @@ test("wolfproof known says the same of a failure after it has begun to exit, and
     p.done();
   }
 });
+
+// review had the handler from before it started and no other. That one ends the process at once:
+// measured on b122cf2, the same failure gave a reader on a pipe 65,536 bytes of a 214,804-byte list
+// and exit 3 in place of 0, and after a usage error exit 3 in place of 2.
+
+test("wolfproof review keeps its exit code and its whole list when a failure arrives after it has begun to exit", () => {
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "review-late-")));
+  try {
+    // Open routes, each one ID in the list, so that the list is larger than a pipe's buffer.
+    writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "p", version: "1.0.0", dependencies: { express: "4.19.2" } }));
+    let app = 'const express = require("express");\nconst app = express();\n';
+    for (let i = 0; i < 800; i++) app += `app.get("/things/number-${String(i).padStart(5, "0")}/detail", (req, res) => res.json({ n: ${i} }));\n`;
+    writeFileSync(path.join(dir, "server.js"), `${app}app.listen(3000);\n`);
+    const plain = spawnSync(process.execPath, [CLI, "review", dir], { encoding: "utf8", maxBuffer: 1 << 28, timeout: 120_000 });
+    assert.ok(plain.stdout.length > PIPE, `the list is ${plain.stdout.length} bytes, which a pipe holds whole`);
+    const r = late(["review", dir]);
+    assert.equal(r.status, plain.status, `exit ${r.status} with the failure, ${plain.status} without; stderr: ${r.stderr.slice(-600)}`);
+    assert.notEqual(r.status, null);
+    assert.equal(r.stdout.length, plain.stdout.length, "the list arrives whole");
+    assert.equal(r.stdout, plain.stdout);
+    assert.match(r.stderr, /^wolfproof review: something failed after the exit had begun: Error: injected late$/m);
+    assert.match(r.stderr, new RegExp(`^The exit code already chosen, ${plain.status}, stands`, "m"));
+    assert.doesNotMatch(r.stderr, /Exit 3: it did not finish/);
+
+    // A usage error is exit 2 whatever is installed, so this one cannot pass by both runs ending 3.
+    const usage = late(["review"]);
+    assert.equal(usage.status, 2, `exit ${usage.status}; stderr: ${usage.stderr.slice(-600)}`);
+    assert.match(usage.stderr, /^usage: wolfproof review /m);
+    assert.match(usage.stderr, /^wolfproof review: something failed after the exit had begun: Error: injected late$/m);
+    assert.match(usage.stderr, /^The exit code already chosen, 2, stands/m);
+    assert.doesNotMatch(usage.stderr, /Exit 3/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("wolfproof review that throws before it has begun to exit says so as itself, and exits 3", () => {
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "review-throws-")));
+  try {
+    writeFileSync(path.join(dir, "a.js"), "export const a = 1;\n");
+    // The command's own write of its list fails: a throw from inside it, before any exit was asked for.
+    const throws = `data:text/javascript,${encodeURIComponent(`
+      const write = process.stdout.write.bind(process.stdout);
+      process.stdout.write = (chunk, ...rest) => {
+        if (chunk !== "") throw new Error("injected in the command");
+        return write(chunk, ...rest);
+      };
+    `)}`;
+    const r = spawnSync(process.execPath, ["--import", throws, CLI, "review", dir], { encoding: "utf8", timeout: 120_000 });
+    assert.equal(r.status, 3, `exit ${r.status}; stderr: ${r.stderr.slice(-600)}`);
+    assert.match(r.stderr, /^wolfproof review: the command itself failed: Error: injected in the command$/m);
+    assert.match(r.stderr, /^Exit 3: it did not finish\./m);
+    assert.doesNotMatch(r.stderr, /could not start/, "it had started");
+    assert.equal(r.stdout, "");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

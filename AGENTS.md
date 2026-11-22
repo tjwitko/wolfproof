@@ -47,7 +47,11 @@ the CLI, the pre-commit hook, and CI.
 ## Key files
 
 - `bin/validate.mjs` — the CLI and the package entry point. Exports `runGate()` and guards `main()`
-  behind an entry-point check, so it is importable without side effects.
+  behind an entry-point check, so it is importable without side effects. It loads this package's
+  modules with `await import(...)`, after `lib/could-not-start.mjs` has installed a handler, and
+  not with `import ... from`: a static import is loaded before any line of the file runs, so a
+  module that would not load exited 1, "blocked", from a gate that never started. Add new imports
+  the same way; a test fails on a static one.
 - `lib/resolve-controls.mjs` — where the four controls come from, and the reporting of it.
 - `agent/` — the validators, one file per check, plus the tool-calling agent loop described below.
 - `action.yml` — the GitHub Action. Renders the result with its own script; that renderer once

@@ -20,17 +20,35 @@
 import path from "path";
 import { readFileSync, realpathSync, existsSync, statSync } from "fs";
 import { fileURLToPath } from "url";
-import { loadRequirements, checkBaselineInput } from "../lib/requirements.mjs";
-import { coverageLine, unreadLanguagesLine, skippedFilesLine, ignoredDirsLine } from "../agent/coverage.mjs";
-import { splitSentences, unjudgedSentences, alwaysOnCoverage } from "../agent/requirement-sentences.mjs";
+import { failClosedUntilStarted, endNotStarted, standDown } from "../lib/could-not-start.mjs";
 
-import { validateProject, localTools, McpClient } from "../lib/gate-core.mjs";
-import { resolveControls, readConfig, CONFIG_FILE } from "../lib/resolve-controls.mjs";
-import { toolchain } from "../lib/toolchain.mjs";
-import { scanImage, SEVERITIES as TRIVY_SEVERITIES } from "../agent/trivy.mjs";
-import { scanSource } from "../agent/codeql.mjs";
-import { setting, legacySettingsInUse } from "../lib/settings.mjs";
-import {
+// Everything of this package's own is loaded below, after this, and not by `import ... from`.
+//
+// A module's own code runs only once all it imports statically has been found, read and run, so a
+// handler installed in this file's code was not there for anything that went wrong before then:
+// a dependency that is not installed, or under Node 20 an exception from a timer while the files
+// were being read. Node then exited 1, which is "blocked" (lib/could-not-start.mjs has what was
+// measured). The static imports of this file are Node's own modules and three files of this package
+// that import nothing, so the handler is in place before anything that can fail to load is loaded.
+//
+// A library that imports this file gets no handler, and a module that will not load is its error.
+if (invokedDirectly()) failClosedUntilStarted();
+const notLoaded = (err) => {
+  if (invokedDirectly()) endNotStarted(err);
+  throw err;
+};
+
+const { loadRequirements, checkBaselineInput } = await import("../lib/requirements.mjs").catch(notLoaded);
+const { coverageLine, unreadLanguagesLine, skippedFilesLine, ignoredDirsLine } = await import("../agent/coverage.mjs").catch(notLoaded);
+const { splitSentences, unjudgedSentences, alwaysOnCoverage } = await import("../agent/requirement-sentences.mjs").catch(notLoaded);
+
+const { validateProject, localTools, McpClient } = await import("../lib/gate-core.mjs").catch(notLoaded);
+const { resolveControls, readConfig, CONFIG_FILE } = await import("../lib/resolve-controls.mjs").catch(notLoaded);
+const { toolchain } = await import("../lib/toolchain.mjs").catch(notLoaded);
+const { scanImage, SEVERITIES: TRIVY_SEVERITIES } = await import("../agent/trivy.mjs").catch(notLoaded);
+const { scanSource } = await import("../agent/codeql.mjs").catch(notLoaded);
+const { setting, legacySettingsInUse } = await import("../lib/settings.mjs").catch(notLoaded);
+const {
   resolveBase,
   materializeBase,
   judgeChange,
@@ -43,10 +61,10 @@ import {
   isInside,
   secretGuardAllowlist,
   inventoryGrants,
-} from "../lib/factory.mjs";
-import { commitSecrets } from "../lib/factory-commits.mjs";
-import { parseReviews, reviewableLine, reviewedRecord, staleReviewsLine, REVIEW_FILE } from "../lib/reviewed.mjs";
-import { parseKnown, knownRecord, knownLine, staleKnownLine, KNOWN_FILE } from "../lib/known.mjs";
+} = await import("../lib/factory.mjs").catch(notLoaded);
+const { commitSecrets } = await import("../lib/factory-commits.mjs").catch(notLoaded);
+const { parseReviews, reviewableLine, reviewedRecord, staleReviewsLine, REVIEW_FILE } = await import("../lib/reviewed.mjs").catch(notLoaded);
+const { parseKnown, knownRecord, knownLine, staleKnownLine, KNOWN_FILE } = await import("../lib/known.mjs").catch(notLoaded);
 import { classifyAdvisory, actionFor, ACTIONS, COULD_NOT_RUN, INFO, NOT_CHECKED } from "../lib/advisory-classes.mjs";
 import { exitCodeChosen, exitWhenWritten, exiting, writeBeforeExit } from "../lib/exit-when-written.mjs";
 
@@ -967,10 +985,29 @@ function invokedDirectly() {
 // `init` is handed over before any of that is installed. Setup has its own exit contract -- 70 for
 // "failed" -- and the gate's crash handler would turn a setup crash into 3, which means nothing there.
 if (invokedDirectly() && process.argv[2] === "init") {
-  const { runInit } = await import("./init.mjs");
+  const { runInit } = await import("./init.mjs").catch(notLoaded);
+  // runInit installs its own, with its own code for a crash.
+  standDown();
   await runInit(process.argv.slice(3));
 } else if (invokedDirectly() && process.argv[2] === "review") {
-  const { runReview } = await import("./review.mjs");
+  // review's contract is 0, 2 and 3, and it had no handler: a throw that escaped it was Node's 1.
+  //
+  // Its own handler, and not the one from before it started left in place. That one ends the
+  // process at once, which is right while nothing has been written and wrong after: measured on
+  // b122cf2, a failure delivered while a 214,804-byte list was being flushed gave a reader on a
+  // pipe 65,536 bytes of it and exit 3 in place of 0, and after a usage error, 3 in place of 2.
+  const { runReview } = await import("./review.mjs").catch(notLoaded);
+  const crash = (err) => {
+    if (exiting()) return reportAfterExitBegan("wolfproof review", err);
+    process.stderr.write(
+      `wolfproof review: the command itself failed: ${(err && err.stack) || err}\n` +
+        `Exit 3: it did not finish. If it was writing an entry, read the file before committing it.\n`
+    );
+    exitWhenWritten(EXIT.INCOMPLETE);
+  };
+  process.on("uncaughtException", crash);
+  process.on("unhandledRejection", crash);
+  standDown();
   await exitWhenWritten(await runReview(process.argv.slice(3)));
 } else if (invokedDirectly() && process.argv[2] === "known") {
   // known's contract is 0, 2 and 3. A throw that escaped it -- the build check's walk over a
@@ -986,6 +1023,7 @@ if (invokedDirectly() && process.argv[2] === "init") {
   };
   process.on("uncaughtException", crash);
   process.on("unhandledRejection", crash);
+  standDown();
   const { runKnown } = await import("./known.mjs");
   await exitWhenWritten(await runKnown(process.argv.slice(3), { gate: { runGate, UsageError } }));
 } else if (invokedDirectly()) {
@@ -1001,6 +1039,7 @@ if (invokedDirectly() && process.argv[2] === "init") {
   };
   process.on("uncaughtException", crash);
   process.on("unhandledRejection", crash);
+  standDown();
   try {
     await main();
   } catch (err) {

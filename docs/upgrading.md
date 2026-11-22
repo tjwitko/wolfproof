@@ -944,6 +944,22 @@ deletes one of those files, the output of `wolfproof init` and `wolfproof init -
 Make such edits in a change a person reviews, or have the allowlist approve the path, kind
 `agent-instructions`. The default mode is not affected.
 
+**After v1.16.7: a gate that cannot start exits 3, not 1.** The crash handler was installed by
+the CLI's own code, which runs only after every module it imports has loaded. So a failure before
+then ended with Node's exit 1, which is "blocked": on v1.16.7, a copy of the package whose
+dependencies are not installed exits 1 from every command, and under Node 20 so does an exception
+thrown while the modules are being read. The handler is now in place before anything of the package
+that can fail to load is loaded. The gate, `wolfproof known` and `wolfproof review` exit 3 with
+"could not start" and the reason, and in `--json` mode the gate writes
+`{"exitCode": 3, "incomplete": true, "error": "the gate could not start: ..."}`; `wolfproof init`
+exits 70, its own code for failed. `wolfproof review` had no handler at all, and a throw that
+escapes it is now exit 3 too. One that arrives after it has begun to exit leaves the code it chose
+and its output whole, and is said on stderr, as for the gate and `wolfproof known` (below).
+
+If a job treated exit 1 from a broken installation as findings, it now sees exit 3. Under Node 20 a
+module preloaded with `--import` can still throw before any line of the CLI has run, in its first
+few milliseconds, and that is still Node's exit 1; under Node 22 no such moment was found.
+
 **After v1.16.7: `--json` through a pipe is written whole.** The gate wrote its result and then
 ended the process. A write to a pipe is asynchronous on macOS and Linux, so a document larger than
 the pipe's buffer was cut there: on v1.16.7 on macOS, a 417,136-byte document reached `spawnSync`,
