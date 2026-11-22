@@ -65,6 +65,7 @@ const {
 const { commitSecrets } = await import("../lib/factory-commits.mjs").catch(notLoaded);
 const { parseReviews, reviewableLine, reviewedRecord, staleReviewsLine, REVIEW_FILE } = await import("../lib/reviewed.mjs").catch(notLoaded);
 const { parseKnown, knownRecord, knownLine, staleKnownLine, KNOWN_FILE } = await import("../lib/known.mjs").catch(notLoaded);
+const { optionProblems } = await import("../lib/cli-flags.mjs").catch(notLoaded);
 import { classifyAdvisory, actionFor, ACTIONS, COULD_NOT_RUN, INFO, NOT_CHECKED } from "../lib/advisory-classes.mjs";
 import { exitCodeChosen, exitWhenWritten, exiting, writeBeforeExit } from "../lib/exit-when-written.mjs";
 
@@ -846,8 +847,27 @@ function optionValue(args, name) {
   return a.startsWith(`--${name}=`) && v ? v : null;
 }
 
+// Every option the gate defines. One it does not is a usage error (lib/cli-flags.mjs); a new option
+// goes here as well as where it is read, and a test fails on one the usage text does not name.
+export const GATE_OPTIONS = {
+  flags: ["--help", "-h", "--version", "--json", "--pre-commit", "--factory", "--codeql"],
+  values: ["--baseline", "--base", "--allowlist", "--policy", "--reviewed", "--known", "--trivy-image", "--trivy-severity"],
+};
+
 async function main() {
   const args = process.argv.slice(2);
+  const json = args.includes("--json");
+  // Thrown, since the checks below call it where nothing can wait: the exit is made where main()
+  // is awaited, after the output has been written.
+  const usageExit = (message) => {
+    console.error(`wolfproof: ${message}`);
+    if (json) process.stdout.write(`${JSON.stringify({ exitCode: EXIT.USAGE, error: message })}\n`);
+    throw new ExitNow(EXIT.USAGE);
+  };
+  // Before anything is answered, --help and --version included: an option that is not one of the
+  // gate's was stepped over, and the run went on in a mode nobody asked for.
+  const problems = optionProblems(args, GATE_OPTIONS);
+  if (problems.length) usageExit(`${problems.join("; ")}. wolfproof --help lists the options`);
   // What you are on, and which controls that brings with it. Answered before anything else, because
   // the first question during an upgrade is whether the upgrade took -- and "the package moved" is
   // not the same answer as "the controls that will run moved". v1.1.1 is the release where they
@@ -872,7 +892,6 @@ async function main() {
     }
     await exitWhenWritten(EXIT.CLEAN);
   }
-  const json = args.includes("--json");
   // Set by the pre-commit hook `wolfproof init` writes. It disables exactly one check, the one
   // whose premise a commit satisfies by existing; everything else runs, and the skip is reported.
   const preCommit = args.includes("--pre-commit");
@@ -893,13 +912,6 @@ async function main() {
   // allowlist and forgets --factory believes it is in a mode it is not in.
   const factoryFlag = args.includes("--factory");
   const factoryOptions = { base: optionValue(args, "base"), allowlist: optionValue(args, "allowlist"), policy: optionValue(args, "policy") };
-  // Thrown, since the checks below call it where nothing can wait: the exit is made where main()
-  // is awaited, after the output has been written.
-  const usageExit = (message) => {
-    console.error(`wolfproof: ${message}`);
-    if (json) process.stdout.write(`${JSON.stringify({ exitCode: EXIT.USAGE, error: message })}\n`);
-    throw new ExitNow(EXIT.USAGE);
-  };
   for (const [name, v] of Object.entries(factoryOptions)) {
     if (v === null) usageExit(`--${name} takes a value: --${name}=<${name === "base" ? "ref" : "file"}>`);
     if (v !== undefined && !factoryFlag) usageExit(`--${name} is a factory-mode option and means nothing without --factory`);

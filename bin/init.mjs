@@ -68,7 +68,8 @@ function parseArgs(argv) {
     else if (a === "--task") opts.task = argv[++i];
     else if (a === "--agents") opts.agents = argv[++i];
     else if (a === "--force") opts.force.push(argv[++i] ?? "all");
-    else if (a.startsWith("--")) return { error: `unknown option ${a}` };
+    // One dash too: `init -x --new` made a directory named "-x" and set it up.
+    else if (a.startsWith("-") && a !== "-") return { error: `unknown option ${a}` };
     else rest.push(a);
   }
   if (rest.length > 1) return { error: "give at most one project directory" };

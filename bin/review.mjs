@@ -22,6 +22,7 @@ import { sastScan } from "../agent/sast.mjs";
 import { authenticationFailures } from "../agent/authentication.mjs";
 import { scanSource } from "../agent/codeql.mjs";
 import { REVIEW_FILE, parseReviews, loadProjectReviews } from "../lib/reviewed.mjs";
+import { optionProblems } from "../lib/cli-flags.mjs";
 
 const EXIT = { OK: 0, USAGE: 2, INCOMPLETE: 3 };
 const USAGE = `usage: wolfproof review <project-dir> [--codeql]
@@ -35,7 +36,9 @@ function option(args, name) {
 }
 
 // Options that take no value, so the argument after one is not read as its value.
-const FLAGS = new Set(["--codeql", "--help"]);
+const FLAGS = new Set(["--codeql", "--help", "-h"]);
+// And the ones that take one. Anything else beginning "-" is a usage error (lib/cli-flags.mjs).
+const VALUES = ["--reason", "--reviewer", "--expires", "--file"];
 
 function positionals(args) {
   const out = [];
@@ -143,10 +146,16 @@ export async function runReview(args) {
   const out = [];
   const err = [];
   const pos = positionals(args);
+  const problems = optionProblems(args, { flags: [...FLAGS], values: VALUES, separate: true });
+  const help = args.includes("--help") || args.includes("-h");
   let code;
-  if (!pos.length || args.includes("--help")) {
+  if (problems.length) {
+    err.push(`wolfproof review: ${problems.join("; ")}`);
     err.push(USAGE);
-    code = pos.length ? EXIT.OK : EXIT.USAGE;
+    code = EXIT.USAGE;
+  } else if (!pos.length || help) {
+    err.push(USAGE);
+    code = pos.length || help ? EXIT.OK : EXIT.USAGE;
   } else {
     const projectDir = path.resolve(pos[0]);
     if (!existsSync(projectDir) || !statSync(projectDir).isDirectory()) {
