@@ -264,7 +264,9 @@ In the default mode, every exemption and opt-out is printed for a reviewer to se
 where agents write the change and nobody reads the report, that protects nothing. **Factory mode**
 (`--factory`, or `factory: true` in the Action) compares the change with its base and blocks what
 the change granted itself: new exemptions, overridden controls, edits to the task file, to workflows
-or to the files that instruct coding agents, code moved where the checks do not look.
+or to the files that instruct coding agents, code moved where the checks do not look. It also scans
+what each commit of the change added for credentials, so one that a later commit removed still
+blocks.
 
 → [Factory mode](docs/factory-mode.md)
 

@@ -10,7 +10,7 @@ $ ./node_modules/.bin/wolfproof --version
 wolfproof 1.16.7
   terraform-guard  v1.1.3  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.4  node_modules @tjwitko/dep-audit-mcp
-  secret-guard     v1.0.3  node_modules @tjwitko/secret-guard-mcp
+  secret-guard     v1.0.4  node_modules @tjwitko/secret-guard-mcp
   identity-guard   v1.0.4  node_modules @tjwitko/identity-guard-mcp
 tools on PATH
   node             26.5.1
@@ -996,6 +996,66 @@ value and was given one, and for one written with a single dash. In `--json` mod
 Can turn a passing run into **exit 2**: any call that passes an option the command does not have.
 The Action and the hook `wolfproof init` writes pass none. A directory whose name begins with a
 dash has to be given as `./-name`.
+
+**After v1.16.7: a credential that holds "true", "false" or "null" is reported.** The gate now
+pins secret-guard v1.0.4. gitleaks' built-in allowlist dismisses any secret matching
+`(?i)^true|false|null$`, which reads as "starts with true, or contains false, or ends with null",
+in any letter case and for every rule. Measured on v1.16.7, one committed file per project: a
+generated RSA private key exited 1, and the same key with `fAlSe` in its body exited 0; a
+36-character GitHub token in a comment exited 1, and one with `False` in it exited 0; a
+connection-string password starting `True` exited 0, and so did one ending `Null`. Each of those
+is now exit 1. A password that is exactly `false` is still dismissed, exit 0 before and after.
+
+secret-guard reads the default rules from its own copy of gitleaks 8.30.1's, with that one entry
+anchored. So the rules are gitleaks 8.30.1's whatever gitleaks binary is installed: a newer
+binary no longer brings newer rules, and 8.30.1 is the one to install.
+
+Can turn a passing run red, **exit 1**: a credential with one of those words in it, which was in
+the tree all along. Rotate it.
+
+**After v1.16.7: a secret scan that did not happen, or did not read everything, is exit 3.** Up to
+secret-guard v1.0.3 each of these came back as a clean scan, and v1.0.4 makes each an error:
+
+- **A configuration gitleaks cannot load.** A clean project with `SECRET_GUARD_CONFIG` naming a
+  file that is not there exited 0 on v1.16.7 with nothing scanned. It is now exit 3, naming the
+  file.
+- **A file or directory the scanner may not read.** gitleaks walks past it and reports on the
+  rest. A tracked file of mode 000 holding a password exited 1 on v1.16.7 only because git could
+  not read it either and called it uncommitted work, and exited 0 with `--pre-commit`. Both are
+  now exit 3, and the line names the file from the project's top:
+  "scan_path: secret-guard could not scan all of the project — it did not read config.yaml
+  (permission denied)".
+- **A scan gitleaks does not finish** within secret-guard's 120 seconds, which reported the part
+  it had reached.
+
+One path is set aside, so that v1.16.5's rule holds: a directory git ignores that the gate could
+not list itself, such as a container's bind mount. The scanner did not read it either, the line
+above the verdict already says so, and the verdict is as it was, exit 0 before and after. In
+factory mode a directory only the change's own ignore line ignores is still
+[the grant the change added](factory-mode.md#exemptions-it-judges), exit 1. The gate reads the
+list of unread paths secret-guard sends with its error and sets the error aside only when every
+path on it lies in such a directory.
+
+Nothing else is set aside, and each of these, measured, went from exit 0 on v1.16.7 to exit 3:
+
+- a file git ignores that cannot be read, such as an `.env` of mode 000. Ignored or not, it is on
+  the disk the scan is asked about;
+- a directory git ignores that can be listed and not entered (mode 444), with files in it. The gate
+  lists it, so it is not in the line above the verdict;
+- a directory that cannot be listed under `dist/`, which the other checks skip and the secret scan
+  reads. One under `node_modules/` is not reported: gitleaks does not walk there.
+
+Outside a git repository nothing is ignored, so a directory that cannot be listed adds a
+`scan_path` entry to those the run already had; the exit code was 3 and is 3.
+
+When the scan found credentials as well, they block as before and what was not read is a
+could-not-run entry beside them, so the run is exit 3 where it was exit 1. In factory mode the
+scan of [the change's commits](factory-mode.md#credentials-in-the-changes-commits) is held to the
+same rule: a scan that says it left some of them unread is exit 3.
+
+Can turn a passing run into **exit 3**: a project holding anything the user the gate runs as cannot
+read, apart from the ignored directory above, or a `SECRET_GUARD_CONFIG` that does not load. Make
+the path readable by that user, or remove it.
 
 ## Keeping current
 

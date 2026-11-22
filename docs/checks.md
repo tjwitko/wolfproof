@@ -16,7 +16,8 @@ never a pass. So does a code file the checks for its language did not read: one 
 only injection opens (it reads up to 1 MB, and is the one check that reads C and C++), or one that
 cannot be opened. The run names the file and exits 3; split it, or move a generated bundle under
 `dist/` or `build/`. So does a directory that cannot be listed, for lack of permission say: no
-check reads what is in it, and the run names it and exits 3. In a git repository, one git ignores (the
+check reads what is in it, and the run names it and exits 3. The secret scan reads every file, so a
+file of any kind it is not permitted to open is exit 3 as well, whether or not git ignores it. In a git repository, a directory git ignores (the
 directory itself, not only what is in it) and
 tracks nothing under, such as a container's bind mount, is named above the verdict instead; the
 project's own ignore rules decide which those are, so an ignore line can accept one. In
@@ -473,6 +474,17 @@ split, joined, reversed, base64- or hex-encoded.
 
 **Covers:** every file; assembly detection in Python, JavaScript/TypeScript, Go, Java, Ruby, C#,
 Rust, PHP, Kotlin.
+
+**A file it could not read is exit 3.** gitleaks walks past a file or a directory it is not
+permitted to read and reports on the rest. secret-guard says what was passed, and the run is
+could-not-run, naming each path, whether or not git ignores it: an `.env` of mode 000 is one. So is
+a configuration gitleaks cannot load, and a scan it did not finish in 120 seconds. The one path set
+aside is a directory git ignores that the gate itself could not list, which is
+[named above the verdict](troubleshooting.md).
+
+**The rules** are gitleaks 8.30.1's default rules, read from secret-guard's own copy, whatever
+gitleaks binary is installed, and a connection-string rule of secret-guard's. The copy differs from
+gitleaks' in one allowlist entry, which dismissed any credential that contained "false".
 
 **In factory mode, the change's commits as well.** The scan above reads the working tree, so a
 credential one commit adds and a later commit removes is not in it. Factory mode also scans what

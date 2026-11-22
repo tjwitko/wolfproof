@@ -163,6 +163,13 @@ Tests run per-file (`node --test agent/immutability.test.mjs`). The path must be
   which is the reason the list exists. The basename is hardcoded rather than imported, to avoid
   depending on an optional sibling repo loading at startup; `identity-guard-mcp`'s test suite pins
   the value so a rename cannot drift the two apart silently.
+- **What the secret scan says it did not read is held against it, with one exception.** From
+  secret-guard v1.0.4 a scan that left a path unread and found nothing is an error, with the paths
+  in the error's second block (`McpClient.callBlocks`; `call` returns the first block only).
+  `skipsNotAccountedFor` sets a path aside only when it lies in a directory `sourceCoverage` could
+  not list and git ignores, which the line above the verdict already reports: without that, every
+  project with a container's bind mount exited 3 again. Do not widen it to "any path git ignores":
+  an ignored `.env` the scan could not open is exit 3 on purpose, and so is an entry with no path.
 - **`git commit` commits the index, not what your process just staged.** Two agent sessions sharing
   this working tree produced a commit containing one intended file plus 1,715 lines another session
   had staged, under a message describing only the first. Nothing warns about this. Use

@@ -90,8 +90,8 @@ entry, and no policy entry drops the message.
 **"source_files: N directory(ies) could not be listed, so no check read the files in it", exit 3**
 — the gate runs as a user who cannot list the directories named, or cannot enter their parent
 (`chmod 644` on a directory lets it be listed and not entered). Every check skips such a directory,
-so the build check and the dependency search say so too. Make it readable by that user, or remove
-it. `node_modules/`, `dist/`, `build/` and the other directories every check skips are not named.
+so the build check, the dependency search and the secret scan say so too. Make it readable by that
+user, or remove it. `node_modules/`, `dist/`, `build/` and the other directories every check skips are not named.
 A directory git ignores is not this entry; see the next one. One git tracks anything under, and
 any directory outside a git repository, is.
 
@@ -121,6 +121,16 @@ pipeline's allowlist approve the directory:
 `{ "exemptions": [{ "kind": "ignored-directory", "path": "data/postgres", "reason": "…" }] }`.
 A change that adds an unrelated line to the same `.gitignore`, or moves the pattern to another
 ignore file, is not affected.
+
+**"scan_path: secret-guard could not scan all of the project — it did not read …", exit 3** — the
+secret scan reads every file, and the user the gate runs as is not permitted to read the ones
+named: a file of mode 000 or another user's, a directory that cannot be entered. It does not matter
+whether git ignores the path (an `.env` nobody else may read is still on the disk the scan is
+asked about), and it reaches under `dist/` and `build/`, which the other checks skip. Make each
+path readable by that user, or remove it. Only one kind of path is set aside: the directory in the
+entry above, which git ignores and the gate could not list. A directory that can be listed and not
+entered (`chmod 644`) is not that one, because the gate lists it. "the scan stopped before it
+finished" in the same entry is gitleaks reaching secret-guard's 120-second limit.
 
 **"file(s) of a kind the checks read were not read" above the verdict** — a YAML, SQL or Terraform
 file is over 512 KB, or could not be opened, so immutability, retention, the Kubernetes manifest
