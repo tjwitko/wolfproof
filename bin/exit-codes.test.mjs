@@ -492,10 +492,13 @@ test("outside a git repository a directory that cannot be listed is could-not-ru
     assert.equal(r.code, 3, `exit ${r.code}`);
     const doc = JSON.parse(r.stdout);
     assert.deepEqual(doc.unreadDirectories, [{ dir: "data/postgres", why: "not readable (EACCES)", ignored: false }]);
-    // The directory is the reason for the exit 3, and nothing else is: each entry names it.
-    assert.deepEqual(doc.couldNotRun.map((x) => x.split(":")[0]), ["build_check", "check_dependencies", "source_files"], doc.couldNotRun.join("\n"));
+    // The directory is the reason for the exit 3, and nothing else is: each entry names it. The
+    // secret scan is among them from secret-guard v1.0.4 on, which says what gitleaks walked past;
+    // git does not ignore the directory here, so the gate does not set its word aside.
+    assert.deepEqual(doc.couldNotRun.map((x) => x.split(":")[0]), ["build_check", "check_dependencies", "scan_path", "source_files"], doc.couldNotRun.join("\n"));
     assert.ok(doc.couldNotRun.every((x) => x.includes("data/postgres")), doc.couldNotRun.join("\n"));
-    assert.match(doc.couldNotRun[2], /^source_files: 1 directory could not be listed/);
+    assert.match(doc.couldNotRun[2], /^scan_path: secret-guard could not scan all of the project — it did not read data\/postgres \(permission denied\)\./);
+    assert.match(doc.couldNotRun[3], /^source_files: 1 directory could not be listed/);
   } finally {
     chmodSync(path.join(d, "data", "postgres"), 0o755);
     rmSync(d, { recursive: true, force: true });
