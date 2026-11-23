@@ -365,13 +365,13 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         allowlist: allowlist.entries,
         gitleaksAllow: secretGuardAllowlist(sg?.entry || null),
         reported: new Set(judged.changed.map((c) => c.path)),
-        scan: async (dir) => {
+        scan: async (dir, unreadOf) => {
           if (!sg?.entry) return { error: `secret-guard was ${sg?.error || "not resolved"}` };
           const client = new McpClient("secret-guard", "node", [sg.entry], { [sg.rootVar]: dir }, dir);
           try {
             const tools = await client.init();
             if (!tools.some((t) => t.name === "scan_path")) return { error: "the secret-guard that started has no scan_path tool" };
-            return { text: await client.call("scan_path", { target: ".", list_unread: true }) };
+            return { text: await client.call("scan_path", { target: ".", unread_of: unreadOf }) };
           } catch (err) {
             return { error: err?.message || String(err) };
           } finally {
@@ -424,7 +424,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       }
     }
 
-    const r = await validateProject(projectDir, registry, taskText, { preCommit, reviews: pipelineReviews, known });
+    const r = await validateProject(projectDir, registry, taskText, { preCommit, reviews: pipelineReviews, known, unreadOf: factory && base ? judged.changed.map((c) => c.path) : null });
     r.failures.unshift(...requirements.failures);
     r.advisories.unshift(...requirements.advisories);
     if (configNote) r.advisories.unshift(`config: ${configNote}`);

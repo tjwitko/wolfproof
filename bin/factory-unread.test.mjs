@@ -5,7 +5,9 @@ import { createHash } from "crypto";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
+
+import { localTools } from "../lib/gate-core.mjs";
 
 // Factory mode's list of places the secret scan does not look, from the secret-guard that runs,
 // through the real CLI with the real scanner. Credentials are assembled here at run time and written
@@ -157,6 +159,20 @@ test("text a scan skips for its first bytes: default mode cannot see it, factory
     } finally {
       r.done();
     }
+  }
+});
+
+test("the agent loop's write_file, with the real scanner: content the scan skips for its first bytes does not reach disk", async () => {
+  const scanner = await import(pathToFileURL(path.join(PINNED, "lib", "gitleaks.mjs")).href);
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "factory-unread-write-")));
+  try {
+    const out = String(localTools(dir, scanner).write_file.run({ path: "settings.env", content: `MZ_REGION=maputo\ntoken: ${token("write")}\n` }));
+    assert.match(out, /^REFUSED: settings\.env was NOT written: the credential scan could not read it/);
+    assert.match(out, /first bytes/);
+    assert.ok(!out.includes(token("write")), "and the refusal does not hold the value");
+    assert.throws(() => readFileSync(path.join(dir, "settings.env")), /ENOENT/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

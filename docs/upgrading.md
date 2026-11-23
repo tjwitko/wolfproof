@@ -1102,6 +1102,10 @@ that begins like a binary format under any name, and two letters are enough: `se
 it left unread. In factory mode that write is **exit 1**, kind `skipped-location`, and so is a real
 binary with no telling name. Default mode still exits 0 for it.
 
+**After v1.17.0: the agent loop's `write_file` refuses when the credential scan errors.** It refused
+only on a finding, so an error wrote the file: content beginning `MZ`, with a token on line 2, reached
+disk. The refusal says why.
+
 **After v1.17.0: a project under a path the scan will not enter is exit 3.** gitleaks tests the whole
 path, so a checkout at `.../vendor/app`, `.../node_modules/app` or `.../env/lib/app` was read as nothing and
 reported clean. Can turn a passing run into **exit 3**, in both modes. Move the checkout.
