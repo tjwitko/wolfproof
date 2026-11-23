@@ -60,6 +60,7 @@ const {
   requirementAtBase,
   isInside,
   secretGuardAllowlist,
+  unreadWrites,
   inventoryGrants,
 } = await import("../lib/factory.mjs").catch(notLoaded);
 const { commitSecrets } = await import("../lib/factory-commits.mjs").catch(notLoaded);
@@ -370,7 +371,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
           try {
             const tools = await client.init();
             if (!tools.some((t) => t.name === "scan_path")) return { error: "the secret-guard that started has no scan_path tool" };
-            return { text: await client.call("scan_path", { target: "." }) };
+            return { text: await client.call("scan_path", { target: ".", list_unread: true }) };
           } catch (err) {
             return { error: err?.message || String(err) };
           } finally {
@@ -506,6 +507,20 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       r.advisories.push(...factoryAdvisories);
       couldNotRun.push(...factoryCouldNotRun);
       r.failures.push(...judged.failures);
+      // What the tree's scan says it left unread: a file with a binary format's first bytes has no
+      // name to judge it by, so this is after the checks and not in judgeChange.
+      if (base) {
+        const sg = controls.find((c) => c.name === "secret-guard");
+        const wrote = unreadWrites(projectDir, {
+          changed: judged.changed,
+          unread: r.secretUnread,
+          allowlist: allowlist.entries,
+          gitleaksAllow: secretGuardAllowlist(sg?.entry || null),
+          reportedByCommits: new Set((commitScan?.skipped || []).map((f) => f.path)),
+        });
+        if (wrote.error) couldNotRun.push(`factory: ${wrote.error}`);
+        r.failures.push(...wrote.failures);
+      }
       // A directory the gate could not list, which an ignore rule this change wrote set aside. Judged
       // here and not with the rest of the change, because which directories those are is the run's
       // own coverage. Nothing a check writes is an ignore file.

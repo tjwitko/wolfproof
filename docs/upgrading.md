@@ -1093,7 +1093,18 @@ both edits to secret-guard's own `gitleaks/default.gitleaks.toml`. Approve a pat
 `skipped-location`, by the file's path for a kind skipped by its name.
 
 gitleaks takes a file for an archive when its **name holds** an archive's ending, so
-`app.browser.js`, `deploy.target.yaml` and `messages.pt.br.json` are unread and block as well.
+`app.browser.js`, `deploy.target.yaml` and `messages.pt.br.json` are unread and block as well. So does
+a file under a directory named like an unread file, such as `logo.png/config.js`.
+
+**After v1.17.0: factory mode blocks a file the scan skipped for its first bytes.** gitleaks skips text
+that begins like a binary format under any name, and two letters are enough: `settings.env` with
+`MZ_REGION=maputo` on line 1 and a token on line 2 was exit 0 in both modes. secret-guard now reports what
+it left unread. In factory mode that write is **exit 1**, kind `skipped-location`, and so is a real
+binary with no telling name. Default mode still exits 0 for it.
+
+**After v1.17.0: a project under a path the scan will not enter is exit 3.** gitleaks tests the whole
+path, so a checkout at `.../vendor/app`, `.../node_modules/app` or `.../env/lib/app` was read as nothing and
+reported clean. Can turn a passing run into **exit 3**, in both modes. Move the checkout.
 
 ## Keeping current
 

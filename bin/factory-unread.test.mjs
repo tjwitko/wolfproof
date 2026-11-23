@@ -133,6 +133,79 @@ test("a credential that moved through a name, and was then deleted, blocks in fa
   }
 });
 
+test("text a scan skips for its first bytes: default mode cannot see it, factory mode blocks it and an approval clears it", () => {
+  const body = `MZ_REGION=maputo\ntoken: ${token("first bytes")}\n`;
+  for (const [what, act] of [
+    ["committed", (r) => r.write("settings.env", body).commit()],
+    // The same blob as a parent had, so no commit added it: only the scan of the tree says it is unread.
+    ["there at the base, and renamed by the change", (r) => { r.write("old.env", body); r.base = r.commit("with it"); renameSync(path.join(r.dir, "old.env"), path.join(r.dir, "settings.env")); r.commit("rename"); }],
+    ["committed, then replaced with clean text", (r) => { r.write("settings.env", body).commit(); r.write("settings.env", "REGION=maputo\n").commit(); }],
+    ["committed, renamed, then deleted", (r) => { r.write("settings.env", body).commit("add"); renameSync(path.join(r.dir, "settings.env"), path.join(r.dir, "config.js")); r.commit("rename"); rmSync(path.join(r.dir, "config.js")); r.commit("delete"); }],
+  ]) {
+    const r = repo();
+    try {
+      act(r);
+      const { plain, factory } = modes(r);
+      assert.equal(plain.code, 0, `${what}, default mode: ${JSON.stringify(plain.messages)}`);
+      assert.equal(factory.code, 1, `${what}, factory mode`);
+      assert.ok(factory.messages.some((m) => /first bytes/.test(m)), `${what}: ${JSON.stringify(factory.messages)}`);
+      const allow = path.join(mkdtempSync(path.join(tmpdir(), "factory-unread-allow-")), "allow.json");
+      writeFileSync(allow, JSON.stringify({ exemptions: [{ kind: "skipped-location", path: "settings.env", reason: "a test" }] }));
+      const approved = cli([r.dir, "--json", "--factory", `--base=${r.base}`, `--allowlist=${allow}`]);
+      assert.equal(approved.code, 0, `${what}, approved: ${JSON.stringify(approved.messages)}`);
+      rmSync(path.dirname(allow), { recursive: true, force: true });
+    } finally {
+      r.done();
+    }
+  }
+});
+
+test("a commit message that begins with a binary format's first bytes is still read", () => {
+  const r = repo();
+  try {
+    r.write("b.js", "export const b = 2;\n").commit(`MZ region fix\n\ntoken: ${token("message")}\n`);
+    const f = cli([r.dir, "--json", "--factory", `--base=${r.base}`]);
+    assert.equal(f.code, 1, JSON.stringify(f.messages));
+    assert.ok(f.messages.some((m) => /message, line 3 \(github-pat\)/.test(m)), JSON.stringify(f.messages));
+  } finally {
+    r.done();
+  }
+});
+
+test("a file under a directory named like an unread file blocks in factory mode", () => {
+  const r = repo();
+  try {
+    r.write("logo.png/config.js", `// ${token("dir")}\n`).commit();
+    const { plain, factory } = modes(r);
+    assert.equal(plain.code, 0, "default mode");
+    assert.equal(factory.code, 1, "factory mode");
+    assert.ok(factory.messages.some((m) => /logo\.png\/config\.js/.test(m)), JSON.stringify(factory.messages));
+  } finally {
+    r.done();
+  }
+});
+
+test("a project at a path the scan will not enter is exit 3 in both modes, never clean", () => {
+  const outer = realpathSync(mkdtempSync(path.join(tmpdir(), "factory-unread-outer-")));
+  const dir = path.join(outer, "vendor", "app");
+  mkdirSync(dir, { recursive: true });
+  const git = (...args) => assert.equal(spawnSync("git", ["-C", dir, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { encoding: "utf8" }).status, 0, args.join(" "));
+  try {
+    git("init", "-q");
+    writeFileSync(path.join(dir, "a.js"), "export const a = 1;\n");
+    git("add", "-A");
+    git("commit", "-qm", "base");
+    const base = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
+    writeFileSync(path.join(dir, "config.js"), `// ${token("vendor project")}\n`);
+    git("add", "-A");
+    git("commit", "-qm", "c");
+    assert.equal(cli([dir, "--json"]).code, 3, "default mode");
+    assert.equal(cli([dir, "--json", "--factory", `--base=${base}`]).code, 3, "factory mode");
+  } finally {
+    rmSync(outer, { recursive: true, force: true });
+  }
+});
+
 test("an edited lockfile with no credential passes in both modes", () => {
   const lock = (v) => JSON.stringify({ name: "p", version: v, lockfileVersion: 3, requires: true, packages: { "": { name: "p", version: v } } }, null, 2) + "\n";
   const r = repo();
@@ -170,7 +243,7 @@ test("a list the gate cannot read is exit 3, whatever else the run found", () =>
     for (const [what, text, why] of [
       ["not JSON", "{ nope", /it is not JSON/],
       ["another schema", JSON.stringify({ ...good, schema: 2 }), /schema 2/],
-      ["a Go pattern", JSON.stringify({ ...good, entries: [...good.entries, { kind: "x", from: "y", pattern: "(?i)\\.png$", flags: "" }] }), /\(x\) does not compile/],
+      ["a Go pattern", JSON.stringify({ ...good, entries: [...good.entries, { kind: "x", from: "y", pattern: "(?i)\\.png$", flags: "", directories: true }] }), /\(x\) does not compile/],
     ]) {
       writeFileSync(listFile, text);
       const f = cli([r.dir, "--json", "--factory", `--base=${r.base}`], env);

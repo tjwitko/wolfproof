@@ -367,8 +367,10 @@ So that a clean verdict is read for what it is:
 - **Files the secret scan does not read.** Third-party trees, images, fonts, Office files, PDFs,
   `.exe`, gems, rule files and archives. gitleaks takes a file for an archive when its name holds the
   ending, so `app.browser.js` and `messages.pt.br.json` are among them. Text that begins with a binary
-  format's first bytes, such as `%PDF-`, is not read under any name. In [factory mode](docs/factory-mode.md#where-the-checks-do-not-look)
-  a change that writes to one of these paths blocks; the first-bytes case has no path to block on.
+  format's first bytes is not read under any name, and two letters are enough: `MZ_REGION=maputo` on
+  line 1 hides a token on line 2. In [factory mode](docs/factory-mode.md#where-the-checks-do-not-look)
+  a change that writes one of these files blocks, the first-bytes case included. In default mode nothing
+  reports them. A project checked out under a path the scan will not enter, such as `vendor/app`, is exit 3.
 - **Requirements nobody stated.**
 
 → [What it checks, in full](docs/checks.md): languages and frameworks, the four controls, how the

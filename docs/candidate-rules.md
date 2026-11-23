@@ -2912,8 +2912,9 @@ wolfproof list only what is still unread, binaries and archives, which changes r
 approval to mean something.
 
 **Decided: that mix.** secret-guard reads the text files, and factory mode lists only what is still
-unread, from a file the pinned secret-guard publishes (`gitleaks/unread-paths.json`), so nothing here
-parses a Go regular expression. A list that cannot be read is exit 3.
+unread, from what the scan reports it left unread and, for a path not on disk and for archives, a file
+the pinned secret-guard publishes (`gitleaks/unread-paths.json`), so nothing here parses a Go regular
+expression. A list that cannot be read is exit 3.
 
 - *`go.sum`.* `generic-api-key` skips a line of exactly `<module> <version> h1:<hash>`. gitea's seven
   findings are gone; an AWS key, a GitHub token, a private key and a password on any other line are
@@ -2935,8 +2936,9 @@ Three things stay open.
    and `messages.pt.br.json` are text and unread, because mholt/archives matches with
    `strings.Contains`. They are on the list, so factory mode blocks them. In the calibration set and
    the five repositories that is 12 of 47,760 tracked files. Reading them needs a second pass.
-2. **First bytes.** Text that begins `%PDF-` is not read under any name, and no list of names can say
-   so.
+2. **First bytes, closed for factory mode only.** gitleaks skips text that begins like a binary format,
+   and two letters are enough (`MZ_REGION=maputo`). Its debug log names each one, so secret-guard reports
+   them and factory mode blocks the write. Default mode still exits 0.
 3. **A cheaper rule for a file that is binary in fact, described and not built.** Of the 1,595 tracked
    files in the calibration set skipped for their name, 1,571 hold a NUL in their first 8,000 bytes.
    A NUL alone would be a poor test, since one byte put in front of a token passes it. What would work
