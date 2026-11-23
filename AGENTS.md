@@ -175,3 +175,6 @@ Tests run per-file (`node --test agent/immutability.test.mjs`). The path must be
   had staged, under a message describing only the first. Nothing warns about this. Use
   `git commit -- <paths>` when anything else might be working in the tree, and read the
   `N files changed` line afterwards — that line is what caught it, one commit late.
+- **A gap that gets past the gate, or makes it report on less than it says, is not written in this
+  repository, a pull request, a commit message or release notes until its fix is released; open gaps
+  are kept outside this repository.**

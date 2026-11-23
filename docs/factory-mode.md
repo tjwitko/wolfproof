@@ -61,15 +61,11 @@ naming its directory also works, and then covers anything written there later. N
 approved path, so a credential in it passes. If a commit moves it to a path the scan does read, the
 commit scan reports it there.
 
-gitleaks takes a file for an archive when its name holds the ending, so `app.browser.js`,
-`deploy.target.yaml` and `messages.pt.br.json` count. A directory named like an unread file is not
-entered, so `logo.png/config.js` counts too.
+A directory named like an unread file is not entered, so `logo.png/config.js` counts too.
 
-A file whose first bytes are a binary format's is not read under any name, and two letters are enough:
-`settings.env` beginning `MZ_REGION=maputo` is skipped. No name says so, so factory mode takes this from
-the scan, which reports what it left unread. A change that writes such a file blocks, with the same kind
-`skipped-location`, and so does one whose commits wrote it and later replaced or deleted it. A commit's
-message is text and is always read, however it begins.
+The scan also says what it left unread because it took the file for binary, which no name shows. A
+change that writes such a file blocks, with the same kind `skipped-location`, and so does one whose
+commits wrote it and later replaced or deleted it. A commit's message is text and is always read.
 
 ### Servers in test files
 
@@ -294,7 +290,7 @@ Three limits:
 - **A file the scanner skips by its name is not read in a commit either**, as it is not in the
   tree. A commit that writes one [blocks for that](#where-the-checks-do-not-look), and a file renamed
   from such a name counts as new, so a key added as `k.png` and renamed to `k.txt` is found. A file
-  whose first bytes are a binary format's is not read, and [blocks the same way](#where-the-checks-do-not-look).
+  the scan takes for binary by what it holds is not read either, and [blocks the same way](#where-the-checks-do-not-look).
 - **A force-push that rewrites the branch takes the commit out of the range.** The gate reads the
   commits between the base and the head it is given. A credential pushed in a commit that was later
   rewritten away was still pushed, and no later run sees it.

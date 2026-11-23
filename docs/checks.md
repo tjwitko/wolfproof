@@ -681,14 +681,12 @@ Listed so that a clean verdict is read for what it is.
   control reads templates as it always did. A template whose every expression is quoted parses as a
   manifest holding those strings, and is read as one.
 - **Files the secret scan does not read.** Third-party trees, images, fonts, Office files, PDFs,
-  `.exe`, gems, rule files and archives. gitleaks takes a file for an archive when its name holds the
-  ending, so `app.browser.js` and `messages.pt.br.json` are among them. Text that begins with a binary
-  format's first bytes is not read under any name, and two letters are enough: `MZ_REGION=maputo` on
-  line 1 hides a token on line 2. In [factory mode](factory-mode.md#where-the-checks-do-not-look) a
-  change that writes one of these files blocks, from what the scan says it left unread and, for a path
-  not on disk and for archives, the list the pinned secret-guard publishes (`gitleaks/unread-paths.json`).
-  In default mode nothing reports them. A project checked out under a path the scan will not enter, such
-  as `vendor/app`, is exit 3: gitleaks tests the whole path and would read none of it.
+  `.exe`, gems, rule files, archives, and anything else it takes for a binary file. In
+  [factory mode](factory-mode.md#where-the-checks-do-not-look) a change that writes one of these files
+  blocks, from what the scan says it left unread and, for a path not on disk, the list the pinned
+  secret-guard publishes (`gitleaks/unread-paths.json`). In default mode nothing reports them. A project
+  checked out under a path the scan will not enter, such as `vendor/app`, is exit 3: gitleaks tests the
+  whole path and would read none of it.
 - **Requirements nobody stated.** The task-gated checks run only when the task or a baseline states
   the requirement.
 - **A commit made with `--no-verify`.** The hook is a convenience. CI with the gate as a required check

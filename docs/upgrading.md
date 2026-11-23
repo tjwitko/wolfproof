@@ -1093,19 +1093,15 @@ all edits to secret-guard's own `gitleaks/default.gitleaks.toml`. Approve a path
 `skipped-location`, by the file's path for a kind skipped by its name. Nothing reads an approved
 path, so a credential in it passes for as long as the file stays there.
 
-gitleaks takes a file for an archive when its **name holds** an archive's ending, so
-`app.browser.js`, `deploy.target.yaml` and `messages.pt.br.json` are unread and block as well. So does
-a file under a directory named like an unread file, such as `logo.png/config.js`.
+So does a file under a directory named like an unread file, such as `logo.png/config.js`.
 
-**After v1.17.0: factory mode blocks a file the scan skipped for its first bytes.** gitleaks skips text
-that begins like a binary format under any name, and two letters are enough: `settings.env` with
-`MZ_REGION=maputo` on line 1 and a token on line 2 was exit 0 in both modes. secret-guard now reports what
-it left unread. In factory mode that write is **exit 1**, kind `skipped-location`, and so is a real
-binary with no telling name. Default mode still exits 0 for it.
+**After v1.17.0: factory mode blocks a file the scan reports it left unread.** secret-guard now says
+what it took for binary, which no name shows. In factory mode a change that writes such a file is
+**exit 1**, kind `skipped-location`, and so is a real binary with no telling name.
 
 **After v1.17.0: the agent loop's `write_file` refuses when the credential scan errors.** It refused
-only on a finding, so an error wrote the file: content beginning `MZ`, with a token on line 2, reached
-disk. The refusal says why.
+only on a finding, so an error wrote the file: content the scan could not read reached disk. The
+refusal says why.
 
 **After v1.17.0: a project under a path the scan will not enter is exit 3.** gitleaks tests the whole
 path, so a checkout at `.../vendor/app`, `.../node_modules/app` or `.../env/lib/app` was read as nothing and

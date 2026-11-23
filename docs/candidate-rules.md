@@ -5,6 +5,9 @@ A running list for the agent-loop validators in `agent/`. Companion to
 findings that are advisory and arguably should block. This file tracks the gates themselves:
 where they are wrong, and what they don't check yet.
 
+An entry is added here when its fix is released, with its measurements. A candidate feature, which
+someone has to decide to build, can be listed before that.
+
 Almost everything here is found the same way — by **grading a deliverable through execution** and
 comparing what the run actually does against what the gate said about it. Reading the code has not
 once surfaced one of these; running it has surfaced all of them.
@@ -2930,21 +2933,12 @@ expression. A list that cannot be read is exit 3.
 - *Cost in factory mode.* Over the last 100 commits of wolfproof and of the four controls (452, since
   three have fewer), 4 block on this rule alone, all edits to secret-guard's own rule file.
 
-Three things stay open.
-
-1. **Archives go by a name that only has to hold the ending.** `app.browser.js`, `deploy.target.yaml`
-   and `messages.pt.br.json` are text and unread, because mholt/archives matches with
-   `strings.Contains`. They are on the list, so factory mode blocks them. In the calibration set and
-   the five repositories that is 12 of 47,760 tracked files. Reading them needs a second pass.
-2. **First bytes, closed for factory mode only.** gitleaks skips text that begins like a binary format,
-   and two letters are enough (`MZ_REGION=maputo`). Its debug log names each one, so secret-guard reports
-   them and factory mode blocks the write. Default mode still exits 0.
-3. **A cheaper rule for a file that is binary in fact, described and not built.** Of the 1,595 tracked
-   files in the calibration set skipped for their name, 1,571 hold a NUL in their first 8,000 bytes.
-   A NUL alone would be a poor test, since one byte put in front of a token passes it. What would work
-   is handing the bytes to `scan_content`, which has no file name: measured, a PNG header followed by
-   a token, and a NUL followed by a token, are both found. A PDF or ZIP header is still skipped, so
-   those would keep blocking. A real image would then pass without an approval.
+**A candidate feature: a cheaper rule for a file that is binary in fact.** Described and not built.
+Of the 1,595 tracked files in the calibration set skipped for their name, 1,571 hold a NUL in their first 8,000 bytes.
+A NUL alone would be a poor test, since one byte put in front of a token passes it. What would work
+is handing the bytes to `scan_content`, which has no file name: measured, a PNG header followed by
+a token, and a NUL followed by a token, are both found. A PDF or ZIP header is still skipped, so
+those would keep blocking. A real image would then pass without an approval.
 
 ### 12. Considered and deferred
 

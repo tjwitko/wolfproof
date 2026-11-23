@@ -11,7 +11,8 @@ import { localTools } from "../lib/gate-core.mjs";
 
 // Factory mode's list of places the secret scan does not look, from the secret-guard that runs,
 // through the real CLI with the real scanner. Credentials are assembled here at run time and written
-// only to temporary directories.
+// only to temporary directories. A run of the CLI is the cost here, so a test writes its cases into
+// one change and holds the one run to naming each of them.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(__dirname, "validate.mjs");
@@ -53,11 +54,13 @@ function repo() {
       git("commit", "-qm", m);
       return git("rev-parse", "HEAD");
     },
-    renameToConfigAndDelete(from) {
-      renameSync(path.join(dir, from), path.join(dir, "config.js"));
-      self.commit("rename");
-      rmSync(path.join(dir, "config.js"));
-      return self.commit("delete");
+    move(from, to) {
+      renameSync(path.join(dir, from), path.join(dir, to));
+      return self;
+    },
+    remove(rel) {
+      rmSync(path.join(dir, rel));
+      return self;
     },
     done: () => rmSync(dir, { recursive: true, force: true }),
   };
@@ -72,93 +75,92 @@ const modes = (r, extra = []) => ({
   factory: cli([r.dir, "--json", "--factory", `--base=${r.base}`, ...extra]),
 });
 
-test("a credential in a file the scan now reads blocks in both modes", () => {
-  for (const [rel, text] of [
-    ["go.sum", `aws = ${awsKey()}\n`],
-    ["art.svg", `<svg xmlns="http://www.w3.org/2000/svg"><!-- ${token("svg")} --></svg>\n`],
-    ["bootstrap.js", `// deploy token: ${token("bootstrap")}\n`],
-  ]) {
-    const r = repo();
-    try {
-      r.write(rel, text).commit();
-      const { plain, factory } = modes(r);
-      assert.equal(plain.code, 1, `${rel}, default mode: ${JSON.stringify(plain.messages)}`);
-      assert.equal(factory.code, 1, `${rel}, factory mode: ${JSON.stringify(factory.messages)}`);
-      assert.ok(plain.messages.some((m) => m.startsWith("scan_path: 1 hardcoded credential")), rel);
-    } finally {
-      r.done();
+test("credentials in files the scan now reads block in both modes, each counted", () => {
+  const files = {
+    "go.sum": `aws = ${awsKey()}\n`,
+    "art.svg": `<svg xmlns="http://www.w3.org/2000/svg"><!-- ${token("svg")} --></svg>\n`,
+    "bootstrap.js": `// deploy token: ${token("bootstrap")}\n`,
+  };
+  const r = repo();
+  try {
+    for (const [rel, text] of Object.entries(files)) r.write(rel, text);
+    r.commit();
+    const { plain, factory } = modes(r);
+    assert.equal(plain.code, 1, `default mode: ${JSON.stringify(plain.messages)}`);
+    assert.equal(factory.code, 1, `factory mode: ${JSON.stringify(factory.messages)}`);
+    // Each file holds one credential, so three is each of them read. The message is cut at 1,200
+    // characters and need not reach the third file's name.
+    for (const run of [plain, factory]) {
+      assert.ok(run.messages.some((m) => m.startsWith("scan_path: 3 hardcoded credential")), JSON.stringify(run.messages));
     }
+  } finally {
+    r.done();
   }
 });
 
-test("text holding a token under a name the scan skips: default mode cannot see it, factory mode blocks the write", () => {
-  for (const [rel, says] of [
-    ["logo.png", /wrote under the project's top, where secret-guard's gitleaks allowlist does not scan it \(image\) — logo\.png\./],
-    ["data.zip", /wrote under the project's top, where secret-guard does not read a file whose name says it is an archive, whatever it holds — data\.zip\./],
-    ["app.browser.js", /whose name says it is an archive, whatever it holds — app\.browser\.js\./],
-  ]) {
-    const r = repo();
-    try {
-      r.write(rel, `token: ${token(rel)}\n`).commit();
-      const { plain, factory } = modes(r);
-      assert.equal(plain.code, 0, `${rel}, default mode`);
-      assert.equal(factory.code, 1, `${rel}, factory mode`);
-      const line = factory.messages.find((m) => says.test(m));
-      assert.ok(line, `${rel}: ${JSON.stringify(factory.messages)}`);
-      assert.match(line, /approve the file by its path \(kind "skipped-location"\)/);
+test("one change writing each kind the scan leaves unread: default mode cannot see them, factory mode names each, an approval clears them, and a lockfile edit beside them costs nothing", () => {
+  const lock = (v) => JSON.stringify({ name: "p", version: v, lockfileVersion: 3, requires: true, packages: { "": { name: "p", version: v } } }, null, 2) + "\n";
+  const pkg = (v) => JSON.stringify({ name: "p", version: v }) + "\n";
+  const unreadText = (what) => `MZ_REGION=maputo\ntoken: ${token(what)}\n`;
+  const byName = ["logo.png", "data.zip", "app.browser.js", "assets.png/config.js"];
+  const r = repo();
+  try {
+    r.write("package.json", pkg("1.0.0")).write("package-lock.json", lock("1.0.0")).write("at-base.env", unreadText("at base"));
+    r.base = r.commit("with a lockfile");
+    for (const rel of byName) r.write(rel, `token: ${token(rel)}\n`);
+    for (const rel of ["settings.env", "replaced.env", "gone.env"]) r.write(rel, unreadText(rel));
+    r.write("package.json", pkg("1.0.1")).write("package-lock.json", lock("1.0.1")).commit("add");
+    // The same blob as the base had, so no commit added it: only the scan of the tree says it is unread.
+    r.move("at-base.env", "renamed.env").write("replaced.env", "REGION=maputo\n").move("gone.env", "gone-next.js").commit("move");
+    r.remove("gone-next.js").commit("delete");
+
+    const { plain, factory } = modes(r);
+    assert.equal(plain.code, 0, `default mode: ${JSON.stringify(plain.messages)}`);
+    assert.equal(factory.code, 1, "factory mode");
+    const said = (re, what) => {
+      const line = factory.messages.find((m) => re.test(m));
+      assert.ok(line, `${what}: ${JSON.stringify(factory.messages)}`);
+      return line;
+    };
+    const image = said(/under the project's top, where secret-guard's gitleaks allowlist does not scan it \(image\) — logo\.png\./, "logo.png");
+    const archive = said(/under the project's top, where secret-guard does not read a file whose name says it is an archive, whatever it holds — /, "archives");
+    for (const rel of ["data.zip", "app.browser.js"]) assert.ok(archive.includes(rel), rel);
+    const inDir = said(/under assets\.png, where .* — assets\.png\/config\.js\./, "a file under a directory named like an unread file");
+    for (const line of [image, archive, inDir]) {
+      assert.match(line, /approve (?:the|each) file by its path \(kind "skipped-location"\)/);
       assert.ok(!/approve \.(\s|$)/.test(line), "and never the whole project");
-
-      const allow = path.join(mkdtempSync(path.join(tmpdir(), "factory-unread-allow-")), "allow.json");
-      writeFileSync(allow, JSON.stringify({ exemptions: [{ kind: "skipped-location", path: rel, reason: "a test" }] }));
-      const approved = cli([r.dir, "--json", "--factory", `--base=${r.base}`, `--allowlist=${allow}`]);
-      assert.equal(approved.code, 0, `${rel}, approved: ${JSON.stringify(approved.messages)}`);
-      rmSync(path.dirname(allow), { recursive: true, force: true });
-    } finally {
-      r.done();
     }
+    for (const rel of ["settings.env", "replaced.env", "gone.env", "renamed.env"]) {
+      said(new RegExp(`${rel.replace(".", "\\.")}(?: \\(for its|: )[^;]*first bytes`), rel);
+    }
+    assert.ok(!factory.messages.some((m) => m.includes("package-lock.json")), "the lockfile edit is not named");
+
+    const allow = path.join(mkdtempSync(path.join(tmpdir(), "factory-unread-allow-")), "allow.json");
+    const paths = [...byName, "settings.env", "replaced.env", "gone.env", "renamed.env"];
+    writeFileSync(allow, JSON.stringify({ exemptions: paths.map((p) => ({ kind: "skipped-location", path: p, reason: "a test" })) }));
+    const approved = cli([r.dir, "--json", "--factory", `--base=${r.base}`, `--allowlist=${allow}`]);
+    rmSync(path.dirname(allow), { recursive: true, force: true });
+    assert.equal(approved.code, 0, `approved: ${JSON.stringify(approved.messages)}`);
+  } finally {
+    r.done();
   }
 });
 
-test("a credential that moved through a name, and was then deleted, blocks in factory mode only", () => {
-  for (const from of ["go.sum", "logo.png"]) {
-    const r = repo();
-    try {
-      r.write(from, from === "go.sum" ? `aws = ${awsKey()}\n` : `token: ${token("moved")}\n`).commit("add");
-      r.renameToConfigAndDelete(from);
-      const { plain, factory } = modes(r);
-      assert.equal(plain.code, 0, `${from}, default mode`);
-      assert.equal(factory.code, 1, `${from}, factory mode: ${JSON.stringify(factory.messages)}`);
-      assert.ok(factory.messages.some((m) => m.startsWith("factory: 1 credential in the commits of this change")), from);
-    } finally {
-      r.done();
-    }
-  }
-});
-
-test("text a scan skips for its first bytes: default mode cannot see it, factory mode blocks it and an approval clears it", () => {
-  const body = `MZ_REGION=maputo\ntoken: ${token("first bytes")}\n`;
-  for (const [what, act] of [
-    ["committed", (r) => r.write("settings.env", body).commit()],
-    // The same blob as a parent had, so no commit added it: only the scan of the tree says it is unread.
-    ["there at the base, and renamed by the change", (r) => { r.write("old.env", body); r.base = r.commit("with it"); renameSync(path.join(r.dir, "old.env"), path.join(r.dir, "settings.env")); r.commit("rename"); }],
-    ["committed, then replaced with clean text", (r) => { r.write("settings.env", body).commit(); r.write("settings.env", "REGION=maputo\n").commit(); }],
-    ["committed, renamed, then deleted", (r) => { r.write("settings.env", body).commit("add"); renameSync(path.join(r.dir, "settings.env"), path.join(r.dir, "config.js")); r.commit("rename"); rmSync(path.join(r.dir, "config.js")); r.commit("delete"); }],
-  ]) {
-    const r = repo();
-    try {
-      act(r);
-      const { plain, factory } = modes(r);
-      assert.equal(plain.code, 0, `${what}, default mode: ${JSON.stringify(plain.messages)}`);
-      assert.equal(factory.code, 1, `${what}, factory mode`);
-      assert.ok(factory.messages.some((m) => /first bytes/.test(m)), `${what}: ${JSON.stringify(factory.messages)}`);
-      const allow = path.join(mkdtempSync(path.join(tmpdir(), "factory-unread-allow-")), "allow.json");
-      writeFileSync(allow, JSON.stringify({ exemptions: [{ kind: "skipped-location", path: "settings.env", reason: "a test" }] }));
-      const approved = cli([r.dir, "--json", "--factory", `--base=${r.base}`, `--allowlist=${allow}`]);
-      assert.equal(approved.code, 0, `${what}, approved: ${JSON.stringify(approved.messages)}`);
-      rmSync(path.dirname(allow), { recursive: true, force: true });
-    } finally {
-      r.done();
-    }
+test("credentials that moved through a name and were deleted, and one in a commit message, block in factory mode only", () => {
+  const r = repo();
+  try {
+    r.write("go.sum", `aws = ${awsKey()}\n`).write("logo.png", `token: ${token("moved")}\n`).commit("add");
+    r.move("go.sum", "moved-sum.js").move("logo.png", "moved-png.js").commit("rename");
+    // A message is read however it begins.
+    r.remove("moved-sum.js").remove("moved-png.js").commit(`MZ region fix\n\ntoken: ${token("message")}\n`);
+    const { plain, factory } = modes(r);
+    assert.equal(plain.code, 0, `default mode: ${JSON.stringify(plain.messages)}`);
+    assert.equal(factory.code, 1, `factory mode: ${JSON.stringify(factory.messages)}`);
+    const line = factory.messages.find((m) => m.startsWith("factory: 3 credentials in the commits of this change"));
+    assert.ok(line, JSON.stringify(factory.messages));
+    for (const part of ["go.sum:1", "moved-png.js:1", "message, line 3 (github-pat)"]) assert.ok(line.includes(part), part);
+  } finally {
+    r.done();
   }
 });
 
@@ -173,31 +175,6 @@ test("the agent loop's write_file, with the real scanner: content the scan skips
     assert.throws(() => readFileSync(path.join(dir, "settings.env")), /ENOENT/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("a commit message that begins with a binary format's first bytes is still read", () => {
-  const r = repo();
-  try {
-    r.write("b.js", "export const b = 2;\n").commit(`MZ region fix\n\ntoken: ${token("message")}\n`);
-    const f = cli([r.dir, "--json", "--factory", `--base=${r.base}`]);
-    assert.equal(f.code, 1, JSON.stringify(f.messages));
-    assert.ok(f.messages.some((m) => /message, line 3 \(github-pat\)/.test(m)), JSON.stringify(f.messages));
-  } finally {
-    r.done();
-  }
-});
-
-test("a file under a directory named like an unread file blocks in factory mode", () => {
-  const r = repo();
-  try {
-    r.write("logo.png/config.js", `// ${token("dir")}\n`).commit();
-    const { plain, factory } = modes(r);
-    assert.equal(plain.code, 0, "default mode");
-    assert.equal(factory.code, 1, "factory mode");
-    assert.ok(factory.messages.some((m) => /logo\.png\/config\.js/.test(m)), JSON.stringify(factory.messages));
-  } finally {
-    r.done();
   }
 });
 
@@ -222,21 +199,6 @@ test("a project at a path the scan will not enter is exit 3 in both modes, never
   }
 });
 
-test("an edited lockfile with no credential passes in both modes", () => {
-  const lock = (v) => JSON.stringify({ name: "p", version: v, lockfileVersion: 3, requires: true, packages: { "": { name: "p", version: v } } }, null, 2) + "\n";
-  const r = repo();
-  try {
-    r.write("package.json", JSON.stringify({ name: "p", version: "1.0.0" }) + "\n").write("package-lock.json", lock("1.0.0"));
-    r.base = r.commit("with a lockfile");
-    r.write("package.json", JSON.stringify({ name: "p", version: "1.0.1" }) + "\n").write("package-lock.json", lock("1.0.1")).commit();
-    const { plain, factory } = modes(r);
-    assert.equal(plain.code, 0, JSON.stringify(plain.messages));
-    assert.equal(factory.code, 0, JSON.stringify(factory.messages));
-  } finally {
-    r.done();
-  }
-});
-
 test("a list the gate cannot read is exit 3, whatever else the run found", () => {
   const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "factory-unread-sg-")));
   const sg = path.join(dir, "node_modules", "@tjwitko", "secret-guard-mcp");
@@ -256,16 +218,11 @@ test("a list the gate cannot read is exit 3, whatever else the run found", () =>
   try {
     r.write("b.js", "export const b = 2;\n").commit();
     assert.equal(cli([r.dir, "--json", "--factory", `--base=${r.base}`], env).code, 0, "with the list as it is");
-    for (const [what, text, why] of [
-      ["not JSON", "{ nope", /it is not JSON/],
-      ["another schema", JSON.stringify({ ...good, schema: 2 }), /schema 2/],
-      ["a Go pattern", JSON.stringify({ ...good, entries: [...good.entries, { kind: "x", from: "y", pattern: "(?i)\\.png$", flags: "", directories: true }] }), /\(x\) does not compile/],
-    ]) {
-      writeFileSync(listFile, text);
-      const f = cli([r.dir, "--json", "--factory", `--base=${r.base}`], env);
-      assert.equal(f.code, 3, `${what}: exit ${f.code}`);
-      assert.ok(f.doc.couldNotRun.some((c) => c.startsWith("factory: secret-guard's list of what it does not read") && why.test(c)), `${what}: ${JSON.stringify(f.doc.couldNotRun)}`);
-    }
+    // One fault through the CLI: lib/secret-guard-unread.test.mjs holds each kind of fault to the same error.
+    writeFileSync(listFile, JSON.stringify({ ...good, entries: [...good.entries, { kind: "x", from: "y", pattern: "(?i)\\.png$", flags: "", directories: true }] }));
+    const f = cli([r.dir, "--json", "--factory", `--base=${r.base}`], env);
+    assert.equal(f.code, 3, `a Go pattern: exit ${f.code}`);
+    assert.ok(f.doc.couldNotRun.some((c) => c.startsWith("factory: secret-guard's list of what it does not read") && /\(x\) does not compile/.test(c)), JSON.stringify(f.doc.couldNotRun));
   } finally {
     r.done();
     rmSync(dir, { recursive: true, force: true });
