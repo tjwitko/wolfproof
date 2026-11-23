@@ -64,7 +64,7 @@ const {
   inventoryGrants,
 } = await import("../lib/factory.mjs").catch(notLoaded);
 const { commitSecrets } = await import("../lib/factory-commits.mjs").catch(notLoaded);
-const { secretGuardUnread } = await import("../lib/secret-guard-unread.mjs").catch(notLoaded);
+const { NO_UNREAD_ANSWER, secretGuardUnread } = await import("../lib/secret-guard-unread.mjs").catch(notLoaded);
 const { parseReviews, reviewableLine, reviewedRecord, staleReviewsLine, REVIEW_FILE } = await import("../lib/reviewed.mjs").catch(notLoaded);
 const { parseKnown, knownRecord, knownLine, staleKnownLine, KNOWN_FILE } = await import("../lib/known.mjs").catch(notLoaded);
 const { optionProblems } = await import("../lib/cli-flags.mjs").catch(notLoaded);
@@ -520,6 +520,8 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         });
         if (wrote.error) couldNotRun.push(`factory: ${wrote.error}`);
         r.failures.push(...wrote.failures);
+        // The same reason from the commit scan is already there.
+        if (r.secretUnreadUnanswered && !commitScan?.error?.includes(NO_UNREAD_ANSWER)) couldNotRun.push(`factory: ${NO_UNREAD_ANSWER}`);
       }
       // A directory the gate could not list, which an ignore rule this change wrote set aside. Judged
       // here and not with the rest of the change, because which directories those are is the run's

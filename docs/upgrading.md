@@ -1099,6 +1099,12 @@ So does a file under a directory named like an unread file, such as `logo.png/co
 what it took for binary, which no name shows. In factory mode a change that writes such a file is
 **exit 1**, kind `skipped-location`, and so is a real binary with no telling name.
 
+**After v1.17.0: factory mode needs secret-guard v1.1.0 or later.** It asks the scan what it left
+unread among the paths a change wrote. Can turn a passing factory run into **exit 3** when an older
+secret-guard is the control, through `SECRETGUARD_SERVER` or a checkout, and the reason says which
+version can answer. A change that wrote no file (no commits, an empty commit, only deletions) is not
+affected, and default mode does not depend on it.
+
 **After v1.17.0: the agent loop's `write_file` refuses when the credential scan errors.** It refused
 only on a finding, so an error wrote the file: content the scan could not read reached disk. The
 refusal says why.

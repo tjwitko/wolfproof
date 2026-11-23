@@ -8,6 +8,7 @@ import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
 import { localTools } from "../lib/gate-core.mjs";
+import { NO_UNREAD_ANSWER } from "../lib/secret-guard-unread.mjs";
 
 // Factory mode's list of places the secret scan does not look, from the secret-guard that runs,
 // through the real CLI with the real scanner. Credentials are assembled here at run time and written
@@ -68,6 +69,33 @@ function repo() {
   self.write("a.js", "export const a = 1;\n");
   self.base = self.commit("base");
   return self;
+}
+
+/** A copy of the pinned secret-guard to run as the control, with what it needs beside it. */
+function secretGuardCopy() {
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "factory-unread-sg-")));
+  const sg = path.join(dir, "node_modules", "@tjwitko", "secret-guard-mcp");
+  mkdirSync(path.dirname(sg), { recursive: true });
+  cpSync(PINNED, sg, { recursive: true });
+  for (const dep of ["@modelcontextprotocol", "zod"]) {
+    try {
+      symlinkSync(path.join(MODULES, dep), path.join(dir, "node_modules", dep));
+    } catch {
+      /* the copy brought it */
+    }
+  }
+  return { sg, env: { SECRETGUARD_SERVER: path.join(sg, "index.mjs") }, done: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+/** As a release before v1.1.0, in what counts here: a report that does not say what it left unread. */
+function olderSecretGuard() {
+  const copy = secretGuardCopy();
+  const index = path.join(copy.sg, "index.mjs");
+  const whole = readFileSync(index, "utf8");
+  const older = whole.replace("...(unread ? { unread } : {}),", "").replace("...(result.unread ? { unread: result.unread } : {})", "");
+  assert.ok(older.length < whole.length && !older.includes("unread: result.unread") && !older.includes("{ unread }"), "the pinned release's report has changed shape");
+  writeFileSync(index, older);
+  return copy;
 }
 
 const modes = (r, extra = []) => ({
@@ -200,20 +228,10 @@ test("a project at a path the scan will not enter is exit 3 in both modes, never
 });
 
 test("a list the gate cannot read is exit 3, whatever else the run found", () => {
-  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "factory-unread-sg-")));
-  const sg = path.join(dir, "node_modules", "@tjwitko", "secret-guard-mcp");
-  mkdirSync(path.dirname(sg), { recursive: true });
-  cpSync(PINNED, sg, { recursive: true });
-  for (const dep of ["@modelcontextprotocol", "zod"]) {
-    try {
-      symlinkSync(path.join(MODULES, dep), path.join(dir, "node_modules", dep));
-    } catch {
-      /* the copy brought it */
-    }
-  }
-  const listFile = path.join(sg, "gitleaks", "unread-paths.json");
+  const copy = secretGuardCopy();
+  const listFile = path.join(copy.sg, "gitleaks", "unread-paths.json");
   const good = JSON.parse(readFileSync(listFile, "utf8"));
-  const env = { SECRETGUARD_SERVER: path.join(sg, "index.mjs") };
+  const { env } = copy;
   const r = repo();
   try {
     r.write("b.js", "export const b = 2;\n").commit();
@@ -225,6 +243,59 @@ test("a list the gate cannot read is exit 3, whatever else the run found", () =>
     assert.ok(f.doc.couldNotRun.some((c) => c.startsWith("factory: secret-guard's list of what it does not read") && /\(x\) does not compile/.test(c)), JSON.stringify(f.doc.couldNotRun));
   } finally {
     r.done();
-    rmSync(dir, { recursive: true, force: true });
+    copy.done();
+  }
+});
+
+test("a secret-guard that cannot say what it left unread: factory mode is exit 3 and says why, default mode does not change", () => {
+  const older = olderSecretGuard();
+  const said = (run) => (run.doc?.couldNotRun || []).filter((c) => c.includes(NO_UNREAD_ANSWER));
+  const factory = (r) => cli([r.dir, "--json", "--factory", `--base=${r.base}`], older.env);
+  const inTree = repo();
+  const inCommits = repo();
+  const inBoth = repo();
+  const noFiles = repo();
+  try {
+    // Only the tree's scan is asked: the blob is the base's, so no commit added it.
+    inTree.write("at-base.env", `MZ_REGION=maputo\ntoken: ${token("older")}\n`);
+    inTree.base = inTree.commit("with it");
+    inTree.move("at-base.env", "renamed.env").commit("rename");
+    const tree = factory(inTree);
+    assert.equal(tree.code, 3, JSON.stringify(tree.doc?.couldNotRun));
+    assert.equal(said(tree).length, 1, JSON.stringify(tree.doc?.couldNotRun));
+    assert.match(said(tree)[0], /^factory: the secret-guard in use cannot say what its scan left unread .* v1\.1\.0 or later can/);
+    const plainOlder = cli([inTree.dir, "--json"], older.env);
+    const plainPinned = cli([inTree.dir, "--json"]);
+    assert.deepEqual([plainOlder.code, plainOlder.doc?.couldNotRun], [0, []], "default mode with the older scanner");
+    assert.deepEqual([plainPinned.code, plainPinned.doc?.couldNotRun], [0, []], "default mode with the pinned scanner");
+
+    // Only the commit scan is asked: the tree ends as it began. What it found stays in the report.
+    inCommits.write("config.js", `// ${token("in commits")}\n`).commit("add");
+    inCommits.remove("config.js").commit("remove");
+    const commits = factory(inCommits);
+    assert.equal(commits.code, 3, JSON.stringify(commits.doc?.couldNotRun));
+    assert.equal(said(commits).length, 1, JSON.stringify(commits.doc?.couldNotRun));
+    assert.match(said(commits)[0], /were not all scanned for credentials/);
+    assert.ok(commits.messages.some((m) => m.startsWith("factory: 1 credential in the commits of this change")), JSON.stringify(commits.messages));
+
+    // Both are asked, and the reason is said once.
+    inBoth.write("b.js", "export const b = 2;\n").commit();
+    const both = factory(inBoth);
+    assert.equal(both.code, 3, JSON.stringify(both.doc?.couldNotRun));
+    assert.equal(said(both).length, 1, JSON.stringify(both.doc?.couldNotRun));
+
+    // A change that wrote no file asks nothing, so nothing goes unanswered.
+    noFiles.write("old.js", "export const o = 1;\n");
+    noFiles.base = noFiles.commit("with a file");
+    spawnSync("git", ["-C", noFiles.dir, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "nothing"]);
+    noFiles.remove("old.js").commit("delete");
+    const none = factory(noFiles);
+    assert.deepEqual([none.code, none.doc?.couldNotRun], [0, []], "only an empty commit and a deletion");
+  } finally {
+    inTree.done();
+    inCommits.done();
+    inBoth.done();
+    noFiles.done();
+    older.done();
   }
 });

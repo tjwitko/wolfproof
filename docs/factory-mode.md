@@ -52,8 +52,12 @@ it and the head.
 read (`gitleaks/unread-paths.json`): third-party trees, images, fonts, Office files, PDFs, `.exe`,
 gems, rule files and archives. A change that adds, edits or renames a file to one of those paths
 blocks, whatever the file holds, so a real image blocks too. A list that is there and cannot be read
-is exit 3. A secret-guard older than the list gets wolfproof's fallback, a copy of the pinned
-release's list.
+is exit 3.
+
+Factory mode needs secret-guard v1.1.0 or later. It asks the scan what it left unread among the paths
+the change wrote, in the tree and in each commit, and a scanner that cannot answer makes the run
+**exit 3**, saying so. Findings it did make stay in the report. A change that wrote no file (no commits,
+an empty commit, only deletions) asks nothing and does not depend on the version.
 
 The allowlist approves one with the kind `skipped-location`. For a kind skipped for its **name**
 (images, fonts, binaries, gems, rule files, archives), the message asks for the file's path. An entry
