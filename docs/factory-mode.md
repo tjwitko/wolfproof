@@ -53,7 +53,7 @@ read (`gitleaks/unread-paths.json`): third-party trees, images, fonts, Office fi
 gems, rule files and archives. A change that adds, edits or renames a file to one of those paths
 blocks, whatever the file holds, so a real image blocks too. A list that is there and cannot be read
 is exit 3. A secret-guard older than the list gets wolfproof's fallback, a copy of the pinned
-release's list, which does not name the text kinds that older scanner also skips.
+release's list.
 
 The allowlist approves one with the kind `skipped-location`. For a kind skipped for its **name**
 (images, fonts, binaries, gems, rule files, archives), the message asks for the file's path. An entry
