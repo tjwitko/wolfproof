@@ -57,7 +57,9 @@ release's list, which does not name the text kinds that older scanner also skips
 
 The allowlist approves one with the kind `skipped-location`. For a kind skipped for its **name**
 (images, fonts, binaries, gems, rule files, archives), the message asks for the file's path. An entry
-naming its directory also works, and then covers anything written there later.
+naming its directory also works, and then covers anything written there later. Nothing reads an
+approved path, so a credential in it passes. If a commit moves it to a path the scan does read, the
+commit scan reports it there.
 
 gitleaks takes a file for an archive when its name holds the ending, so `app.browser.js`,
 `deploy.target.yaml` and `messages.pt.br.json` count. A directory named like an unread file is not

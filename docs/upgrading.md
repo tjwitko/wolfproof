@@ -10,7 +10,7 @@ $ ./node_modules/.bin/wolfproof --version
 wolfproof 1.17.0
   terraform-guard  v1.1.3  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.4  node_modules @tjwitko/dep-audit-mcp
-  secret-guard     v1.0.4  node_modules @tjwitko/secret-guard-mcp
+  secret-guard     v1.1.0  node_modules @tjwitko/secret-guard-mcp
   identity-guard   v1.0.4  node_modules @tjwitko/identity-guard-mcp
 tools on PATH
   node             26.5.1
@@ -1059,8 +1059,8 @@ the path readable by that user, or remove it.
 
 ### After v1.17.0
 
-**After v1.17.0: the secret scan reads text files it used to skip.** The secret-guard this release
-pins takes out of gitleaks' default path allowlist the entries that hid text: lockfiles, `go.mod`,
+**After v1.17.0: the secret scan reads text files it used to skip.** secret-guard v1.1.0, which this
+release pins, takes out of gitleaks' default path allowlist the entries that hid text: lockfiles, `go.mod`,
 `go.sum`, `go.work`, `.svg`, the gradle and maven wrappers, any `.js` named for a library such as
 `bootstrap.js`, `javascript.json`, `verification-metadata.xml`, `.refactorlog`, `.gltf`, `.socket`,
 `.bin` and `.v2`. In `go.sum`, `generic-api-key` skips a line of exactly the form
@@ -1088,9 +1088,10 @@ read is exit 3. Default mode is unchanged by this.
 Can turn a passing factory run red, **exit 1**: a change that adds, edits or renames a file to such
 a path. Text holding a token named `logo.png` or `data.zip` was 0 and is 1, and so is the same file
 renamed to `config.js` and deleted. So is a real image. Over the last 100 commits of wolfproof and of
-the four controls (446 commits, since three have fewer), 2 would have blocked on this rule alone,
-both edits to secret-guard's own `gitleaks/default.gitleaks.toml`. Approve a path with the kind
-`skipped-location`, by the file's path for a kind skipped by its name.
+the four controls (452 commits, since three have fewer), 4 would have blocked on this rule alone,
+all edits to secret-guard's own `gitleaks/default.gitleaks.toml`. Approve a path with the kind
+`skipped-location`, by the file's path for a kind skipped by its name. Nothing reads an approved
+path, so a credential in it passes for as long as the file stays there.
 
 gitleaks takes a file for an archive when its **name holds** an archive's ending, so
 `app.browser.js`, `deploy.target.yaml` and `messages.pt.br.json` are unread and block as well. So does

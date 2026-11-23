@@ -2804,8 +2804,8 @@ nothing" cannot mean "the scan was not shown it". For the secret scan it learns 
 `secretGuardAllowlist` (`lib/factory.mjs`), which reads the `[allowlist] paths` of secret-guard's
 `gitleaks/extra-rules.toml`: `.terraform/`, `.external_modules/`, `node_modules/`, `vendor/`,
 `.venv/`, `__pycache__/`. gitleaks has a path allowlist of its own in its default configuration,
-which secret-guard extends, and nothing in wolfproof reads that one. Not fixed here; this entry
-records the measurements and the options.
+which secret-guard extends, and nothing in wolfproof read that one. This entry records the
+measurements, the options and what was decided.
 
 **Measured** on c54b4a9 with gitleaks 8.30.1 and secret-guard v1.0.3, through the CLI:
 
@@ -2927,8 +2927,8 @@ expression. A list that cannot be read is exit 3.
   5,152 of them `.svg`, at no measurable cost in scan time.
 - *By path.* The script above holds 61 names, not 60: 46 exited 0 and 15 exited 1. secret-guard read 1
   of them and reads 35 now.
-- *Cost in factory mode.* Over the last 100 commits of wolfproof and of the four controls (446, since
-  three have fewer), 2 block on this rule alone, both edits to secret-guard's own rule file.
+- *Cost in factory mode.* Over the last 100 commits of wolfproof and of the four controls (452, since
+  three have fewer), 4 block on this rule alone, all edits to secret-guard's own rule file.
 
 Three things stay open.
 
