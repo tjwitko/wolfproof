@@ -364,6 +364,11 @@ So that a clean verdict is read for what it is:
   formats get advisories only.
 - **Helm templates, until rendered.** The manifest checks skip a file with an unquoted `{{ … }}`
   where YAML expects a value, and name it; run `helm template` and gate the output.
+- **Files the secret scan does not read.** Third-party trees, images, fonts, Office files, PDFs,
+  `.exe`, gems, rule files, archives, and anything else it takes for a binary file. In
+  [factory mode](docs/factory-mode.md#where-the-checks-do-not-look) a change that writes one of these
+  files blocks. In default mode nothing reports them. A project checked out under a path the scan will
+  not enter, such as `vendor/app`, is exit 3.
 - **Requirements nobody stated.**
 
 → [What it checks, in full](docs/checks.md): languages and frameworks, the four controls, how the

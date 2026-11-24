@@ -10,7 +10,7 @@ $ ./node_modules/.bin/wolfproof --version
 wolfproof 1.17.0
   terraform-guard  v1.1.3  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.4  node_modules @tjwitko/dep-audit-mcp
-  secret-guard     v1.0.4  node_modules @tjwitko/secret-guard-mcp
+  secret-guard     v1.1.0  node_modules @tjwitko/secret-guard-mcp
   identity-guard   v1.0.4  node_modules @tjwitko/identity-guard-mcp
 tools on PATH
   node             26.5.1
@@ -1056,6 +1056,62 @@ same rule: a scan that says it left some of them unread is exit 3.
 Can turn a passing run into **exit 3**: a project holding anything the user the gate runs as cannot
 read, apart from the ignored directory above, or a `SECRET_GUARD_CONFIG` that does not load. Make
 the path readable by that user, or remove it.
+
+### After v1.17.0
+
+**After v1.17.0: the secret scan reads text files it used to skip.** secret-guard v1.1.0, which this
+release pins, takes out of gitleaks' default path allowlist the entries that hid text: lockfiles, `go.mod`,
+`go.sum`, `go.work`, `.svg`, the gradle and maven wrappers, any `.js` named for a library such as
+`bootstrap.js`, `javascript.json`, `verification-metadata.xml`, `.refactorlog`, `.gltf`, `.socket`,
+`.bin` and `.v2`. In `go.sum`, `generic-api-key` skips a line of exactly the form
+`<module> <version> h1:<hash>`; every other rule reads it, and a password on any other line is
+reported. On the 35 calibration projects the findings went from 451 to 452, none lost, and the new
+one is a commented-out API key in a file named for a library.
+
+Can turn a passing run red, **exit 1**: a credential in one of those files. Measured, v1.17.0 against
+this version, in default mode and in factory mode:
+
+| The change | default | factory |
+|---|---|---|
+| an AWS access key ID in `go.sum` | 0 to 1 | 0 to 1 |
+| a GitHub token in a comment in `art.svg` | 0 to 1 | 0 to 1 |
+| the same in `bootstrap.js`, or a file named for angular, jquery, plotly or swagger-ui | 0 to 1 | 0 to 1 |
+| the same under `bower_components/`, `env/lib64/` or `lib/python3.11/`, which stay unread | 0 | 0 to 1 |
+| `go.sum` with a key, renamed to `config.js`, then deleted, in three commits | 0 | 0 to 1 |
+| `package-lock.json` edited, no credential | 0 | 0 |
+
+**After v1.17.0: factory mode blocks a write where the secret scan still does not look.** Its list
+now comes from the pinned secret-guard (`gitleaks/unread-paths.json`): third-party trees, images,
+fonts, Office files, PDFs, `.exe`, gems, rule files and archives. A list that is there and cannot be
+read is exit 3. Default mode is unchanged by this.
+
+Can turn a passing factory run red, **exit 1**: a change that adds, edits or renames a file to such
+a path. Text holding a token named `logo.png` or `data.zip` was 0 and is 1, and so is the same file
+renamed to `config.js` and deleted. So is a real image. Over the last 100 commits of wolfproof and of
+the four controls (452 commits, since three have fewer), 4 would have blocked on this rule alone,
+all edits to secret-guard's own `gitleaks/default.gitleaks.toml`. Approve a path with the kind
+`skipped-location`, by the file's path for a kind skipped by its name. Nothing reads an approved
+path, so a credential in it passes for as long as the file stays there.
+
+So does a file under a directory named like an unread file, such as `logo.png/config.js`.
+
+**After v1.17.0: factory mode blocks a file the scan reports it left unread.** secret-guard now says
+what it took for binary, which no name shows. In factory mode a change that writes such a file is
+**exit 1**, kind `skipped-location`, and so is a real binary with no telling name.
+
+**After v1.17.0: factory mode needs secret-guard v1.1.0 or later.** It asks the scan what it left
+unread among the paths a change wrote. Can turn a passing factory run into **exit 3** when an older
+secret-guard is the control, through `SECRETGUARD_SERVER` or a checkout, and the reason says which
+version can answer. A change that wrote no file (no commits, an empty commit, only deletions) is not
+affected, and default mode does not depend on it.
+
+**After v1.17.0: the agent loop's `write_file` refuses when the credential scan errors.** It refused
+only on a finding, so an error wrote the file: content the scan could not read reached disk. The
+refusal says why.
+
+**After v1.17.0: a project under a path the scan will not enter is exit 3.** gitleaks tests the whole
+path, so a checkout at `.../vendor/app`, `.../node_modules/app` or `.../env/lib/app` was read as nothing and
+reported clean. Can turn a passing run into **exit 3**, in both modes. Move the checkout.
 
 ## Keeping current
 

@@ -48,8 +48,28 @@ it and the head.
 
 ### Where the checks do not look
 
-`dist/`, `build/`, `venv/`, `node_modules/`, and `vendor/` and the rest of secret-guard's gitleaks
-allowlist.
+`dist/`, `build/`, `venv/`, `node_modules/`, and everything the pinned secret-guard says it does not
+read (`gitleaks/unread-paths.json`): third-party trees, images, fonts, Office files, PDFs, `.exe`,
+gems, rule files and archives. A change that adds, edits or renames a file to one of those paths
+blocks, whatever the file holds, so a real image blocks too. A list that is there and cannot be read
+is exit 3.
+
+Factory mode needs secret-guard v1.1.0 or later. It asks the scan what it left unread among the paths
+the change wrote, in the tree and in each commit, and a scanner that cannot answer makes the run
+**exit 3**, saying so. Findings it did make stay in the report. A change that wrote no file (no commits,
+an empty commit, only deletions) asks nothing and does not depend on the version.
+
+The allowlist approves one with the kind `skipped-location`. For a kind skipped for its **name**
+(images, fonts, binaries, gems, rule files, archives), the message asks for the file's path. An entry
+naming its directory also works, and then covers anything written there later. Nothing reads an
+approved path, so a credential in it passes. If a commit moves it to a path the scan does read, the
+commit scan reports it there.
+
+A directory named like an unread file is not entered, so `logo.png/config.js` counts too.
+
+The scan also says what it left unread because it took the file for binary, which no name shows. A
+change that writes such a file blocks, with the same kind `skipped-location`, and so does one whose
+commits wrote it and later replaced or deleted it. A commit's message is text and is always read.
 
 ### Servers in test files
 
@@ -236,8 +256,8 @@ What decides it:
   symbolic link, and one renamed out of a directory secret-guard does not scan.
 - **A merge commit is read for what it wrote itself**: lines that none of its parents has. Commits
   merged in from the target branch are not the change's when the base holds them.
-- **A file a commit wrote where secret-guard does not scan** (`vendor/`, `node_modules/` and the
-  rest of its allowlist) blocks as [code where the checks do not look](#where-the-checks-do-not-look),
+- **A file a commit wrote where secret-guard does not read** (`vendor/`, `node_modules/`, an image,
+  an archive and the [rest of its list](#where-the-checks-do-not-look)) blocks as [code where the checks do not look](#where-the-checks-do-not-look),
   naming the commit, when the tree no longer shows it. The allowlist approves it the same way, kind
   `skipped-location`.
 - **The allowlist approves a finding by its file**, kind `secret-in-commit`, path from the project:
@@ -272,10 +292,9 @@ in a shallow clone. `fetch-depth: 0` on `actions/checkout` always works.
 Three limits:
 
 - **A file the scanner skips by its name is not read in a commit either**, as it is not in the
-  tree: gitleaks' own configuration skips images, PDFs, lockfiles and `go.sum`. Measured: a key in
-  `k.png` or `package-lock.json` is not found. And a file renamed from such a name is compared with
-  the copy that was never scanned, so a key added as `k.png` and renamed unchanged to `k.txt` by the
-  next commit is not reported.
+  tree. A commit that writes one [blocks for that](#where-the-checks-do-not-look), and a file renamed
+  from such a name counts as new, so a key added as `k.png` and renamed to `k.txt` is found. A file
+  the scan takes for binary by what it holds is not read either, and [blocks the same way](#where-the-checks-do-not-look).
 - **A force-push that rewrites the branch takes the commit out of the range.** The gate reads the
   commits between the base and the head it is given. A credential pushed in a commit that was later
   rewritten away was still pushed, and no later run sees it.

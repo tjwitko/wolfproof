@@ -60,9 +60,11 @@ const {
   requirementAtBase,
   isInside,
   secretGuardAllowlist,
+  unreadWrites,
   inventoryGrants,
 } = await import("../lib/factory.mjs").catch(notLoaded);
 const { commitSecrets } = await import("../lib/factory-commits.mjs").catch(notLoaded);
+const { NO_UNREAD_ANSWER, secretGuardUnread } = await import("../lib/secret-guard-unread.mjs").catch(notLoaded);
 const { parseReviews, reviewableLine, reviewedRecord, staleReviewsLine, REVIEW_FILE } = await import("../lib/reviewed.mjs").catch(notLoaded);
 const { parseKnown, knownRecord, knownLine, staleKnownLine, KNOWN_FILE } = await import("../lib/known.mjs").catch(notLoaded);
 const { optionProblems } = await import("../lib/cli-flags.mjs").catch(notLoaded);
@@ -338,6 +340,10 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
     // with the plugin cache deciding.
     let judged = { failures: [], notes: [], grants: [], changed: [], newProbeRoutes: [], workflows: [], agentFiles: [] };
     if (factory && base) {
+      // A list that is there and cannot be read: the judgement below runs on the fallback, and the
+      // run is could-not-run, so a pattern the gate could not read is never one it quietly dropped.
+      const unread = secretGuardUnread(controls.find((c) => c.name === "secret-guard")?.entry || null);
+      if (unread.error) factoryCouldNotRun.push(`factory: ${unread.error}`);
       judged = judgeChange(projectDir, {
         sha: base.sha,
         baseDir: base.dir,
@@ -359,13 +365,13 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         allowlist: allowlist.entries,
         gitleaksAllow: secretGuardAllowlist(sg?.entry || null),
         reported: new Set(judged.changed.map((c) => c.path)),
-        scan: async (dir) => {
+        scan: async (dir, unreadOf) => {
           if (!sg?.entry) return { error: `secret-guard was ${sg?.error || "not resolved"}` };
           const client = new McpClient("secret-guard", "node", [sg.entry], { [sg.rootVar]: dir }, dir);
           try {
             const tools = await client.init();
             if (!tools.some((t) => t.name === "scan_path")) return { error: "the secret-guard that started has no scan_path tool" };
-            return { text: await client.call("scan_path", { target: "." }) };
+            return { text: await client.call("scan_path", { target: ".", unread_of: unreadOf }) };
           } catch (err) {
             return { error: err?.message || String(err) };
           } finally {
@@ -418,7 +424,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       }
     }
 
-    const r = await validateProject(projectDir, registry, taskText, { preCommit, reviews: pipelineReviews, known });
+    const r = await validateProject(projectDir, registry, taskText, { preCommit, reviews: pipelineReviews, known, unreadOf: factory && base ? judged.changed.map((c) => c.path) : null });
     r.failures.unshift(...requirements.failures);
     r.advisories.unshift(...requirements.advisories);
     if (configNote) r.advisories.unshift(`config: ${configNote}`);
@@ -501,6 +507,22 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
       r.advisories.push(...factoryAdvisories);
       couldNotRun.push(...factoryCouldNotRun);
       r.failures.push(...judged.failures);
+      // What the tree's scan says it left unread: a file with a binary format's first bytes has no
+      // name to judge it by, so this is after the checks and not in judgeChange.
+      if (base) {
+        const sg = controls.find((c) => c.name === "secret-guard");
+        const wrote = unreadWrites(projectDir, {
+          changed: judged.changed,
+          unread: r.secretUnread,
+          allowlist: allowlist.entries,
+          gitleaksAllow: secretGuardAllowlist(sg?.entry || null),
+          reportedByCommits: new Set((commitScan?.skipped || []).map((f) => f.path)),
+        });
+        if (wrote.error) couldNotRun.push(`factory: ${wrote.error}`);
+        r.failures.push(...wrote.failures);
+        // The same reason from the commit scan is already there.
+        if (r.secretUnreadUnanswered && !commitScan?.error?.includes(NO_UNREAD_ANSWER)) couldNotRun.push(`factory: ${NO_UNREAD_ANSWER}`);
+      }
       // A directory the gate could not list, which an ignore rule this change wrote set aside. Judged
       // here and not with the rest of the change, because which directories those are is the run's
       // own coverage. Nothing a check writes is an ignore file.

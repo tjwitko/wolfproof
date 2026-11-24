@@ -160,9 +160,9 @@ cat > "$DIR/RUN.md" <<MD
 ## Controls
 $(gate_lines)
 
-Freeze the controls for the duration. A defect found mid-run goes in
-docs/candidate-rules.md, not into the code — changing a gate while a run is live
-means the run measured two different gates.
+Freeze the controls for the duration. A gate defect found during a run is
+reported to the person, not fixed in the code — changing a gate while a run is
+live means the run measured two different gates.
 MD
 
 # The signpost half of the distribution plan: a repository carries the stanza so an agent meets the
