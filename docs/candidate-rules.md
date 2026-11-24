@@ -2800,7 +2800,7 @@ same for speed. Before it ships:
    paths in Semgrep's results are the ones it was given, which stay absolute, so nothing should
    move; a result that reports a path relative to the working directory would show up here.
 
-### 38. Files gitleaks' default path allowlist never reads are not places factory mode knows the checks do not look — fixed after v1.17.0
+### 38. Files gitleaks' default path allowlist never reads are not places factory mode knows the checks do not look — fixed in v1.18.0
 
 Factory mode blocks a change that writes where a check does not look, so that "the scan found
 nothing" cannot mean "the scan was not shown it". For the secret scan it learns those places from

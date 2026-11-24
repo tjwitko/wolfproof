@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.17.0
+wolfproof 1.18.0
   terraform-guard  v1.1.3  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.4  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.1.0  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.17.0
-- uses: tjwitko/wolfproof@v1.17.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.18.0
+- uses: tjwitko/wolfproof@v1.18.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.17.0
+npm install --save-dev github:tjwitko/wolfproof#v1.18.0
 ```
 
 ## 3. Refresh what setup wrote
@@ -1057,9 +1057,9 @@ Can turn a passing run into **exit 3**: a project holding anything the user the 
 read, apart from the ignored directory above, or a `SECRET_GUARD_CONFIG` that does not load. Make
 the path readable by that user, or remove it.
 
-### After v1.17.0
+### In v1.18.0
 
-**After v1.17.0: the secret scan reads text files it used to skip.** secret-guard v1.1.0, which this
+**In v1.18.0: the secret scan reads text files it used to skip.** secret-guard v1.1.0, which this
 release pins, takes out of gitleaks' default path allowlist the entries that hid text: lockfiles, `go.mod`,
 `go.sum`, `go.work`, `.svg`, the gradle and maven wrappers, any `.js` named for a library such as
 `bootstrap.js`, `javascript.json`, `verification-metadata.xml`, `.refactorlog`, `.gltf`, `.socket`,
@@ -1080,7 +1080,7 @@ this version, in default mode and in factory mode:
 | `go.sum` with a key, renamed to `config.js`, then deleted, in three commits | 0 | 0 to 1 |
 | `package-lock.json` edited, no credential | 0 | 0 |
 
-**After v1.17.0: factory mode blocks a write where the secret scan still does not look.** Its list
+**In v1.18.0: factory mode blocks a write where the secret scan still does not look.** Its list
 now comes from the pinned secret-guard (`gitleaks/unread-paths.json`): third-party trees, images,
 fonts, Office files, PDFs, `.exe`, gems, rule files and archives. A list that is there and cannot be
 read is exit 3. Default mode is unchanged by this.
@@ -1095,21 +1095,21 @@ path, so a credential in it passes for as long as the file stays there.
 
 So does a file under a directory named like an unread file, such as `logo.png/config.js`.
 
-**After v1.17.0: factory mode blocks a file the scan reports it left unread.** secret-guard now says
+**In v1.18.0: factory mode blocks a file the scan reports it left unread.** secret-guard now says
 what it took for binary, which no name shows. In factory mode a change that writes such a file is
 **exit 1**, kind `skipped-location`, and so is a real binary with no telling name.
 
-**After v1.17.0: factory mode needs secret-guard v1.1.0 or later.** It asks the scan what it left
+**In v1.18.0: factory mode needs secret-guard v1.1.0 or later.** It asks the scan what it left
 unread among the paths a change wrote. Can turn a passing factory run into **exit 3** when an older
 secret-guard is the control, through `SECRETGUARD_SERVER` or a checkout, and the reason says which
 version can answer. A change that wrote no file (no commits, an empty commit, only deletions) is not
 affected, and default mode does not depend on it.
 
-**After v1.17.0: the agent loop's `write_file` refuses when the credential scan errors.** It refused
+**In v1.18.0: the agent loop's `write_file` refuses when the credential scan errors.** It refused
 only on a finding, so an error wrote the file: content the scan could not read reached disk. The
 refusal says why.
 
-**After v1.17.0: a project under a path the scan will not enter is exit 3.** gitleaks tests the whole
+**In v1.18.0: a project under a path the scan will not enter is exit 3.** gitleaks tests the whole
 path, so a checkout at `.../vendor/app`, `.../node_modules/app` or `.../env/lib/app` was read as nothing and
 reported clean. Can turn a passing run into **exit 3**, in both modes. Move the checkout.
 
