@@ -383,7 +383,7 @@ runs:
             // The same line the CLI prints (bin/validate.mjs commitsLine).
             const cs = f.commits;
             if (cs) console.log(`factory commits: ${!cs.scanned ? `${cs.count} between the base and the head, NOT all scanned for credentials (see the could-not-run list)` : !cs.count ? "none between the base and the head" : `${cs.count} between the base and the head, ${cs.files} file(s) they changed scanned for credentials, ${cs.findings.length} finding(s)`}`);
-            // The dependency rule's counts and what it did not read, as the CLI prints them (dependencyLines).
+            // The counts from the dependency rule and what it did not read, as the CLI prints them (dependencyLines).
             const deps = f.dependencies;
             if (deps) {
               const blocking = deps.findings.filter((x) => x.blocking).length;

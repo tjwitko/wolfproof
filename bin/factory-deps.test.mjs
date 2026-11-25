@@ -118,3 +118,44 @@ test("a manifest of an ecosystem the rule does not read is named above the verdi
     r.cleanup();
   }
 });
+
+test("a new workspace member passes; a package the lockfile brings and the code imports blocks; a lockfile rewritten as version 1 is exit 3", () => {
+  const wsPkg = `${JSON.stringify({ name: "p", version: "1.0.0", workspaces: ["packages/*"], dependencies: { "left-pad": "^1.1.0" } }, null, 2)}\n`;
+  const member = (name) => `${JSON.stringify({ name, version: "1.0.0" }, null, 2)}\n`;
+  const wsLock = (members) =>
+    lock(
+      { "node_modules/left-pad": entry("left-pad", "1.1.3"), ...Object.fromEntries(members.flatMap((m) => [[`packages/${m}`, { name: m, version: "1.0.0" }], [`node_modules/${m}`, { resolved: `packages/${m}`, link: true }]])) },
+      { "left-pad": "^1.1.0" }
+    );
+  const wsBase = { "package.json": wsPkg, "package-lock.json": wsLock(["x"]), "packages/x/package.json": member("x"), "a.js": "export const a = 1;\n" };
+  const cases = [
+    ["a new member", wsBase, { "package-lock.json": wsLock(["x", "y"]), "packages/y/package.json": member("y") }, 0],
+    [
+      "an edge written under a version move",
+      BASE,
+      {
+        "package.json": pkg({ "left-pad": "^1.3.0" }),
+        "package-lock.json": lock({ "node_modules/left-pad": entry("left-pad", "1.3.0", { dependencies: { "is-number": "^6.0.0" } }), "node_modules/is-number": entry("is-number", "6.0.0") }, { "left-pad": "^1.3.0" }),
+        "a.js": 'import n from "is-number";\nexport const a = n(1);\n',
+      },
+      1,
+    ],
+    [
+      "version 1",
+      BASE,
+      { "package.json": pkg({ "left-pad": "^1.3.0" }), "package-lock.json": `${JSON.stringify({ name: "p", lockfileVersion: 1, requires: true, dependencies: { "left-pad": { version: "1.3.0", resolved: "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz" } } }, null, 2)}\n` },
+      3,
+    ],
+  ];
+  for (const [label, b, change, want] of cases) {
+    const r = repo(b, change);
+    try {
+      const f = cli([r.dir, "--json", "--factory", `--base=${r.sha}`]);
+      assert.equal(f.code, want, `${label}: ${JSON.stringify(rule(f.doc))} ${JSON.stringify(f.doc?.couldNotRun)}`);
+      if (want === 1) assert.match(rule(f.doc).join("\n"), /npm package is-number 6\.0\.0 in package-lock\.json, .*brought in by left-pad; no manifest declares it, and the project's code imports it \(a\.js\)/);
+      if (want === 3) assert.ok(f.doc.couldNotRun.some((c) => /^factory: package-lock\.json at the head is lockfileVersion 1, which records no install scripts/.test(c)), JSON.stringify(f.doc.couldNotRun));
+    } finally {
+      r.cleanup();
+    }
+  }
+});

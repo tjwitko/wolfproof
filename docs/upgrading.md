@@ -1120,7 +1120,9 @@ passing factory run red, **exit 1**: a change that adds a dependency the base di
 one from somewhere other than its registry, brings in a package that runs code when it is installed,
 or adds a range that takes any version where no lockfile pins it. And into **exit 3**: a manifest or
 lockfile the rule cannot read, at the head or at the base, such as a `go.sum` with a line that is not
-a module, a version and a hash. Default mode is unchanged. It reads npm, Python and Go, and names
+a module, a version and a hash; and a `package-lock.json` at `lockfileVersion` 1, which records no
+install scripts, where the change added or moved packages or rewrote the lockfile in that format.
+Write it with npm 7 or later. Default mode is unchanged. It reads npm, Python and Go, and names
 above the verdict a manifest of another ecosystem that the change edits.
 
 Measured through the CLI, v1.18.0 against this version, each change one commit on a project with a
@@ -1132,6 +1134,11 @@ Measured through the CLI, v1.18.0 against this version, each change one commit o
 | an existing dependency moved to a git repository | 0 | **1**, `dependency-source` | 0 |
 | the lockfile moved to a version that runs an install script its base version did not | 0 | **1**, `install-script` | 0 |
 | a range changed to `*` or `>=0`, the lockfile removed | 1 | 1, with `unpinned-range` beside the missing-lockfile finding | 1 |
+| a version move whose lockfile brings a package that no manifest declares and the code imports | 0 | **1**, `new-dependency` | 0 |
+| the lockfile's entry for an existing dependency installs another package under its name | 0 | **1**, `new-dependency` | 0 |
+| `proxy=` added to `.npmrc` | 0 | **1**, `dependency-source` | 0 |
+| the lockfile rewritten as `lockfileVersion` 1, with a version move | 0 | **3** | 0 |
+| a new workspace member, linked in the lockfile | 0 | 0 | 0 |
 | a version move of an existing dependency | 0 | 0 | 0 |
 
 Over the first-parent history of wolfproof and its four controls, each change against its parent,

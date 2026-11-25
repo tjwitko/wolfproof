@@ -314,15 +314,19 @@ the [allowlist](#the-allowlist).
 
 | kind | what blocks |
 |---|---|
-| `new-dependency` | a name the project did not declare at the base, in any manifest of that ecosystem. A new manifest counts, and so does a workspace member, a nested manifest, a requirements file another includes with `-r`, a file setuptools is told to read dependencies from, and `[build-system] requires`. An npm alias (`"x": "npm:other@1"`) is the package it installs. In `package-lock.json`, an entry that no `package.json` declares and no other entry brings in. In Go, a module required for the first time, and one marked `// indirect` when the project's code imports it |
-| `dependency-source` | a dependency from somewhere other than its registry (git, a URL, a path outside the project, a Go `replace`) that the base did not take from there; a registry or index the project's files name and the base's did not: `registry=` in `.npmrc`, `--index-url`, `--extra-index-url` or `--find-links` in a requirements file, `[[tool.uv.index]]`, `[[tool.poetry.source]]`, a Pipfile's `[[source]]`, `uv.toml`; a lockfile entry edited in place, its version the same and its integrity, a file's hash, where it resolves, what it depends on or its install-script flag not; and a lockfile entry that downloads from outside its registry, or takes another package's file from it |
+| `new-dependency` | a name the project did not declare at the base, in any manifest of that ecosystem. A new manifest counts, and so does a workspace member, a nested manifest, a requirements file another includes with `-r`, a file setuptools is told to read dependencies from, `[build-system] requires`, uv's `dev-dependencies` and `extra-build-dependencies`, poetry's `requires-plugins`, and hatch's environments, build targets and build hooks (in `pyproject.toml` or `hatch.toml`). An npm alias (`"x": "npm:other@1"`) is the package it installs. In `package-lock.json`: an entry that no `package.json` declares and no other entry brings in; a package new to the lockfile that no `package.json` declares and the project's JavaScript or TypeScript imports; and an entry that installs another package under a name (`"node_modules/a": { "name": "other" }`) where no manifest and no package it comes with declares that alias. In Go, a module required for the first time, and one marked `// indirect` when the project's code imports it or a `tool` line runs it |
+| `dependency-source` | a dependency from somewhere other than its registry (git, a URL, a path outside the project, a Go `replace`) that the base did not take from there, including through an override or a constraint (uv's `override-dependencies`, `constraint-dependencies` and `build-constraint-dependencies`, pdm's `[tool.pdm.resolution.overrides]`); a registry or index the project's files name and the base's did not: `registry=` in `.npmrc`, `--index-url`, `--extra-index-url` or `--find-links` in a requirements file, `[[tool.uv.index]]`, `[tool.uv.pip]`, `[[tool.poetry.source]]`, a Pipfile's `[[source]]`, `uv.toml`; an `.npmrc` setting that changes where packages come from or which server npm trusts to serve them (`proxy`, `https-proxy`, `http-proxy`, `strict-ssl=false`, `cafile`, `ca`, `replace-registry-host`); a lockfile entry edited in place, its version the same and its integrity, a file's hash, where it resolves, what it depends on or its install-script flag not; and a lockfile entry that downloads from outside its registry, or takes another package's file from it |
 | `install-script` | a package new to the lockfile, direct or brought in by another, that runs code when it is installed: `hasInstallScript` in `package-lock.json`, or for Python a package `uv.lock` or `poetry.lock` holds only as a source distribution, which is built on install. Also a package whose versions at the base ran no install script and whose new version does |
 | `unpinned-range` | a range that takes any version (`*`, `latest` or another dist-tag, `x`, `>=0`, no version at all, a git dependency on a branch or with no ref), added or changed by the change, where no lockfile covers the manifest |
 
 What passes: a version move of a dependency the project already had, from the same source, and the
 packages it brings with it; a control's pin moving from one tag of its repository to the next is
-one. Removing a dependency. A dependency on the project's own code: a path inside the project, a
-workspace member, a Go module of its own. A manifest under a declared fixture is not the project's,
+one. Removing a dependency. A dependency on the project's own code, where the tool resolves it
+locally: a path inside the project, an npm workspace member the lockfile links or a `workspace:`
+range names, a uv workspace member, a project's own extras (`p[extra]` in `p`), a Go module
+replaced with its directory or used by `go.work`. A name that matches a member, a nested project or
+a nested module is not enough: the tool fetches that name from the registry unless something points
+it at the directory, so it is a new dependency. A manifest under a declared fixture is not the project's,
 so a dependency only a fixture had at the base is new when the project declares it. A manifest moved
 or renamed adds nothing by moving, and an addition made in the same change still blocks. Names are
 compared as the ecosystem compares them: PyPI takes `Foo_Bar` and `foo-bar` for one package.
@@ -346,7 +350,10 @@ add a package: the four controls by git URL (each `new-dependency` and `dependen
 `yaml`, the Langfuse and OpenTelemetry packages, the Anthropic SDK, `express` and `supertest` in a
 nested `bench/reference/package.json`, and `@aws-sdk/client-sts` in terraform-guard-mcp.
 
-A manifest or lockfile the rule cannot read, at the head or at the base, is exit 3. A change that
+A manifest or lockfile the rule cannot read, at the head or at the base, is exit 3. So is a
+`package-lock.json` at `lockfileVersion` 1, which records no install scripts (npm reads each package
+for one and runs it), where the change added or moved packages in it or rewrote it in that format:
+whether the change adds a package that runs code when installed is not known. A change that
 edits a manifest of an ecosystem this rule does not read is named above the verdict, as
 `factory deps   : not checked by this rule: Cargo.toml (crates.io)`. So is a `yarn.lock`,
 `pnpm-lock.yaml`, `bun.lock`, `.yarnrc.yml`, `.pnpmfile.cjs`, `setup.py`, `setup.cfg`, `pdm.lock` or
