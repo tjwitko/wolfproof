@@ -45,6 +45,7 @@ it and the head.
 | leaves an advisory meaning "nothing was checked" | an advisory | **blocks** (see [Advisories](#advisories)) |
 | adds a probe route that reads, such as `GET /health` | exempt | still exempt, and **named** in the report |
 | adds a credential in one commit and removes it in a later one ([below](#credentials-in-the-changes-commits)) | not checked: the tree is clean | **blocks**, naming the commit, the file and the line, unless the allowlist approves the file |
+| adds a dependency, takes one from a new source, brings in an install script, or adds a range that takes any version ([below](#dependencies)) | held to its advisories | **blocks**, unless the allowlist approves the package by name |
 
 ### Where the checks do not look
 
@@ -302,6 +303,59 @@ Three limits:
   for that event, so only its last commit is in the range. Set the `base` input to the branch it
   was cut from.
 
+### Dependencies
+
+Before v1.19.0 a dependency was held to one test, no known high or critical advisory, in both modes.
+A package nobody has reported yet passes that, and so does a name an agent made up that someone else
+registered, a tarball from any URL, and a package that runs a script when it is installed. Nobody
+reads a factory change, so factory mode asks for a person's approval: it compares the dependencies at
+the head with those at the base, for npm, Python and Go, and four things block, each its own kind in
+the [allowlist](#the-allowlist).
+
+| kind | what blocks |
+|---|---|
+| `new-dependency` | a name the project did not declare at the base, in any manifest of that ecosystem. A new manifest counts, and so does a workspace member, a nested manifest, a requirements file another includes with `-r`, a file setuptools is told to read dependencies from, and `[build-system] requires`. An npm alias (`"x": "npm:other@1"`) is the package it installs. In `package-lock.json`, an entry that no `package.json` declares and no other entry brings in. In Go, a module required for the first time, and one marked `// indirect` when the project's code imports it |
+| `dependency-source` | a dependency from somewhere other than its registry (git, a URL, a path outside the project, a Go `replace`) that the base did not take from there; a registry or index the project's files name and the base's did not: `registry=` in `.npmrc`, `--index-url`, `--extra-index-url` or `--find-links` in a requirements file, `[[tool.uv.index]]`, `[[tool.poetry.source]]`, a Pipfile's `[[source]]`, `uv.toml`; a lockfile entry edited in place, its version the same and its integrity, a file's hash, where it resolves, what it depends on or its install-script flag not; and a lockfile entry that downloads from outside its registry, or takes another package's file from it |
+| `install-script` | a package new to the lockfile, direct or brought in by another, that runs code when it is installed: `hasInstallScript` in `package-lock.json`, or for Python a package `uv.lock` or `poetry.lock` holds only as a source distribution, which is built on install. Also a package whose versions at the base ran no install script and whose new version does |
+| `unpinned-range` | a range that takes any version (`*`, `latest` or another dist-tag, `x`, `>=0`, no version at all, a git dependency on a branch or with no ref), added or changed by the change, where no lockfile covers the manifest |
+
+What passes: a version move of a dependency the project already had, from the same source, and the
+packages it brings with it; a control's pin moving from one tag of its repository to the next is
+one. Removing a dependency. A dependency on the project's own code: a path inside the project, a
+workspace member, a Go module of its own. A manifest under a declared fixture is not the project's,
+so a dependency only a fixture had at the base is new when the project declares it. A manifest moved
+or renamed adds nothing by moving, and an addition made in the same change still blocks. Names are
+compared as the ecosystem compares them: PyPI takes `Foo_Bar` and `foo-bar` for one package.
+
+A person approves from the finding, so it carries the name and range, the manifest, where the
+package resolves from, how many packages it adds to the lockfile and which of them run code when
+installed, and the allowlist entry that approves it, written out:
+
+```
+factory: new dependency — npm package @opentelemetry/sdk-node "^0.221.0" in package.json (devDependencies),
+from the npm registry. It adds 69 packages to package-lock.json, and 1 of them runs code when installed
+(protobufjs). The base did not declare it, and in factory mode a dependency needs a person's approval.
+Remove it, or have the pipeline's allowlist approve it:
+{"kind":"new-dependency","ecosystem":"npm","package":"@opentelemetry/sdk-node","reason":"<why a person approved it>"}
+```
+
+That change, `cc01536` in this repository, also blocks on `install-script` for protobufjs:
+approving a name does not approve the script. Over the first-parent history of wolfproof and its four
+controls, each change against its parent, 6 of 759 changes block and 14 version moves pass. The six
+add a package: the four controls by git URL (each `new-dependency` and `dependency-source`),
+`yaml`, the Langfuse and OpenTelemetry packages, the Anthropic SDK, `express` and `supertest` in a
+nested `bench/reference/package.json`, and `@aws-sdk/client-sts` in terraform-guard-mcp.
+
+A manifest or lockfile the rule cannot read, at the head or at the base, is exit 3. A change that
+edits a manifest of an ecosystem this rule does not read is named above the verdict, as
+`factory deps   : not checked by this rule: Cargo.toml (crates.io)`. So is a `yarn.lock`,
+`pnpm-lock.yaml`, `bun.lock`, `.yarnrc.yml`, `.pnpmfile.cjs`, `setup.py`, `setup.cfg`, `pdm.lock` or
+`pylock.toml`, which it does not read either.
+
+Nothing is looked up: no registry is asked what a package holds or how old it is, so what a new
+dependency brings and whether any of it runs code is what the lockfile records
+([what it does not do](#what-it-does-not-do)).
+
 ### Exemptions it judges
 
 Each of these is confirmed to loosen a check:
@@ -351,7 +405,8 @@ a new grant.
 A base that cannot be resolved — a ref the checkout does not have — is **exit 3**: with nothing to
 compare with, nothing self-granted can be told apart. So is a checkout that does not hold every
 commit between the base and the head, or a secret-guard that could not scan them: the change's
-commits were not all read. Everything else factory mode refuses is
+commits were not all read. So is a manifest or lockfile the [dependency rule](#dependencies) cannot read, at
+the head or the base: whether the change adds a dependency is then not known. Everything else factory mode refuses is
 **exit 1**, because the change made it and can undo it; exit 3 means "fix the environment", which
 would send it to the wrong owner.
 
@@ -398,6 +453,28 @@ is ignored and reported. The kinds are the exemptions above plus `changed-under-
 `skipped-location`, `moved-to-unchecked`, `server-in-test`, `reviewed-finding`, `known-finding`, `ignored-directory`, `agent-instructions` and `workflow-change`, which covers both
 `.github/workflows/` and `.github/actions/`. `known-declared` is the one exemption above with no
 kind here: an entry naming it is ignored and reported.
+
+A [dependency](#dependencies) is approved by name, not by path, with the kinds `new-dependency`,
+`dependency-source`, `install-script` and `unpinned-range`:
+
+```json
+{ "exemptions": [
+  { "kind": "new-dependency", "ecosystem": "npm", "package": "yaml", "reason": "YAML parser, read by the platform team" },
+  { "kind": "dependency-source", "ecosystem": "npm", "package": "@tjwitko/secret-guard-mcp",
+    "source": "git+https://github.com/tjwitko/secret-guard-mcp.git", "reason": "our own control, by tag" },
+  { "kind": "install-script", "ecosystem": "npm", "package": "esbuild", "path": "web", "reason": "downloads its own binary" }
+] }
+```
+
+`ecosystem` is `npm`, `PyPI` or `Go`, so approving `yaml` on npm does not approve `yaml` on PyPI.
+`package` names one package exactly, compared as its ecosystem compares names; an entry with a
+pattern in it is ignored and reported. An approved name covers later versions, so an update is not a
+person's job. `path`, which may be left out, narrows the entry to a manifest or a directory. Each kind
+is its own entry: approving a name does not approve its source or its install script. A
+`dependency-source` entry names the source without its ref, so a move to another tag of the same
+repository passes and another repository needs an entry of its own. For a registry or index the
+project's files name, `source` is its URL, and `package` is the npm scope it is for or is left out.
+A `*` entry approves none of the four: the point is that a person read the name.
 
 A `workflow-change` path is from the repository root, where GitHub reads workflows, even when the
 project is a subdirectory:
@@ -461,6 +538,18 @@ approves by path.
 
 ## What it does not do
 
+- **Look a dependency up.** The [dependency rule](#dependencies) asks no registry what a package holds,
+  who publishes it or how old it is; a rule on a package's age was considered and left out for that
+  reason. What a new dependency brings, and whether any of it runs code when installed, is what the
+  lockfile records. With no lockfile that is not known, and the finding says so. `Pipfile.lock` and
+  requirements files do not record which package brings which, and only `uv.lock` and `poetry.lock`
+  say whether a Python package is built from source. For npm, an install script is what
+  `hasInstallScript` in `package-lock.json` says: npm writes it from the package, and with it removed
+  by hand, `npm ci`, `npm install` and `npm rebuild` (npm 11.17.0) did not run the script. yarn,
+  pnpm and bun do not read `package-lock.json`, and their lockfiles are not read here.
+- **Read every ecosystem's dependencies.** npm, Python and Go are read. A change to Cargo, Bundler,
+  Composer, Maven, Gradle, NuGet or another ecosystem's manifest is named above the verdict as not
+  checked by this rule, and its new dependencies are held only to their advisories.
 - **Measure behaviour.** Whether the software does what its user needs is scenario validation —
   end-to-end checks kept where the agents cannot read them — and wolfproof sits beside it, not in
   place of it. Factory mode answers a narrower question: did the change narrow its own checks?

@@ -105,7 +105,9 @@ const modes = (r, extra = []) => ({
 
 test("credentials in files the scan now reads block in both modes, each counted", () => {
   const files = {
-    "go.sum": `aws = ${awsKey()}\n`,
+    // A line in go.sum's own form, the key where the hash goes: factory mode's dependency rule reads
+    // go.sum, and one it cannot read is could-not-run.
+    "go.sum": `example.com/aws v1.0.0 h1:${awsKey()}=\n`,
     "art.svg": `<svg xmlns="http://www.w3.org/2000/svg"><!-- ${token("svg")} --></svg>\n`,
     "bootstrap.js": `// deploy token: ${token("bootstrap")}\n`,
   };

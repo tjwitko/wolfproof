@@ -338,7 +338,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
     // .terraform/ then holds untracked provider files the change never wrote. Judged after the checks,
     // they counted as code written where no check looks -- two files on one machine and one on another,
     // with the plugin cache deciding.
-    let judged = { failures: [], notes: [], grants: [], changed: [], newProbeRoutes: [], workflows: [], agentFiles: [] };
+    let judged = { failures: [], notes: [], grants: [], changed: [], newProbeRoutes: [], workflows: [], agentFiles: [], dependencies: null, couldNotRun: [] };
     if (factory && base) {
       // A list that is there and cannot be read: the judgement below runs on the fallback, and the
       // run is could-not-run, so a pattern the gate could not read is never one it quietly dropped.
@@ -351,6 +351,8 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         secretGuardEntry: controls.find((c) => c.name === "secret-guard")?.entry || null,
         policy,
       });
+      // A manifest or lockfile the dependency rule could not read, at either end.
+      factoryCouldNotRun.push(...judged.couldNotRun);
     }
     // What each commit between the base and the head added, scanned for credentials by the same
     // secret-guard, started a second time with a temporary directory as its root: the tree's scan
@@ -599,6 +601,7 @@ export async function runGate(projectDirArg, taskFile, { env = process.env, preC
         newProbeRoutes: judged.newProbeRoutes,
         workflowChanges: judged.workflows,
         agentFileChanges: judged.agentFiles,
+        dependencies: judged.dependencies,
         notes: judged.notes,
         advisories: { classified, blocked: count("block"), incomplete: count("incomplete"), dropped: count("drop") },
       };
@@ -741,6 +744,7 @@ function human(result) {
       out.push(`factory grants : ${n("pre-existing")} predate the change, ${n("allowlisted")} allowlisted, ${n("added")} added by it`);
     }
     if (f.commits) out.push(`factory commits: ${commitsLine(f.commits)}`);
+    for (const line of dependencyLines(f.dependencies)) out.push(`factory deps   : ${line}`);
     for (const note of f.notes) out.push(`factory note   : ${note}`);
     for (const i of f.allowlist?.ignored || []) out.push(`factory note   : allowlist entry ignored — it ${i.why}: ${JSON.stringify(i.entry)}`);
     out.push(
@@ -760,6 +764,20 @@ function human(result) {
   out.push(`advisory        : ${result.advisories.length || "none"}\n`);
   for (const a of result.advisories) out.push(`  · ${a}\n`);
   return out.join("\n");
+}
+
+/**
+ * What the dependency rule decided, and what it did not read: one line for the counts, one for each
+ * manifest of an ecosystem it does not read that the change wrote. action.yml prints the same.
+ */
+export function dependencyLines(d) {
+  if (!d) return [];
+  const out = [];
+  const blocking = d.findings.filter((x) => x.blocking).length;
+  const approved = d.findings.length - blocking;
+  if (d.findings.length) out.push(`${d.findings.length} added by this change need approval: ${blocking} blocking, ${approved} approved by the allowlist`);
+  for (const n of d.notRead) out.push(`not checked by this rule: ${n.path} (${n.ecosystem})`);
+  return out;
 }
 
 function machine(result) {

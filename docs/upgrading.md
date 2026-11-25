@@ -1113,6 +1113,33 @@ refusal says why.
 path, so a checkout at `.../vendor/app`, `.../node_modules/app` or `.../env/lib/app` was read as nothing and
 reported clean. Can turn a passing run into **exit 3**, in both modes. Move the checkout.
 
+### After v1.18.0
+
+**After v1.18.0: factory mode needs a person's approval for a dependency a change adds.** Can turn a
+passing factory run red, **exit 1**: a change that adds a dependency the base did not declare, takes
+one from somewhere other than its registry, brings in a package that runs code when it is installed,
+or adds a range that takes any version where no lockfile pins it. And into **exit 3**: a manifest or
+lockfile the rule cannot read, at the head or at the base, such as a `go.sum` with a line that is not
+a module, a version and a hash. Default mode is unchanged. It reads npm, Python and Go, and names
+above the verdict a manifest of another ecosystem that the change edits.
+
+Measured through the CLI, v1.18.0 against this version, each change one commit on a project with a
+`package.json` and its `package-lock.json`:
+
+| The change | factory, v1.18.0 | factory, now | default |
+|---|---|---|---|
+| a new dependency from the registry, which adds two packages to the lockfile | 0 | **1**, `new-dependency` | 0 |
+| an existing dependency moved to a git repository | 0 | **1**, `dependency-source` | 0 |
+| the lockfile moved to a version that runs an install script its base version did not | 0 | **1**, `install-script` | 0 |
+| a range changed to `*` or `>=0`, the lockfile removed | 1 | 1, with `unpinned-range` beside the missing-lockfile finding | 1 |
+| a version move of an existing dependency | 0 | 0 | 0 |
+
+Over the first-parent history of wolfproof and its four controls, each change against its parent,
+6 of 759 changes block and 14 version moves pass. Approve a dependency by name in the pipeline's
+allowlist, `{ "kind": "new-dependency", "ecosystem": "npm", "package": "yaml", "reason": "..." }`,
+with one entry for each kind a finding names ([factory mode](factory-mode.md#dependencies)). The
+finding writes the entry out. A `*` entry approves none of them.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:

@@ -462,6 +462,12 @@ dependencies only in a PDM or uv development group, and a `Gemfile` whose declar
 **Reports without blocking:** CVEs in an unlocked `requirements.txt`, `go.mod` or `pom.xml`, which
 the scanner resolves to minimum-satisfying versions no real install produces.
 
+**In factory mode, also blocks on** a dependency the change adds that the pipeline did not approve,
+for npm, Python and Go: a name the base did not declare, a source other than the registry, a package
+new to the lockfile that runs code when installed, and a range that takes any version with no
+lockfile. Each is approved by name and ecosystem in the pipeline's allowlist, and a manifest or
+lockfile the rule cannot read is exit 3 ([factory mode](factory-mode.md#dependencies)).
+
 **Covers:** npm, PyPI, Go, Maven, Cargo, RubyGems, Packagist and the rest of
 [OSV](https://osv.dev).
 
@@ -621,6 +627,14 @@ Plus in-process validators: `build_check`, `tests`, `immutability`, `authenticat
 ## What it does not check
 
 Listed so that a clean verdict is read for what it is.
+
+- **In factory mode, what a new dependency is.** The [dependency rule](factory-mode.md#dependencies)
+  looks nothing up: what a dependency brings and whether it runs code when installed is what the
+  lockfile records, and with none that is not known. It reads npm (`package.json`,
+  `package-lock.json`, `.npmrc`), Python (requirements files, `pyproject.toml`, `Pipfile`,
+  `uv.toml`, `uv.lock`, `poetry.lock`, `Pipfile.lock`) and Go (`go.mod`, `go.sum`, `go.work`). A
+  change to another ecosystem's manifest, or to `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`,
+  `setup.py`, `setup.cfg` or `pdm.lock`, is named above the verdict as not checked by it.
 
 - **Languages outside the coverage above.** Swift, Scala and the rest get the project-wide scans —
   secrets, dependencies, infrastructure — and nothing that reads the code itself. The run says so

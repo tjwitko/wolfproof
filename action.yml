@@ -59,7 +59,10 @@ inputs:
   allowlist:
     description: >-
       Factory mode: JSON approving specific exemptions, as {"exemptions": [{"kind", "path",
-      "reason"}]}. Written outside the workspace, so the change cannot edit it.
+      "reason"}]}. A dependency is approved by name instead, as {"kind", "ecosystem", "package",
+      "reason"} (and "source" for kind dependency-source), for the kinds new-dependency,
+      dependency-source, install-script and unpinned-range. Written outside the workspace, so the
+      change cannot edit it.
     required: false
     default: ""
   policy:
@@ -380,6 +383,13 @@ runs:
             // The same line the CLI prints (bin/validate.mjs commitsLine).
             const cs = f.commits;
             if (cs) console.log(`factory commits: ${!cs.scanned ? `${cs.count} between the base and the head, NOT all scanned for credentials (see the could-not-run list)` : !cs.count ? "none between the base and the head" : `${cs.count} between the base and the head, ${cs.files} file(s) they changed scanned for credentials, ${cs.findings.length} finding(s)`}`);
+            // The dependency rule's counts and what it did not read, as the CLI prints them (dependencyLines).
+            const deps = f.dependencies;
+            if (deps) {
+              const blocking = deps.findings.filter((x) => x.blocking).length;
+              if (deps.findings.length) console.log(`factory deps  : ${deps.findings.length} added by this change need approval: ${blocking} blocking, ${deps.findings.length - blocking} approved by the allowlist`);
+              for (const n of deps.notRead || []) console.log(`factory deps  : not checked by this rule: ${n.path} (${n.ecosystem})`);
+            }
             for (const note of f.notes || []) console.log(`factory note  : ${note}`);
             for (const i of (f.allowlist && f.allowlist.ignored) || []) console.log(`factory note  : allowlist entry ignored — it ${i.why}: ${JSON.stringify(i.entry)}`);
             console.log(`factory advisories: ${f.advisories.blocked} blocked, ${f.advisories.incomplete} made the run incomplete, ${f.advisories.dropped} counted and not blocking`);

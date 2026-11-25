@@ -326,7 +326,7 @@ The checks you would expect, still necessary:
 | concern | blocks on |
 |---|---|
 | injection | request data reaching a shell, SQL, an evaluator, an outbound request's host (SSRF) or a file path, directly or through the project's own helpers — in Python, JavaScript/TypeScript, Go, Java, Ruby, C#, Rust, C, C++, PHP and Kotlin |
-| dependencies | high or critical CVEs; dependencies declared with no lockfile the scanner can read |
+| dependencies | high or critical CVEs; dependencies declared with no lockfile the scanner can read; in [factory mode](docs/factory-mode.md#dependencies), a dependency the change adds that nobody approved: a new name, a new source, a new install script, a range that takes any version |
 | secrets | credentials hardcoded in any file, including ones split, joined or encoded |
 | infrastructure | Terraform plan and policy violations on AWS, such as a security group or EKS API open to `0.0.0.0/0` |
 | containers | a base image past end of life, in any build stage; with an image named, its packages' fixable high or critical vulnerabilities (Trivy) |
@@ -369,6 +369,10 @@ So that a clean verdict is read for what it is:
   [factory mode](docs/factory-mode.md#where-the-checks-do-not-look) a change that writes one of these
   files blocks. In default mode nothing reports them. A project checked out under a path the scan will
   not enter, such as `vendor/app`, is exit 3.
+- **In factory mode, what a new dependency is.** The dependency rule asks no registry anything, so
+  what a package brings and whether it runs code when installed is what the lockfile says. It reads
+  npm, Python and Go; another ecosystem's manifest, or a `yarn.lock`, `pnpm-lock.yaml` or
+  `setup.py`, is named above the verdict as not checked by it.
 - **Requirements nobody stated.**
 
 → [What it checks, in full](docs/checks.md): languages and frameworks, the four controls, how the
