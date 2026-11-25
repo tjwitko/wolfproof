@@ -465,8 +465,10 @@ the scanner resolves to minimum-satisfying versions no real install produces.
 **In factory mode, also blocks on** a dependency the change adds that the pipeline did not approve,
 for npm, Python and Go: a name the base did not declare, a source other than the registry, a package
 new to the lockfile that runs code when installed, and a range that takes any version with no
-lockfile. A name is the project's own only where the tool resolves it locally: a path, a linked
-workspace member, a Go `replace` to a directory. Each is approved by name and ecosystem in the
+lockfile. A name is the project's own only where the tool resolves it locally: a path, a workspace
+member the covering lockfile links, a Go `replace` to a directory that applies to the requiring
+module. A version move that brings a package name the base's lockfiles never held needs approval
+too. Each is approved by name and ecosystem in the
 pipeline's allowlist, and a manifest or lockfile the rule cannot read is exit 3
 ([factory mode](factory-mode.md#dependencies)).
 
@@ -635,8 +637,8 @@ Listed so that a clean verdict is read for what it is.
   lockfile records, and with none that is not known. It reads npm (`package.json`,
   `package-lock.json`, `.npmrc`), Python (requirements files, `pyproject.toml`, `Pipfile`,
   `uv.toml`, `hatch.toml`, `uv.lock`, `poetry.lock`, `Pipfile.lock`) and Go (`go.mod`, `go.sum`,
-  `go.work`). A `package-lock.json` at `lockfileVersion` 1 records no install scripts, so a change
-  that adds or moves packages in one is exit 3. A
+  `go.work`). A `package-lock.json` npm reads as one from before npm 7 (a `lockfileVersion` that is not 2
+  or more) records no install scripts, so a change that adds or moves packages in one is exit 3. A
   change to another ecosystem's manifest, or to `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`,
   `setup.py`, `setup.cfg` or `pdm.lock`, is named above the verdict as not checked by it.
 

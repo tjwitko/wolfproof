@@ -119,7 +119,7 @@ test("a manifest of an ecosystem the rule does not read is named above the verdi
   }
 });
 
-test("a new workspace member passes; a package the lockfile brings and the code imports blocks; a lockfile rewritten as version 1 is exit 3", () => {
+test("a new workspace member passes; a name new to the lockfile that only a version move brings blocks; a lockfile rewritten as version 1 is exit 3", () => {
   const wsPkg = `${JSON.stringify({ name: "p", version: "1.0.0", workspaces: ["packages/*"], dependencies: { "left-pad": "^1.1.0" } }, null, 2)}\n`;
   const member = (name) => `${JSON.stringify({ name, version: "1.0.0" }, null, 2)}\n`;
   const wsLock = (members) =>
@@ -152,8 +152,31 @@ test("a new workspace member passes; a package the lockfile brings and the code 
     try {
       const f = cli([r.dir, "--json", "--factory", `--base=${r.sha}`]);
       assert.equal(f.code, want, `${label}: ${JSON.stringify(rule(f.doc))} ${JSON.stringify(f.doc?.couldNotRun)}`);
-      if (want === 1) assert.match(rule(f.doc).join("\n"), /npm package is-number 6\.0\.0 in package-lock\.json, .*brought in by left-pad; no manifest declares it, and the project's code imports it \(a\.js\)/);
-      if (want === 3) assert.ok(f.doc.couldNotRun.some((c) => /^factory: package-lock\.json at the head is lockfileVersion 1, which records no install scripts/.test(c)), JSON.stringify(f.doc.couldNotRun));
+      if (want === 1) assert.match(rule(f.doc).join("\n"), /npm package is-number 6\.0\.0 in package-lock\.json, .*It is new to package-lock\.json, brought in by left-pad 1\.3\.0, which the base's lockfiles already held; no manifest declares it\./);
+      if (want === 3) assert.ok(f.doc.couldNotRun.some((c) => /^factory: package-lock\.json at the head has lockfileVersion 1, so npm reads it as a lockfile from before npm 7, which records no install scripts/.test(c)), JSON.stringify(f.doc.couldNotRun));
+    } finally {
+      r.cleanup();
+    }
+  }
+});
+
+test(".npmrc as npm reads it, a setting on neither list, a lockfile npm reads as old, and pip's --trusted-host", () => {
+  const moved = (doc) => ({ "package.json": pkg({ "left-pad": "^1.3.0" }), "package-lock.json": `${JSON.stringify(doc, null, 2)}\n` });
+  const noVersion = { name: "p", requires: true, packages: { "": { name: "p", version: "1.0.0", dependencies: { "left-pad": "^1.3.0" } }, "node_modules/left-pad": entry("left-pad", "1.3.0") } };
+  const cases = [
+    ['"registry"= in quotes', BASE, { ".npmrc": '"registry"=https://r.example.invalid/\n' }, 1, /registry=https:\/\/r\.example\.invalid\/ in \.npmrc/],
+    ["script-shell=, on neither list", BASE, { ".npmrc": "script-shell=./x.sh\n" }, 1, /which this rule does not know to leave what installs, and from where, as it was/],
+    ["strict-ssl=0", BASE, { ".npmrc": "strict-ssl=0\n" }, 0, null],
+    ["no lockfileVersion, packages kept", BASE, moved(noVersion), 3, null],
+    ["--trusted-host", { "requirements.txt": "idna==3.7\n" }, { "requirements.txt": "--trusted-host pypi.example.invalid\nidna==3.7\n" }, 1, /--trusted-host pypi\.example\.invalid in requirements\.txt/],
+  ];
+  for (const [label, b, change, want, line] of cases) {
+    const r = repo(b, change);
+    try {
+      const f = cli([r.dir, "--json", "--factory", `--base=${r.sha}`]);
+      assert.equal(f.code, want, `${label}: ${JSON.stringify(rule(f.doc))} ${JSON.stringify(f.doc?.couldNotRun)}`);
+      if (line) assert.match(rule(f.doc).join("\n"), line, label);
+      if (want === 3) assert.ok(f.doc.couldNotRun.some((c) => /^factory: package-lock\.json at the head has no lockfileVersion, so npm reads it as a lockfile from before npm 7/.test(c)), JSON.stringify(f.doc.couldNotRun));
     } finally {
       r.cleanup();
     }
