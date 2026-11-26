@@ -30,7 +30,7 @@ function cli(args) {
   return { code: r.status, stdout: r.stdout || "", doc };
 }
 
-/** A repository whose first commit is `base` and second `change`, with the base's sha. */
+/** A repository whose first commit is `base` and second `change`, with the base's sha. A file given as null is deleted. */
 function repo(base, change) {
   const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "factory-deps-")));
   const git = (...args) => {
@@ -40,6 +40,10 @@ function repo(base, change) {
   };
   const write = (files) => {
     for (const [rel, text] of Object.entries(files)) {
+      if (text === null) {
+        rmSync(path.join(dir, rel), { force: true });
+        continue;
+      }
       mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
       writeFileSync(path.join(dir, rel), text);
     }
@@ -72,7 +76,7 @@ test("a new dependency: exit 1 in factory mode with the entry that approves it, 
     assert.equal(f.code, 1, JSON.stringify(f.doc?.couldNotRun));
     const [line, ...more] = rule(f.doc);
     assert.equal(more.length, 0, more.join("\n"));
-    assert.match(line, /^factory: new dependency — npm package is-odd "\^3\.0\.1" in package\.json \(dependencies\), from the npm registry\. It adds 2 packages to package-lock\.json, none of which runs code when installed\./);
+    assert.match(line, /^factory: new dependency — npm package is-odd "\^3\.0\.1" in package\.json \(dependencies\), from the npm registry\. It adds 2 packages to package-lock\.json \(with it: is-number 6\.0\.0\), none of which runs code when installed\./);
     assert.ok(line.endsWith('{"kind":"new-dependency","ecosystem":"npm","package":"is-odd","reason":"<why a person approved it>"}'), line);
     assert.equal(f.doc.factory.dependencies.findings.length, 1);
 
@@ -152,7 +156,7 @@ test("a new workspace member passes; a name new to the lockfile that only a vers
     try {
       const f = cli([r.dir, "--json", "--factory", `--base=${r.sha}`]);
       assert.equal(f.code, want, `${label}: ${JSON.stringify(rule(f.doc))} ${JSON.stringify(f.doc?.couldNotRun)}`);
-      if (want === 1) assert.match(rule(f.doc).join("\n"), /npm package is-number 6\.0\.0 in package-lock\.json, .*It is new to package-lock\.json, brought in by left-pad 1\.3\.0, which the base's lockfiles already held; no manifest declares it\./);
+      if (want === 1) assert.match(rule(f.doc).join("\n"), /npm package is-number 6\.0\.0 in package-lock\.json, .*It is new to package-lock\.json, brought in by left-pad 1\.3\.0, which the project had at the base; no manifest declares it\./);
       if (want === 3) assert.ok(f.doc.couldNotRun.some((c) => /^factory: package-lock\.json at the head has lockfileVersion 1, so npm reads it as a lockfile from before npm 7, which records no install scripts/.test(c)), JSON.stringify(f.doc.couldNotRun));
     } finally {
       r.cleanup();
@@ -177,6 +181,43 @@ test(".npmrc as npm reads it, a setting on neither list, a lockfile npm reads as
       assert.equal(f.code, want, `${label}: ${JSON.stringify(rule(f.doc))} ${JSON.stringify(f.doc?.couldNotRun)}`);
       if (line) assert.match(rule(f.doc).join("\n"), line, label);
       if (want === 3) assert.ok(f.doc.couldNotRun.some((c) => /^factory: package-lock\.json at the head has no lockfileVersion, so npm reads it as a lockfile from before npm 7/.test(c)), JSON.stringify(f.doc.couldNotRun));
+    } finally {
+      r.cleanup();
+    }
+  }
+});
+
+test("names that vouch for each other, a first lockfile, a registry taken away, a workspace character class, and an .npmrc key that is a list", () => {
+  const A = { "package.json": pkg({ a: "^1.0.0" }), "package-lock.json": lock({ "node_modules/a": entry("a", "1.0.0") }, { a: "^1.0.0" }), "a.js": "export const a = 1;\n" };
+  const corp = (name, version) => ({ version, resolved: `https://npm.corp.example/${name}/-/${name}-${version}.tgz`, integrity: `sha512-${name}-${version}` });
+  const py = (deps) => `[project]\nname = "p"\nversion = "1.0.0"\nrequires-python = ">=3.10"\ndependencies = ${JSON.stringify(deps)}\n`;
+  const uvEntry = (n, v, deps = []) => `[[package]]\nname = "${n}"\nversion = "${v}"\nsource = { registry = "https://pypi.org/simple" }\n${deps.length ? `dependencies = [${deps.map((d) => `{ name = "${d}" }`).join(", ")}]\n` : ""}wheels = [{ url = "https://files.pythonhosted.org/packages/x/${n}-${v}-py3-none-any.whl", hash = "sha256:${n}${v}" }]\n`;
+  const uvLock = (...entries) => `version = 1\nrequires-python = ">=3.10"\n\n[[package]]\nname = "p"\nversion = "1.0.0"\nsource = { virtual = "." }\ndependencies = [{ name = "idna" }]\n\n[package.metadata]\nrequires-dist = [{ name = "idna", specifier = ">=3.7" }]\n\n${entries.join("\n")}`;
+  const ws = (members) => ({
+    "package.json": `${JSON.stringify({ name: "p", version: "1.0.0", workspaces: ["packages/[yz]"] })}\n`,
+    "package-lock.json": lock(Object.fromEntries(members.flatMap((m) => [[`packages/${m}`, { name: m, version: "1.0.0", ...(m === "z" ? { dependencies: { y: "^1.0.0" } } : {}) }], [`node_modules/${m}`, { resolved: `packages/${m}`, link: true }]])), {}),
+    ...Object.fromEntries(members.map((m) => [`packages/${m}/package.json`, `${JSON.stringify({ name: m, version: "1.0.0", ...(m === "z" ? { dependencies: { y: "^1.0.0" } } : {}) })}\n`])),
+  });
+  const cases = [
+    ["x and y depend on each other", A, { "package-lock.json": lock({ "node_modules/a": entry("a", "1.0.2", { dependencies: { x: "1.0.0" } }), "node_modules/x": entry("x", "1.0.0", { dependencies: { y: "1.0.0" } }), "node_modules/y": entry("y", "1.0.0", { dependencies: { x: "1.0.0" } }) }, { a: "^1.0.0" }) }, 1, /npm package x 1\.0\.0 in package-lock\.json, .*brought in by a 1\.0\.2, which the project had at the base; .*With it comes 1 more package new to the lockfile \(y 1\.0\.0\)/],
+    ["a first uv.lock", { "pyproject.toml": py(["idna>=3.7"]) }, { "uv.lock": uvLock(uvEntry("idna", "3.7", ["six"]), uvEntry("six", "1.17.0")) }, 1, /PyPI package six 1\.17\.0 in uv\.lock, .*brought in by idna 3\.7, which the project had at the base/],
+    [".npmrc registry= taken away", { ...A, ".npmrc": "registry=https://npm.corp.example/\n", "package-lock.json": lock({ "node_modules/a": corp("a", "1.0.0") }, { a: "^1.0.0" }) }, { ".npmrc": null, "package-lock.json": lock({ "node_modules/a": entry("a", "1.0.2") }, { a: "^1.0.0" }) }, 1, /npm packages: registry=https:\/\/npm\.corp\.example\/ in \.npmrc at the base, and the head no longer names it/],
+    ["--index-url made --extra-index-url", { "requirements.txt": "--index-url https://pypi.corp.example/simple\nidna==3.7\n" }, { "requirements.txt": "--extra-index-url https://pypi.corp.example/simple\nidna==3.7\n" }, 1, /the head names it only as --extra-index-url/],
+    ["a new member under packages/[yz]", ws(["y"]), ws(["y", "z"]), 0, null],
+    ["'[1,2,3]'=x in .npmrc", A, { ".npmrc": "'[1,2,3]'=x\n" }, 3, null],
+  ];
+  for (const [label, b, change, want, line] of cases) {
+    const r = repo(b, change);
+    try {
+      const f = cli([r.dir, "--json", "--factory", `--base=${r.sha}`]);
+      assert.equal(f.code, want, `${label}: ${JSON.stringify(rule(f.doc))} ${JSON.stringify(f.doc?.couldNotRun)}`);
+      if (line) assert.match(rule(f.doc).join("\n"), line, label);
+      // The JSON names every package the finding counts, not only the first few.
+      if (label === "x and y depend on each other") assert.deepEqual(f.doc.factory.dependencies.findings.find((x) => x.package === "x").brings.packages.map((p) => `${p.name} ${p.version}`).sort(), ["x 1.0.0", "y 1.0.0"]);
+      if (want === 3) {
+        assert.ok(f.doc.couldNotRun.some((c) => /^factory: \.npmrc at the head could not be read by the dependency rule — this rule could not read it \(line 1: its key, '\[1,2,3\]', is JSON that is not a string/.test(c)), JSON.stringify(f.doc.couldNotRun));
+        assert.doesNotMatch(f.stdout, /TypeError|at npmrcSettings/);
+      }
     } finally {
       r.cleanup();
     }

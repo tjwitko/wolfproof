@@ -1119,8 +1119,10 @@ reported clean. Can turn a passing run into **exit 3**, in both modes. Move the 
 passing factory run red, **exit 1**: a change that adds a dependency the base did not declare, takes
 one from somewhere other than its registry, brings in a package that runs code when it is installed,
 or adds a range that takes any version where no lockfile pins it. A version move counts when its
-lockfile brings a package name the base's lockfiles never held, and so does a setting in `.npmrc` or
-uv's configuration that the base did not have, unless the rule knows it to be harmless. And into
+lockfile brings a package name the project never had, and so does a first lockfile that brings one
+with a name the base declared. So does a setting in `.npmrc` or uv's configuration that the base did
+not have, unless the rule knows it to be harmless, and a registry or index the base named that the
+head no longer names, or names in a weaker role. And into
 **exit 3**: a manifest or lockfile the rule cannot read, at the head or at the base, such as a
 `go.sum` with a line that is not a module, a version and a hash; and a `package-lock.json` that npm
 reads as one from before npm 7 (a `lockfileVersion` that is not 2 or more), which records no install
@@ -1139,10 +1141,14 @@ Measured through the CLI, v1.18.0 against this version, each change one commit o
 | a range changed to `*` or `>=0`, the lockfile removed | 1 | 1, with `unpinned-range` beside the missing-lockfile finding | 1 |
 | a version move whose lockfile brings a package name the base's lockfile did not hold, which no manifest declares | 0 | **1**, `new-dependency` | 0 |
 | the lockfile's entry for an existing dependency installs another package under its name | 0 | **1**, `new-dependency` | 0 |
+| a version move whose lockfile brings two new names that depend on each other | 0 | **1**, `new-dependency` for the one the moved package brings, which lists the other | 0 |
+| a first `package-lock.json`, where a dependency the base declared brings a name the project never had | 0 | **1**, `new-dependency` | 0 |
 | `proxy=` added to `.npmrc` | 0 | **1**, `dependency-source` | 0 |
 | `"registry"=` added to `.npmrc`, the key in quotes | 0 | **1**, `dependency-source` | 0 |
 | `script-shell=` added to `.npmrc`, a setting on neither of the rule's lists | 0 | **1**, `dependency-source` | 0 |
+| `registry=` for a private registry removed from `.npmrc`, with a version move resolved at the public registry | 0 | **1**, `dependency-source` | 0 |
 | `strict-ssl=0` added to `.npmrc` | 0 | 0 | 0 |
+| `'[1,2,3]'=x` added to `.npmrc`, a key that is JSON other than a string | 0 | **3** | 0 |
 | the lockfile rewritten as `lockfileVersion` 1, with a version move | 0 | **3** | 0 |
 | the lockfile's `lockfileVersion` removed, its `packages` kept, with a version move | 0 | **3** | 0 |
 | a new workspace member, linked in the lockfile | 0 | 0 | 0 |

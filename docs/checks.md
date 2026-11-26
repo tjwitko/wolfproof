@@ -467,8 +467,9 @@ for npm, Python and Go: a name the base did not declare, a source other than the
 new to the lockfile that runs code when installed, and a range that takes any version with no
 lockfile. A name is the project's own only where the tool resolves it locally: a path, a workspace
 member the covering lockfile links, a Go `replace` to a directory that applies to the requiring
-module. A version move that brings a package name the base's lockfiles never held needs approval
-too. Each is approved by name and ecosystem in the
+module. A version move that brings a package name the project never had needs approval too, and so
+does what a first lockfile brings with a name the base declared. A registry or index the base named
+and the head no longer names, or names in a weaker role, blocks as a source. Each is approved by name and ecosystem in the
 pipeline's allowlist, and a manifest or lockfile the rule cannot read is exit 3
 ([factory mode](factory-mode.md#dependencies)).
 
