@@ -248,7 +248,8 @@ test("a name moved to the public registry, a registry setting that counts where 
     ["a member's range moved past the member's version", ws("^1.0.0"), ws("^2.0.0", { "packages/z/node_modules/y": entry("y", "2.0.0") }), 1, /npm package y "\^2\.0\.0" in packages\/z\/package\.json, package-lock\.json, from the npm registry: its source changed \(the base took it from the project's own packages\/y\)/],
     ["--index-url taken from one of two requirements files", { "requirements.txt": `${INDEX}\nidna==3.7\n`, "requirements-dev.txt": `${INDEX}\npytest==8.0.0\n` }, { "requirements.txt": "idna==3.7\n" }, 1, /--index-url https:\/\/pypi\.corp\.example\/simple in requirements\.txt at the base, and the head no longer names it/],
     ["registry= moved to another directory's .npmrc", { "package.json": pkg({ "left-pad": "^1.3.0" }), ".npmrc": "registry=https://npm.corp.example/\n", "package-lock.json": lock({ "node_modules/left-pad": entry("left-pad", "1.2.0") }, { "left-pad": "^1.2.0" }) }, { ".npmrc": null, "tools/.npmrc": "registry=https://npm.corp.example/\n", "package-lock.json": lock({ "node_modules/left-pad": entry("left-pad", "1.3.0") }, { "left-pad": "^1.2.0" }) }, 1, /registry=https:\/\/npm\.corp\.example\/ in \.npmrc at the base, and the head no longer names it/],
-    ["poetry's PyPI source with no url, and a change to another file", { "pyproject.toml": poetry, "poetry.lock": poetryLock, "p.py": "x = 1\n" }, { "p.py": "x = 2\n" }, 0, null],
+    // The other file is not Python: with a .py file the gate also runs ruff, which a machine may not have.
+    ["poetry's PyPI source with no url, and a change to another file", { "pyproject.toml": poetry, "poetry.lock": poetryLock, "notes.txt": "one\n" }, { "notes.txt": "two\n" }, 0, null],
   ];
   for (const [label, b, change, want, line] of cases) {
     const r = repo(b, change);
