@@ -263,3 +263,34 @@ test("a name moved to the public registry, a registry setting that counts where 
     }
   }
 });
+
+test("another package's file on a registry the project names, in a lockfile and in a manifest; a uv workspace's member reads the root's index", () => {
+  const MIRROR = "https://mirror.corp.example/npm/";
+  const at = (name, version, file = `${name}-${version}.tgz`, dir = name) => ({ version, resolved: `${MIRROR}${dir}/-/${file}`, integrity: `sha512-${file}` });
+  const mirrored = (spec, e) => ({ ".npmrc": `registry=${MIRROR}\n`, "package.json": pkg({ "left-pad": spec }), "package-lock.json": lock({ "node_modules/left-pad": e }, { "left-pad": spec }) });
+  const root = `[project]\nname = "p"\nversion = "1.0.0"\nrequires-python = ">=3.10"\ndependencies = ["idna>=3"]\n\n[tool.uv.workspace]\nmembers = ["libs/*"]\n\n[[tool.uv.index]]\nname = "corp"\nurl = "https://pypi.corp.example/simple"\ndefault = true\n`;
+  const proj = (name, deps = "[]", extra = "") => `[project]\nname = "${name}"\nversion = "1.0.0"\nrequires-python = ">=3.10"\ndependencies = ${deps}\n${extra}`;
+  const uvLock = (edge) =>
+    `version = 1\nrequires-python = ">=3.10"\n\n[manifest]\nmembers = ["m", "o", "p"]\n\n[[package]]\nname = "p"\nversion = "1.0.0"\nsource = { virtual = "." }\ndependencies = [{ name = "idna" }]\n\n[package.metadata]\nrequires-dist = [{ name = "idna", specifier = ">=3" }]\n\n` +
+    `[[package]]\nname = "m"\nversion = "1.0.0"\nsource = { virtual = "libs/m" }\n${edge ? 'dependencies = [{ name = "o" }]\n\n[package.metadata]\nrequires-dist = [{ name = "o", virtual = "libs/o" }]\n' : ""}\n[[package]]\nname = "o"\nversion = "1.0.0"\nsource = { virtual = "libs/o" }\n\n` +
+    `[[package]]\nname = "idna"\nversion = "3.7"\nsource = { registry = "https://pypi.corp.example/simple" }\nwheels = [{ url = "https://pypi.corp.example/files/idna-3.7-py3-none-any.whl", hash = "sha256:idna37" }]\n`;
+  const ws = { "pyproject.toml": root, "libs/m/pyproject.toml": proj("m"), "libs/o/pyproject.toml": proj("o"), "uv.lock": uvLock(false), "notes.txt": "one\n" };
+  const cases = [
+    ["a lockfile entry at another package's file on the registry .npmrc names", mirrored("^1.1.0", at("left-pad", "1.1.0")), { "package-lock.json": lock({ "node_modules/left-pad": { ...at("is-odd", "3.0.1"), version: "1.1.3" } }, { "left-pad": "^1.1.0" }) }, 1, /npm package left-pad "1\.1\.3" in package-lock\.json, from https:\/\/mirror\.corp\.example\/npm\/is-odd\/-\/is-odd-3\.0\.1\.tgz: the lockfile takes left-pad 1\.1\.3 from a file of the registry's that is not that package's/],
+    ["a version move to the package's own file there", mirrored("^1.1.0", at("left-pad", "1.1.0")), { "package-lock.json": lock({ "node_modules/left-pad": at("left-pad", "1.1.3") }, { "left-pad": "^1.1.0" }) }, 0, null],
+    ["a manifest's range made the URL of another package's file there", mirrored("^1.1.0", at("left-pad", "1.1.0")), mirrored(`${MIRROR}is-odd/-/is-odd-3.0.1.tgz`, { ...at("is-odd", "3.0.1") }), 1, /npm package left-pad "https:\/\/mirror\.corp\.example\/npm\/is-odd\/-\/is-odd-3\.0\.1\.tgz" in package\.json, package-lock\.json, .*package\.json takes left-pad from a file of the registry's that is not that package's/],
+    ["a uv workspace's member starts to depend on another member", ws, { "libs/m/pyproject.toml": proj("m", '["o"]', "\n[tool.uv.sources]\no = { workspace = true }\n"), "uv.lock": uvLock(true) }, 0, null],
+    ["the same workspace, another file edited", ws, { "notes.txt": "two\n" }, 0, null],
+  ];
+  for (const [label, b, change, want, line] of cases) {
+    const r = repo(b, change);
+    try {
+      const f = cli([r.dir, "--json", "--factory", `--base=${r.sha}`]);
+      assert.equal(f.code, want, `${label}: ${JSON.stringify(rule(f.doc))} ${JSON.stringify(f.doc?.couldNotRun)} ${JSON.stringify((f.doc?.findings || []).map((x) => x.message.slice(0, 120)))}`);
+      if (line) assert.match(rule(f.doc).join("\n"), line, label);
+      if (want === 1) assert.ok(rule(f.doc).every((m) => /^factory: dependency from a new source/.test(m)), `${label}: ${JSON.stringify(rule(f.doc))}`);
+    } finally {
+      r.cleanup();
+    }
+  }
+});

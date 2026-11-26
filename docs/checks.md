@@ -472,7 +472,14 @@ does what a first lockfile brings with a name the base declared. A dependency th
 comes from where the base took it: moved to another repository, URL, registry or index, the public
 registry included, it blocks as a source. A registry or index the base named
 and the head no longer names, or names in a weaker role, blocks as a source, and each counts where
-the tool reads it. Each is approved by name and ecosystem in the
+the tool reads it. A member of a uv workspace reads the indexes and settings of the workspace's
+root. A requirements file that another one includes is also judged as a file a person installs on
+its own, with only the options it and the files it includes give. So the index line belongs in the
+included file, beside the names it serves: moved there from the file that includes it, it is an
+index new to the included file, and names split out into a new included file that has no index
+line of its own each block as a source. An npm lockfile entry, or a URL in a `package.json`, that
+takes another package's file from a registry blocks as a source, on the public registry and on any
+registry the project's files name. Each is approved by name and ecosystem in the
 pipeline's allowlist, and a manifest or lockfile the rule cannot read is exit 3
 ([factory mode](factory-mode.md#dependencies)).
 

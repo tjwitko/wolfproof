@@ -1152,6 +1152,8 @@ Measured through the CLI, v1.18.0 against this version, each change one commit o
 | a scope's package, its lockfile entry moved from the scope's registry to `registry.npmjs.org` | 0 | **1**, `dependency-source` | 0 |
 | a git dependency made a range, its lockfile entry resolved at the public registry | 0 | **1**, `dependency-source` | 0 |
 | `registry=` moved from the project's `.npmrc` to another directory's, with a version move | 0 | **1**, `dependency-source` | 0 |
+| a lockfile entry moved to another package's file on the registry `.npmrc` names | 0 | **1**, `dependency-source` | 0 |
+| a range made the URL of another package's file on the registry `.npmrc` names | 0 | **1**, `dependency-source` | 0 |
 | `strict-ssl=0` added to `.npmrc` | 0 | 0 | 0 |
 | `'[1,2,3]'=x` added to `.npmrc`, a key that is JSON other than a string | 0 | **3** | 0 |
 | the lockfile rewritten as `lockfileVersion` 1, with a version move | 0 | **3** | 0 |
