@@ -1122,7 +1122,9 @@ or adds a range that takes any version where no lockfile pins it. A version move
 lockfile brings a package name the project never had, and so does a first lockfile that brings one
 with a name the base declared. So does a setting in `.npmrc` or uv's configuration that the base did
 not have, unless the rule knows it to be harmless, and a registry or index the base named that the
-head no longer names, or names in a weaker role. And into
+head no longer names, or names in a weaker role, for the place the tool reads it. So does a
+dependency the project already had that the head takes from another place than the base did, the
+public registry included: a private or git dependency moved onto the public registry blocks. And into
 **exit 3**: a manifest or lockfile the rule cannot read, at the head or at the base, such as a
 `go.sum` with a line that is not a module, a version and a hash; and a `package-lock.json` that npm
 reads as one from before npm 7 (a `lockfileVersion` that is not 2 or more), which records no install
@@ -1147,6 +1149,9 @@ Measured through the CLI, v1.18.0 against this version, each change one commit o
 | `"registry"=` added to `.npmrc`, the key in quotes | 0 | **1**, `dependency-source` | 0 |
 | `script-shell=` added to `.npmrc`, a setting on neither of the rule's lists | 0 | **1**, `dependency-source` | 0 |
 | `registry=` for a private registry removed from `.npmrc`, with a version move resolved at the public registry | 0 | **1**, `dependency-source` | 0 |
+| a scope's package, its lockfile entry moved from the scope's registry to `registry.npmjs.org` | 0 | **1**, `dependency-source` | 0 |
+| a git dependency made a range, its lockfile entry resolved at the public registry | 0 | **1**, `dependency-source` | 0 |
+| `registry=` moved from the project's `.npmrc` to another directory's, with a version move | 0 | **1**, `dependency-source` | 0 |
 | `strict-ssl=0` added to `.npmrc` | 0 | 0 | 0 |
 | `'[1,2,3]'=x` added to `.npmrc`, a key that is JSON other than a string | 0 | **3** | 0 |
 | the lockfile rewritten as `lockfileVersion` 1, with a version move | 0 | **3** | 0 |

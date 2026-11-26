@@ -223,3 +223,42 @@ test("names that vouch for each other, a first lockfile, a registry taken away, 
     }
   }
 });
+
+test("a name moved to the public registry, a registry setting that counts where the tool reads it, and poetry's PyPI source", () => {
+  const corp = (name, version) => ({ version, resolved: `https://npm.corp.example/${name}/-/${name.split("/").pop()}-${version}.tgz`, integrity: `sha512-${name}-${version}` });
+  const INDEX = "--index-url https://pypi.corp.example/simple";
+  const scoped = { "package.json": pkg({ "@corp/lib": "^1.0.0" }), ".npmrc": "@corp:registry=https://npm.corp.example/\n", "package-lock.json": lock({ "node_modules/@corp/lib": corp("@corp/lib", "1.0.0") }, { "@corp/lib": "^1.0.0" }) };
+  const gitSpec = "git+https://github.com/corp/lib.git#v1.0.0";
+  const member = (name, deps) => `${JSON.stringify({ name, version: "1.0.0", ...(deps ? { dependencies: deps } : {}) })}\n`;
+  const ws = (range, extra = {}) => ({
+    "package.json": `${JSON.stringify({ name: "p", version: "1.0.0", workspaces: ["packages/*"] })}\n`,
+    "packages/y/package.json": member("y"),
+    "packages/z/package.json": member("z", { y: range }),
+    "package-lock.json": lock({ "packages/y": { name: "y", version: "1.0.0" }, "packages/z": { name: "z", version: "1.0.0", dependencies: { y: range } }, "node_modules/y": { resolved: "packages/y", link: true }, "node_modules/z": { resolved: "packages/z", link: true }, ...extra }, {}),
+  });
+  const py = (extra) => `[project]\nname = "p"\nversion = "1.0.0"\nrequires-python = ">=3.10"\ndependencies = ["lib>=1"]\n\n[[tool.uv.index]]\nname = "corp"\nurl = "https://pypi.corp.example/simple"\n${extra}`;
+  const uvLock = (version, index, host) => `version = 1\nrequires-python = ">=3.10"\n\n[[package]]\nname = "p"\nversion = "1.0.0"\nsource = { virtual = "." }\ndependencies = [{ name = "lib" }]\n\n[package.metadata]\nrequires-dist = [{ name = "lib" }]\n\n[[package]]\nname = "lib"\nversion = "${version}"\nsource = { registry = "${index}" }\nwheels = [{ url = "${host}/lib-${version}-py3-none-any.whl", hash = "sha256:lib${version}" }]\n`;
+  const poetry = `[tool.poetry]\nname = "p"\nversion = "1.0.0"\n\n[tool.poetry.dependencies]\npython = "^3.10"\nidna = "^3.7"\n\n[[tool.poetry.source]]\nname = "PyPI"\npriority = "primary"\n`;
+  const poetryLock = `[[package]]\nname = "idna"\nversion = "3.7"\ndescription = ""\noptional = false\npython-versions = ">=3.5"\nfiles = [{ file = "idna-3.7-py3-none-any.whl", hash = "sha256:82fee1fc78add43492d3a1898bfa6d8a904cc97d8427f683ed8e798d07761aa0" }]\n\n[metadata]\nlock-version = "2.0"\npython-versions = "^3.10"\ncontent-hash = "x"\n`;
+  const cases = [
+    ["a scope's package, its entry moved to registry.npmjs.org", scoped, { "package-lock.json": lock({ "node_modules/@corp/lib": { ...entry("@corp/lib", "1.0.2"), resolved: "https://registry.npmjs.org/@corp/lib/-/lib-1.0.2.tgz" } }, { "@corp/lib": "^1.0.0" }) }, 1, /npm package @corp\/lib "\^1\.0\.0" in package\.json, package-lock\.json, from the npm registry: its source changed \(the base took it from https:\/\/npm\.corp\.example\/@corp\/lib\/-\/lib-1\.0\.0\.tgz\)/],
+    ["the same package, a version move at the scope's registry", scoped, { "package-lock.json": lock({ "node_modules/@corp/lib": corp("@corp/lib", "1.0.2") }, { "@corp/lib": "^1.0.0" }) }, 0, null],
+    ["uv.lock: the project's index to pypi.org", { "pyproject.toml": py(""), "uv.lock": uvLock("1.0.0", "https://pypi.corp.example/simple", "https://pypi.corp.example/files") }, { "uv.lock": uvLock("1.0.2", "https://pypi.org/simple", "https://files.pythonhosted.org/packages/x") }, 1, /PyPI package lib "1\.0\.2" in uv\.lock, from PyPI: its source changed \(the base took it from the index https:\/\/pypi\.corp\.example\/simple\)/],
+    ["git, then a range", { "package.json": pkg({ lib: gitSpec }), "package-lock.json": lock({ "node_modules/lib": { version: "1.0.0", resolved: "git+ssh://git@github.com/corp/lib.git#0123456789abcdef0123456789abcdef01234567" } }, { lib: gitSpec }) }, { "package.json": pkg({ lib: "^1.0.0" }), "package-lock.json": lock({ "node_modules/lib": entry("lib", "1.0.0") }, { lib: "^1.0.0" }) }, 1, /npm package lib "\^1\.0\.0" in package\.json, package-lock\.json, from the npm registry: its source changed \(the base took it from git\+https:\/\/github\.com\/corp\/lib\.git#v1\.0\.0\)/],
+    ["a member's range moved past the member's version", ws("^1.0.0"), ws("^2.0.0", { "packages/z/node_modules/y": entry("y", "2.0.0") }), 1, /npm package y "\^2\.0\.0" in packages\/z\/package\.json, package-lock\.json, from the npm registry: its source changed \(the base took it from the project's own packages\/y\)/],
+    ["--index-url taken from one of two requirements files", { "requirements.txt": `${INDEX}\nidna==3.7\n`, "requirements-dev.txt": `${INDEX}\npytest==8.0.0\n` }, { "requirements.txt": "idna==3.7\n" }, 1, /--index-url https:\/\/pypi\.corp\.example\/simple in requirements\.txt at the base, and the head no longer names it/],
+    ["registry= moved to another directory's .npmrc", { "package.json": pkg({ "left-pad": "^1.3.0" }), ".npmrc": "registry=https://npm.corp.example/\n", "package-lock.json": lock({ "node_modules/left-pad": entry("left-pad", "1.2.0") }, { "left-pad": "^1.2.0" }) }, { ".npmrc": null, "tools/.npmrc": "registry=https://npm.corp.example/\n", "package-lock.json": lock({ "node_modules/left-pad": entry("left-pad", "1.3.0") }, { "left-pad": "^1.2.0" }) }, 1, /registry=https:\/\/npm\.corp\.example\/ in \.npmrc at the base, and the head no longer names it/],
+    ["poetry's PyPI source with no url, and a change to another file", { "pyproject.toml": poetry, "poetry.lock": poetryLock, "p.py": "x = 1\n" }, { "p.py": "x = 2\n" }, 0, null],
+  ];
+  for (const [label, b, change, want, line] of cases) {
+    const r = repo(b, change);
+    try {
+      const f = cli([r.dir, "--json", "--factory", `--base=${r.sha}`]);
+      assert.equal(f.code, want, `${label}: ${JSON.stringify(rule(f.doc))} ${JSON.stringify(f.doc?.couldNotRun)} ${JSON.stringify((f.doc?.findings || []).map((x) => x.message.slice(0, 120)))}`);
+      if (line) assert.match(rule(f.doc).join("\n"), line, label);
+      if (want === 1) assert.ok(rule(f.doc).every((m) => /^factory: dependency from a new source/.test(m)), `${label}: ${JSON.stringify(rule(f.doc))}`);
+    } finally {
+      r.cleanup();
+    }
+  }
+});

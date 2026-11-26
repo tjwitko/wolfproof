@@ -468,8 +468,11 @@ new to the lockfile that runs code when installed, and a range that takes any ve
 lockfile. A name is the project's own only where the tool resolves it locally: a path, a workspace
 member the covering lockfile links, a Go `replace` to a directory that applies to the requiring
 module. A version move that brings a package name the project never had needs approval too, and so
-does what a first lockfile brings with a name the base declared. A registry or index the base named
-and the head no longer names, or names in a weaker role, blocks as a source. Each is approved by name and ecosystem in the
+does what a first lockfile brings with a name the base declared. A dependency the project had
+comes from where the base took it: moved to another repository, URL, registry or index, the public
+registry included, it blocks as a source. A registry or index the base named
+and the head no longer names, or names in a weaker role, blocks as a source, and each counts where
+the tool reads it. Each is approved by name and ecosystem in the
 pipeline's allowlist, and a manifest or lockfile the rule cannot read is exit 3
 ([factory mode](factory-mode.md#dependencies)).
 
