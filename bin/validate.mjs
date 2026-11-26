@@ -776,7 +776,8 @@ export function dependencyLines(d) {
   const blocking = d.findings.filter((x) => x.blocking).length;
   const approved = d.findings.length - blocking;
   if (d.findings.length) out.push(`${d.findings.length} added by this change need approval: ${blocking} blocking, ${approved} approved by the allowlist`);
-  for (const n of d.notRead) out.push(`not checked by this rule: ${n.path} (${n.ecosystem})`);
+  // A file's name is the repository's text: a control character in it does not get to start a line.
+  for (const n of d.notRead) out.push(`not checked by this rule: ${String(n.path).replace(/[\x00-\x1f\x7f]/g, "?")} (${n.ecosystem})`);
   return out;
 }
 

@@ -650,8 +650,10 @@ Listed so that a clean verdict is read for what it is.
   `uv.toml`, `hatch.toml`, `uv.lock`, `poetry.lock`, `Pipfile.lock`) and Go (`go.mod`, `go.sum`,
   `go.work`). A `package-lock.json` npm reads as one from before npm 7 (a `lockfileVersion` that is not 2
   or more) records no install scripts, so a change that adds or moves packages in one is exit 3. A
+  manifest or lockfile that is a symbolic link is not opened, and is exit 3. A
   change to another ecosystem's manifest, or to `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`,
-  `setup.py`, `setup.cfg` or `pdm.lock`, is named above the verdict as not checked by it.
+  `setup.py`, `setup.cfg` or `pdm.lock`, is named above the verdict as not checked by it, and so is
+  a manifest written under a directory the gate's walks skip or under a declared fixture.
 
 - **Languages outside the coverage above.** Swift, Scala and the rest get the project-wide scans —
   secrets, dependencies, infrastructure — and nothing that reads the code itself. The run says so

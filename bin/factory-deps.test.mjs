@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import path from "path";
@@ -27,7 +27,7 @@ function cli(args) {
   } catch {
     /* not --json */
   }
-  return { code: r.status, stdout: r.stdout || "", doc };
+  return { code: r.status, stdout: r.stdout || "", stderr: r.stderr || "", doc };
 }
 
 /** A repository whose first commit is `base` and second `change`, with the base's sha. A file given as null is deleted. */
@@ -292,5 +292,108 @@ test("another package's file on a registry the project names, in a lockfile and 
     } finally {
       r.cleanup();
     }
+  }
+});
+
+test("the reviewer's cases: an entry's path, a linked manifest, a password in a URL, a URL that is not one, ./local, a skipped directory, and a file that is another package's", () => {
+  // A made-up word in the place a password or token has in a URL: the test is that it is not printed.
+  const MARK = "zq7-made-up-0123456789";
+  const withPassword = (host, rest) => `https://${["user", MARK].join(":")}@${host}${rest}`;
+  const outside = realpathSync(mkdtempSync(path.join(tmpdir(), "factory-deps-outside-")));
+  const allowFile = path.join(outside, "allowlist.json");
+  const REQ = { "api/requirements.txt": "idna==3.7\n", "web/requirements.txt": "idna==3.7\n", "notes.txt": "one\n" };
+  const six = "idna==3.7\nsix==1.17.0\n";
+  const forSix = (p) => ({ kind: "new-dependency", ecosystem: "PyPI", package: "six", path: p, reason: `for ${p}` });
+  const ONE = { "requirements.txt": "idna==3.7\n", "notes.txt": "one\n" };
+  const GH = "https://npm.pkg.github.com/";
+  const gh = (at, version) => ({ version, resolved: `${GH}download/${at}/${version}/0123456789abcdef0123456789abcdef01234567`, integrity: `sha512-${at}-${version}` });
+  const scoped = (e) => ({ ".npmrc": `@corp:registry=${GH}\n`, "package.json": pkg({ "@corp/lib": "^1.0.0" }), "package-lock.json": lock({ "node_modules/@corp/lib": e }, { "@corp/lib": "^1.0.0" }), "a.js": "export const a = 1;\n" });
+  const CORP = "https://pypi.corp.example/simple";
+  const py = `[project]\nname = "p"\nversion = "1.0.0"\nrequires-python = ">=3.10"\ndependencies = ["lib"]\n\n[[tool.uv.index]]\nname = "corp"\nurl = "${CORP}"\ndefault = true\n`;
+  const uv = (v, file) => ({ "pyproject.toml": py, "notes.txt": "one\n", "uv.lock": `version = 1\nrequires-python = ">=3.10"\n\n[[package]]\nname = "p"\nversion = "1.0.0"\nsource = { virtual = "." }\ndependencies = [{ name = "lib" }]\n\n[package.metadata]\nrequires-dist = [{ name = "lib" }]\n\n[[package]]\nname = "lib"\nversion = "${v}"\nsource = { registry = "${CORP}" }\nwheels = [{ url = "https://pypi.corp.example/files/${file}", hash = "sha256:${file}" }]\n` });
+  const member = { "package.json": pkg({}), "package-lock.json": lock({}, {}), "local/package.json": `${JSON.stringify({ name: "local", version: "1.0.0" })}\n`, "local/index.js": "export const l = 1;\n" };
+  const run = (base, change, { allow, after } = {}) => {
+    const r = repo(base, change);
+    try {
+      if (after) after(r.dir);
+      if (allow) writeFileSync(allowFile, JSON.stringify({ exemptions: allow }));
+      return cli([r.dir, "--json", "--factory", `--base=${r.sha}`, ...(allow ? [`--allowlist=${allowFile}`] : [])]);
+    } finally {
+      r.cleanup();
+    }
+  };
+  const said = (f) => `${JSON.stringify(rule(f.doc))} ${JSON.stringify(f.doc?.couldNotRun)} ${JSON.stringify((f.doc?.findings || []).map((x) => x.message.slice(0, 120)))} ${f.stderr.slice(0, 300)}`;
+  try {
+    // An entry for api approves api's manifest and not web's, whichever is read first.
+    const both = { "api/requirements.txt": six, "web/requirements.txt": six };
+    for (const p of ["api", "web"]) {
+      const f = run(REQ, both, { allow: [forSix(p)] });
+      assert.equal(f.code, 1, `an entry for ${p}: ${said(f)}`);
+      assert.match(rule(f.doc).join("\n"), /^factory: new dependency — PyPI package six "six==1\.17\.0" in api\/requirements\.txt, web\/requirements\.txt \(requirements\)/);
+    }
+    const each = run(REQ, both, { allow: [forSix("api"), forSix("web")] });
+    assert.equal(each.code, 0, said(each));
+    assert.deepEqual(each.doc.factory.dependencies.findings.map((x) => x.approvedBy), ["for api; for web"]);
+
+    // A manifest that is a link is not opened, and what it points at is not printed.
+    writeFileSync(path.join(outside, "elsewhere.txt"), `TOKEN=${MARK}\n`);
+    const linked = run(ONE, { "notes.txt": "two\n" }, { after: (dir) => { rmSync(path.join(dir, "requirements.txt")); symlinkSync(path.join(outside, "elsewhere.txt"), path.join(dir, "requirements.txt")); spawnSync("git", ["-C", dir, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-qam", "link"]); } });
+    assert.equal(linked.code, 3, said(linked));
+    assert.match(linked.doc.couldNotRun.join("\n"), /factory: requirements\.txt at the head could not be read by the dependency rule — it is a symbolic link, which this rule does not follow\./);
+    assert.ok(!(linked.stdout + linked.stderr).includes(MARK), "the file outside the project is not printed");
+
+    // A password in an index URL is in no line, and the entry the line writes out approves the finding.
+    const cred = { "requirements.txt": `--index-url ${withPassword("pypi.corp.example", "/simple")}\nidna==3.7\n` };
+    const shown = run(ONE, cred);
+    assert.equal(shown.code, 1, said(shown));
+    const [line] = rule(shown.doc);
+    assert.match(line, /^factory: dependency from a new source — PyPI packages: index-url https:\/\/pypi\.corp\.example\/simple in requirements\.txt, from https:\/\/pypi\.corp\.example\/simple: /);
+    assert.ok(!(shown.stdout + shown.stderr).includes(MARK), "the password is not printed");
+    const copied = JSON.parse(line.slice(line.lastIndexOf('{"kind"')));
+    assert.deepEqual(copied, { kind: "dependency-source", ecosystem: "PyPI", source: "https://pypi.corp.example/simple", reason: "<why a person approved it>" });
+    const approved = run(ONE, cred, { allow: [{ ...copied, reason: "the platform team's index" }] });
+    assert.deepEqual(rule(approved.doc), [], said(approved));
+    assert.deepEqual(approved.doc.factory.dependencies.findings.map((x) => x.blocking === true), [false]);
+
+    // A URL that cannot be decoded or parsed: exit 3 that names the file, from a gate that did not fall over.
+    for (const u of ["https://registry.npmjs.org/left-pad/-/%zz", "https://"]) {
+      const f = run(BASE, { "package-lock.json": lock({ "node_modules/left-pad": { version: "1.1.4", resolved: u, integrity: "sha512-x" } }, { "left-pad": "^1.1.0" }) });
+      assert.equal(f.code, 3, `${u}: ${said(f)}`);
+      assert.ok(f.doc && !f.doc.error, `${u}: a result, not a gate that failed: ${f.stderr.slice(0, 200)}`);
+      assert.ok(f.doc.couldNotRun.some((c) => c.includes(`factory: package-lock.json at the head could not be read by the dependency rule — it gives a URL this rule cannot read as one: ${u}.`)), said(f));
+      assert.doesNotMatch(f.stderr, /the gate itself failed|\n\s+at /);
+    }
+    const entry = run(BASE, { "a.js": "export const a = 2;\n" }, { allow: [{ kind: "dependency-source", ecosystem: "npm", package: "left-pad", source: "https://", reason: "x" }] });
+    assert.equal(entry.code, 3, said(entry));
+    assert.match(entry.doc.couldNotRun.join("\n"), /factory: the allowlist's entry \{"kind":"dependency-source","ecosystem":"npm","package":"left-pad","source":"https:\/\/"\} names a source that starts as a URL and cannot be read as one\./);
+
+    // ./local is the directory, as npm reads it.
+    const local = run(member, { "package.json": pkg({ local: "./local" }), "package-lock.json": lock({ "node_modules/local": { resolved: "local", link: true }, local: { name: "local", version: "1.0.0" } }, { local: "./local" }) });
+    assert.deepEqual(rule(local.doc), [], said(local));
+    assert.equal(local.code, 0, said(local));
+
+    // A manifest written under a directory the walks skip is blocked by the check on such writes;
+    // once a person approves the place, this rule still names the file as one it did not read.
+    const skipped = run(ONE, { "build/requirements.txt": "six==1.17.0\n" });
+    assert.equal(skipped.code, 1, said(skipped));
+    assert.match(skipped.doc.findings.map((x) => x.message).join("\n"), /factory: 1 file\(s\) this change wrote under build, where every source check skips build\/ — build\/requirements\.txt\./);
+    const placed = run(ONE, { "build/requirements.txt": "six==1.17.0\n" }, { allow: [{ kind: "skipped-location", path: "build", reason: "generated by the release job" }] });
+    assert.equal(placed.code, 0, said(placed));
+    assert.deepEqual(placed.doc.factory.dependencies.notRead, [{ path: "build/requirements.txt", ecosystem: "under build/, a directory this rule does not read" }]);
+
+    // Another package's file: on a registry whose paths have no /-/, and on a Python index.
+    const cases = [
+      ["a scoped entry at another package's path on GitHub's registry", scoped(gh("@corp/lib", "1.0.0")), { "package-lock.json": lock({ "node_modules/@corp/lib": gh("@other/evil", "1.0.2") }, { "@corp/lib": "^1.0.0" }) }, 1, /npm package @corp\/lib "1\.0\.2" in package-lock\.json, from https:\/\/npm\.pkg\.github\.com\/download\/@other\/evil\/1\.0\.2\/0123456789abcdef0123456789abcdef01234567: the lockfile takes @corp\/lib 1\.0\.2 from a file of the registry's that is not that package's/],
+      ["a version move to its own path there", scoped(gh("@corp/lib", "1.0.0")), { "package-lock.json": lock({ "node_modules/@corp/lib": gh("@corp/lib", "1.0.2") }, { "@corp/lib": "^1.0.0" }) }, 0, null],
+      ["a uv.lock entry whose wheel is another package's, on the project's index", uv("1.0.0", "lib-1.0.0-py3-none-any.whl"), uv("1.0.2", "other-1.0.2-py3-none-any.whl"), 1, /PyPI package lib "1\.0\.2" in uv\.lock, from https:\/\/pypi\.corp\.example\/files\/other-1\.0\.2-py3-none-any\.whl: the lockfile takes lib 1\.0\.2 from a file of the registry's that is not that package's/],
+      ["a version move to its own wheel there", uv("1.0.0", "lib-1.0.0-py3-none-any.whl"), uv("1.0.2", "lib-1.0.2-py3-none-any.whl"), 0, null],
+    ];
+    for (const [label, b, change, want, expected] of cases) {
+      const f = run(b, change);
+      assert.equal(f.code, want, `${label}: ${said(f)}`);
+      if (expected) assert.match(rule(f.doc).join("\n"), expected, label);
+    }
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
   }
 });

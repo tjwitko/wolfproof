@@ -340,6 +340,10 @@ runs:
 
         node -e '
           const r = require(process.argv[1]);
+          // No line of the report starts a workflow command. File names and other text from the
+          // repository are printed here, and the runner reads a line that starts with two colons as one.
+          const print = console.log.bind(console);
+          console.log = (t = "") => print(String(t).replace(/(^|[\r\n])([ \t]*)(?=::|##\[)/g, "$1$2\u200b"));
           // A usage error or a gate that fell over writes a document with only the reason in it.
           // Rendering it as a result would print nothing useful before failing on r.controls.
           if (r.error) {
@@ -388,7 +392,7 @@ runs:
             if (deps) {
               const blocking = deps.findings.filter((x) => x.blocking).length;
               if (deps.findings.length) console.log(`factory deps  : ${deps.findings.length} added by this change need approval: ${blocking} blocking, ${deps.findings.length - blocking} approved by the allowlist`);
-              for (const n of deps.notRead || []) console.log(`factory deps  : not checked by this rule: ${n.path} (${n.ecosystem})`);
+              for (const n of deps.notRead || []) console.log(`factory deps  : not checked by this rule: ${String(n.path).replace(/[\x00-\x1f\x7f]/g, "?")} (${n.ecosystem})`);
             }
             for (const note of f.notes || []) console.log(`factory note  : ${note}`);
             for (const i of (f.allowlist && f.allowlist.ignored) || []) console.log(`factory note  : allowlist entry ignored — it ${i.why}: ${JSON.stringify(i.entry)}`);

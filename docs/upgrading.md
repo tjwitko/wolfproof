@@ -1126,7 +1126,9 @@ head no longer names, or names in a weaker role, for the place the tool reads it
 dependency the project already had that the head takes from another place than the base did, the
 public registry included: a private or git dependency moved onto the public registry blocks. And into
 **exit 3**: a manifest or lockfile the rule cannot read, at the head or at the base, such as a
-`go.sum` with a line that is not a module, a version and a hash; and a `package-lock.json` that npm
+`go.sum` with a line that is not a module, a version and a hash; a manifest or lockfile that is a
+symbolic link, which the rule does not open (commit the file itself); a lockfile entry or a
+dependency whose URL does not parse; and a `package-lock.json` that npm
 reads as one from before npm 7 (a `lockfileVersion` that is not 2 or more), which records no install
 scripts, where the change added or moved packages or rewrote the lockfile in that format.
 Write it with npm 7 or later. Default mode is unchanged. It reads npm, Python and Go, and names
@@ -1154,6 +1156,8 @@ Measured through the CLI, v1.18.0 against this version, each change one commit o
 | `registry=` moved from the project's `.npmrc` to another directory's, with a version move | 0 | **1**, `dependency-source` | 0 |
 | a lockfile entry moved to another package's file on the registry `.npmrc` names | 0 | **1**, `dependency-source` | 0 |
 | a range made the URL of another package's file on the registry `.npmrc` names | 0 | **1**, `dependency-source` | 0 |
+| a lockfile entry moved to another package's path on a registry `.npmrc` names whose paths have no `/-/` | 0 | **1**, `dependency-source` | 0 |
+| `.npmrc` replaced by a symbolic link to a file in the project that says the same | 0 | **3** | 0 |
 | `strict-ssl=0` added to `.npmrc` | 0 | 0 | 0 |
 | `'[1,2,3]'=x` added to `.npmrc`, a key that is JSON other than a string | 0 | **3** | 0 |
 | the lockfile rewritten as `lockfileVersion` 1, with a version move | 0 | **3** | 0 |

@@ -74,3 +74,32 @@ test("the renderer prints the dependency rule's lines, the same as the CLI", asy
   const printed = r.stdout.split("\n").filter((l) => l.startsWith("factory deps")).map((l) => l.replace(/^factory deps\s*:\s/, ""));
   assert.deepEqual(printed, dependencyLines(dependencies));
 });
+
+// A file's name is the repository's text. One with a newline and two colons in it does not get to
+// start a line of the log, where the runner would read a workflow command.
+test("no line the renderer prints starts a workflow command, whatever a file is called", async () => {
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const { dependencyLines } = await import("./validate.mjs");
+  const gate = asReceived(steps.find((s) => s.id === "gate").run);
+  const body = [...gate.matchAll(/node -e '([^']*)'/g)].map((m) => m[1]).find((b) => b.includes("r.controls"));
+  const odd = "a\n::warning title=forged::from a file name";
+  const dependencies = { findings: [], notRead: [{ path: `${odd}/Cargo.toml`, ecosystem: "crates.io" }, { path: "b\r##[error]old style/Cargo.toml", ecosystem: "crates.io" }] };
+  const result = {
+    controls: [], validatorsRun: [], blocking: 1, couldNotRun: [`factory: ${odd}/package.json could not be read`],
+    findings: [{ message: `factory: 1 file(s) this change wrote under build — ${odd}/x.js\n  ::add-mask::indented\n##[error]the older form` }], advisories: [{ message: `about ${odd}` }],
+    factory: { base: { ref: "main", sha: "0123456789abcdef" }, grants: [], allowlist: null, policy: null, notes: [`a note about ${odd}`],
+      advisories: { blocked: 0, incomplete: 0, dropped: 0 }, dependencies },
+  };
+  const file = path.join(mkdtempSync(path.join(tmpdir(), "wp-render-")), "result.json");
+  writeFileSync(file, JSON.stringify(result));
+  const r = spawnSync(process.execPath, ["-e", body, file], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  const lines = r.stdout.split(/\r\n|\r|\n/);
+  assert.deepEqual(lines.filter((l) => /^\s*(?:::|##\[)/.test(l)), []);
+  assert.ok(lines.some((l) => l.includes("::warning title=forged::from a file name")), "the name is still printed");
+  const printed = lines.filter((l) => l.startsWith("factory deps")).map((l) => l.replace(/^factory deps\s*:\s/, ""));
+  assert.deepEqual(printed, ["not checked by this rule: a?::warning title=forged::from a file name/Cargo.toml (crates.io)", "not checked by this rule: b?##[error]old style/Cargo.toml (crates.io)"]);
+  assert.deepEqual(printed, dependencyLines(dependencies), "the CLI prints the same two lines");
+});
