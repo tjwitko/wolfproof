@@ -387,6 +387,9 @@ test("the reviewer's cases: an entry's path, a linked manifest, a password in a 
       ["a version move to its own path there", scoped(gh("@corp/lib", "1.0.0")), { "package-lock.json": lock({ "node_modules/@corp/lib": gh("@corp/lib", "1.0.2") }, { "@corp/lib": "^1.0.0" }) }, 0, null],
       ["a uv.lock entry whose wheel is another package's, on the project's index", uv("1.0.0", "lib-1.0.0-py3-none-any.whl"), uv("1.0.2", "other-1.0.2-py3-none-any.whl"), 1, /PyPI package lib "1\.0\.2" in uv\.lock, from https:\/\/pypi\.corp\.example\/files\/other-1\.0\.2-py3-none-any\.whl: the lockfile takes lib 1\.0\.2 from a file of the registry's that is not that package's/],
       ["a version move to its own wheel there", uv("1.0.0", "lib-1.0.0-py3-none-any.whl"), uv("1.0.2", "lib-1.0.2-py3-none-any.whl"), 0, null],
+      // A package.json under the root's lockfile that is not a member of its workspace: nothing pins its ranges.
+      ["a nested manifest's range made *, under a lockfile that does not cover it", { ...BASE, "tools/package.json": pkg({ "is-odd": "^3.0.1" }) }, { "tools/package.json": pkg({ "is-odd": "*" }) }, 1, /^factory: a range that takes anything — npm package is-odd "\*" in tools\/package\.json \(dependencies\), and no lockfile pins what installs/],
+      ["the same manifest edited, its range left alone", { ...BASE, "tools/package.json": pkg({ "is-odd": "^3.0.1" }) }, { "tools/package.json": pkg({ "is-odd": "^3.0.1" }).replace('"version"', '"description": "tools",\n  "version"') }, 0, null],
     ];
     for (const [label, b, change, want, expected] of cases) {
       const f = run(b, change);
