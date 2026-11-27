@@ -19,9 +19,10 @@
       "asDeliveredMeasured": "against the original deliverable, same gate",
       "remeasured": "check_dependencies 0 -> 1 on 2026-10-13: proxy-addr 2.0.7 in this deliverable's own dependencies, GHSA-jqcg-44mw-7w3h (critical), published 2026-10-05 -- after these verdicts were measured. The advisory database moved; the deliverable and the controls did not. Applied from the CI run on 425c4ec, which measured all thirteen with a working Docker: nine matched exactly and these four moved by this one finding and nothing else. Not re-derived locally, because Docker on the measuring machine was wedged and a local --update would have frozen an incomplete Go verdict.",
       "factory": {
-        "expectedBlocking": 2,
+        "expectedBlocking": 5,
         "expectedFindings": {
           "check_dependencies": 1,
+          "factory: new-dependency": 3,
           "tests": 1
         }
       }
@@ -38,9 +39,10 @@
       "asDelivered": 0,
       "asDeliveredMeasured": "against the original deliverable, same gate",
       "factory": {
-        "expectedBlocking": 1,
+        "expectedBlocking": 4,
         "expectedFindings": {
-          "factory: agent-instructions": 2
+          "factory: agent-instructions": 2,
+          "factory: new-dependency": 3
         }
       }
     },
@@ -61,10 +63,11 @@
       "asDeliveredMeasured": "against the original deliverable, same gate",
       "remeasured": "check_dependencies 0 -> 1 on 2026-10-13: proxy-addr 2.0.7 in this deliverable's own dependencies, GHSA-jqcg-44mw-7w3h (critical), published 2026-10-05 -- after these verdicts were measured. The advisory database moved; the deliverable and the controls did not. Applied from the CI run on 425c4ec, which measured all thirteen with a working Docker: nine matched exactly and these four moved by this one finding and nothing else. Not re-derived locally, because Docker on the measuring machine was wedged and a local --update would have frozen an incomplete Go verdict.",
       "factory": {
-        "expectedBlocking": 3,
+        "expectedBlocking": 9,
         "expectedFindings": {
           "check_dependencies": 1,
           "factory: agent-instructions": 2,
+          "factory: new-dependency": 6,
           "tests": 1
         }
       }
@@ -92,11 +95,12 @@
         "check_dependencies 1 -> 2 on 2026-11-04: a control change, not the advisory database. A package.json with no lockfile now has its direct dependencies scanned at the lowest version each range allows (candidate-rules #36), and uuid ^9.0.1 is 9.0.1, inside GHSA-w5hq-g745-h8pq (fixed in 11.1.1; CVSS 3.1 7.5, so high in dep-audit's bands although GitHub rates it moderate), published 2026-04-22, before `measured`. The missing lockfile still blocks as well, so check_dependencies reports two. The original at ../webhook-haiku has no lockfile either and blocks on 7 measured the same way. Applied by hand: the other twelve fixtures matched exactly in both modes, and a local --update would also re-date every end-of-life verdict."
       ],
       "factory": {
-        "expectedBlocking": 9,
+        "expectedBlocking": 20,
         "expectedFindings": {
           "check_dependencies": 2,
           "dockerfile": 1,
           "factory: agent-instructions": 2,
+          "factory: new-dependency": 11,
           "factory: nothing checked (secret rotation)": 1,
           "immutability": 1,
           "tests": 1,
@@ -127,11 +131,13 @@
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
       ],
       "factory": {
-        "expectedBlocking": 11,
+        "expectedBlocking": 23,
         "expectedFindings": {
           "check_dependencies": 1,
           "dockerfile": 1,
           "factory: agent-instructions": 2,
+          "factory: install-script": 2,
+          "factory: new-dependency": 10,
           "factory: nothing checked (secret rotation)": 1,
           "retention": 2,
           "terraform_plan": 1,
@@ -162,12 +168,13 @@
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
       ],
       "factory": {
-        "expectedBlocking": 11,
+        "expectedBlocking": 16,
         "expectedFindings": {
           "check_dependencies": 1,
           "code quality": 1,
           "dockerfile": 1,
           "factory: agent-instructions": 2,
+          "factory: new-dependency": 5,
           "factory: nothing checked (secret rotation)": 1,
           "retention": 1,
           "workload identity": 5
@@ -195,11 +202,12 @@
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
       ],
       "factory": {
-        "expectedBlocking": 8,
+        "expectedBlocking": 17,
         "expectedFindings": {
           "check_dependencies": 1,
           "dockerfile": 1,
           "factory: agent-instructions": 2,
+          "factory: new-dependency": 9,
           "factory: nothing checked (secret rotation)": 1,
           "tests": 1,
           "workload identity": 3
@@ -226,11 +234,12 @@
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
       ],
       "factory": {
-        "expectedBlocking": 10,
+        "expectedBlocking": 11,
         "expectedFindings": {
           "check_dependencies": 1,
           "dockerfile": 1,
           "factory: agent-instructions": 2,
+          "factory: new-dependency": 1,
           "factory: nothing checked (secret rotation)": 1,
           "tests": 1,
           "workload identity": 5
@@ -256,10 +265,11 @@
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
       ],
       "factory": {
-        "expectedBlocking": 5,
+        "expectedBlocking": 9,
         "expectedFindings": {
           "dockerfile": 1,
           "factory: agent-instructions": 2,
+          "factory: new-dependency": 4,
           "factory: nothing checked (secret rotation)": 1,
           "tests": 1,
           "workload identity": 1
@@ -285,10 +295,11 @@
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
       ],
       "factory": {
-        "expectedBlocking": 7,
+        "expectedBlocking": 11,
         "expectedFindings": {
           "dockerfile": 1,
           "factory: agent-instructions": 3,
+          "factory: new-dependency": 4,
           "factory: nothing checked (retention)": 1,
           "factory: nothing checked (secret rotation)": 1,
           "tests": 1,
@@ -321,11 +332,13 @@
         "dockerfile 0 -> 1 on 2026-10-14: a new check, not a change in the deliverable. Its Dockerfile builds on a base image past end of life as of this manifest's measured date (Node.js 18 or 20, Go 1.21 or 1.22, Alpine 3.18 or 3.19 -- see the finding), which nothing read before candidate-rules #10. The original's FROM lines are identical, so the as-delivered verdict moves with it. Judged as of `measured`, which corpus/run.mjs pins through AGENT_GATE_TODAY so these do not move again the day another release ages out."
       ],
       "factory": {
-        "expectedBlocking": 9,
+        "expectedBlocking": 16,
         "expectedFindings": {
           "check_dependencies": 1,
           "dockerfile": 1,
           "factory: agent-instructions": 2,
+          "factory: install-script": 1,
+          "factory: new-dependency": 6,
           "iam": 2,
           "immutability": 1,
           "manifest contract": 1,
@@ -364,10 +377,11 @@
       "asDelivered": 1,
       "asDeliveredMeasured": "against the original deliverable, same gate",
       "factory": {
-        "expectedBlocking": 2,
+        "expectedBlocking": 3,
         "expectedFindings": {
           "authentication": 1,
-          "factory: added noqa": 1
+          "factory: added noqa": 1,
+          "factory: new-dependency": 1
         }
       }
     }
@@ -394,7 +408,7 @@
     "docker": "29.6.2"
   },
   "factory": {
-    "measured": "2026-11-20",
+    "measured": "2026-11-25",
     "base": "an empty commit before the fixture, so the whole deliverable is the change; no allowlist, no policy",
     "toolchain": {
       "node": "26.5.1",

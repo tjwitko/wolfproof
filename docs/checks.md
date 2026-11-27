@@ -462,6 +462,27 @@ dependencies only in a PDM or uv development group, and a `Gemfile` whose declar
 **Reports without blocking:** CVEs in an unlocked `requirements.txt`, `go.mod` or `pom.xml`, which
 the scanner resolves to minimum-satisfying versions no real install produces.
 
+**In factory mode, also blocks on** a dependency the change adds that the pipeline did not approve,
+for npm, Python and Go: a name the base did not declare, a source other than the registry, a package
+new to the lockfile that runs code when installed, and a range that takes any version with no
+lockfile. A name is the project's own only where the tool resolves it locally: a path, a workspace
+member the covering lockfile links, a Go `replace` to a directory that applies to the requiring
+module. A version move that brings a package name the project never had needs approval too, and so
+does what a first lockfile brings with a name the base declared. A dependency the project had
+comes from where the base took it: moved to another repository, URL, registry or index, the public
+registry included, it blocks as a source. A registry or index the base named
+and the head no longer names, or names in a weaker role, blocks as a source, and each counts where
+the tool reads it. A member of a uv workspace reads the indexes and settings of the workspace's
+root. A requirements file that another one includes is also judged as a file a person installs on
+its own, with only the options it and the files it includes give. So the index line belongs in the
+included file, beside the names it serves: moved there from the file that includes it, it is an
+index new to the included file, and names split out into a new included file that has no index
+line of its own each block as a source. An npm lockfile entry, or a URL in a `package.json`, that
+takes another package's file from a registry blocks as a source, on the public registry and on any
+registry the project's files name. Each is approved by name and ecosystem in the
+pipeline's allowlist, and a manifest or lockfile the rule cannot read is exit 3
+([factory mode](factory-mode.md#dependencies)).
+
 **Covers:** npm, PyPI, Go, Maven, Cargo, RubyGems, Packagist and the rest of
 [OSV](https://osv.dev).
 
@@ -621,6 +642,18 @@ Plus in-process validators: `build_check`, `tests`, `immutability`, `authenticat
 ## What it does not check
 
 Listed so that a clean verdict is read for what it is.
+
+- **In factory mode, what a new dependency is.** The [dependency rule](factory-mode.md#dependencies)
+  looks nothing up: what a dependency brings and whether it runs code when installed is what the
+  lockfile records, and with none that is not known. It reads npm (`package.json`,
+  `package-lock.json`, `.npmrc`), Python (requirements files, `pyproject.toml`, `Pipfile`,
+  `uv.toml`, `hatch.toml`, `uv.lock`, `poetry.lock`, `Pipfile.lock`) and Go (`go.mod`, `go.sum`,
+  `go.work`). A `package-lock.json` npm reads as one from before npm 7 (a `lockfileVersion` that is not 2
+  or more) records no install scripts, so a change that adds or moves packages in one is exit 3. A
+  manifest or lockfile that is a symbolic link is not opened, and is exit 3. A
+  change to another ecosystem's manifest, or to `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`,
+  `setup.py`, `setup.cfg` or `pdm.lock`, is named above the verdict as not checked by it, and so is
+  a manifest written under a directory the gate's walks skip or under a declared fixture.
 
 - **Languages outside the coverage above.** Swift, Scala and the rest get the project-wide scans —
   secrets, dependencies, infrastructure — and nothing that reads the code itself. The run says so

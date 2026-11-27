@@ -45,6 +45,7 @@ it and the head.
 | leaves an advisory meaning "nothing was checked" | an advisory | **blocks** (see [Advisories](#advisories)) |
 | adds a probe route that reads, such as `GET /health` | exempt | still exempt, and **named** in the report |
 | adds a credential in one commit and removes it in a later one ([below](#credentials-in-the-changes-commits)) | not checked: the tree is clean | **blocks**, naming the commit, the file and the line, unless the allowlist approves the file |
+| adds a dependency, takes one from a new source, brings in an install script, or adds a range that takes any version ([below](#dependencies)) | held to its advisories | **blocks**, unless the allowlist approves the package by name |
 
 ### Where the checks do not look
 
@@ -302,6 +303,107 @@ Three limits:
   for that event, so only its last commit is in the range. Set the `base` input to the branch it
   was cut from.
 
+### Dependencies
+
+Before v1.19.0 a dependency was held to one test, no known high or critical advisory, in both modes.
+A package nobody has reported yet passes that, and so does a name an agent made up that someone else
+registered, a tarball from any URL, and a package that runs a script when it is installed. Nobody
+reads a factory change, so factory mode asks for a person's approval: it compares the dependencies at
+the head with those at the base, for npm, Python and Go, and four things block, each its own kind in
+the [allowlist](#the-allowlist).
+
+| kind | what blocks |
+|---|---|
+| `new-dependency` | a name the project did not declare at the base, in any manifest of that ecosystem. A new manifest counts, and so does a workspace member, a nested manifest, a requirements file another includes with `-r`, a file setuptools is told to read dependencies from, `[build-system] requires`, uv's `dev-dependencies` and `extra-build-dependencies`, poetry's `requires-plugins`, and hatch's environments, build targets and build hooks (in `pyproject.toml` or `hatch.toml`). Each name in uv's `dependency-metadata` `requires-dist`, which stands in for what a package declares. An npm alias (`"x": "npm:other@1"`) is the package it installs. In `package-lock.json`, `npm-shrinkwrap.json`, `uv.lock` and `poetry.lock`: a package name new to the project, which is one the base's lockfiles did not hold and its manifests did not declare, and which no manifest declares now. It is excused only where it comes with a dependency new in the manifests, brought in by that dependency itself or through other names new to the project, and that dependency's finding lists it. A name a new dependency reaches only through a package the project already had blocks on its own. So a version move that brings one blocks, and so does a first lockfile that brings one with a name the base declared. Names new to the project do not vouch for each other or for themselves: where one brings another in, the finding is for the one a package the project had brings in, and it lists the rest. In `Pipfile.lock`, which does not record which package brings which, such a name blocks unless the change declares a new dependency, whose finding then lists it. Also an npm entry that nothing brings in; and an npm entry that installs another package under a name (`"node_modules/a": { "name": "other" }`) where no manifest and no package it comes with declares that alias. In Go, a module required for the first time, and one marked `// indirect` when the project's code imports it or a `tool` line runs it. A module the base held only as `// indirect`, which nothing of the base's imported or ran, was another module's dependency and not the project's: it is new when the head lists it without the marker, imports it, or runs it with a `tool` line, as an npm package is that goes from a lockfile entry another package brought to a line in `package.json` |
+| `dependency-source` | a dependency the project already had that the head takes from another place than the base took it from. A place is a git repository, a URL's directory, a path, a registry or an index, and the public registry is one like any other, so a name moved onto it counts: a lockfile entry whose `resolved`, index or `[package.source]` changes (npm reads a `resolved` on `registry.npmjs.org` as the registry every name has, not a scope's, and one with no `resolved` as the name's own registry; a plain-http `resolved` is not the registry); a git, URL or path dependency made a range; a range npm resolved to a workspace member that the lockfile now resolves to the registry's package; a uv source, a poetry `source =` or `git =`, or a Pipfile `index =` taken away, or a uv source narrowed by a marker, an extra or a group; an override or a Go `replace` that said where a name comes from, taken away while the name is still installed or no lockfile shows that it is gone; a name moved to a requirements file or a manifest that reads other indexes. It is compared at the record's own position (a manifest's entry, a lockfile's key), then in its file, then anywhere. Every entry of a lockfile is judged: one name and version listed twice in `uv.lock` or `poetry.lock`, from two sources, is two entries, and so is a name in both `default` and `develop` of a `Pipfile.lock`. A git dependency moved from an encrypted scheme (`https`, `ssh`) to one that is not (`git://`, `http://`) is moved, and so is one under an account's home (`ssh://alice@host/~/lib.git`) moved to another account's. A dependency new to the project from somewhere other than its registry (git, a URL, a path outside the project, a Go `replace`), including through an override or a constraint (uv's `override-dependencies`, `constraint-dependencies` and `build-constraint-dependencies`, pdm's `[tool.pdm.resolution.overrides]`); a registry or index the project's files name and the base's did not: `registry=` in `.npmrc`, `--index-url`, `--extra-index-url` or `--find-links` in a requirements file, `[[tool.uv.index]]`, `[tool.uv.pip]`, `[[tool.poetry.source]]`, a Pipfile's `[[source]]`, `uv.toml`; `--trusted-host` in a requirements file; a setting in `.npmrc`, `[tool.uv]`, `[tool.uv.pip]` or `uv.toml` that the base did not have and that changes where packages come from or which server the tool trusts (`proxy`, `https-proxy`, `strict-ssl=false`, `cafile`, `ca`, `replace-registry-host`; uv's `allow-insecure-host`, `native-tls`, a proxy, an `index-strategy` other than `first-index`, a `keyring-provider`, a Python download mirror), or that is on neither that list nor the rule's list of settings known to leave both as they were. `.npmrc` is read as npm reads it, so `"registry"=`, `'registry'=` and `registry[]=` are `registry=`; a registry or index the base named that the head no longer names, or names in a weaker role, so that what the base took from it can come from the public registry: `registry=` or `@scope:registry=` gone from `.npmrc`, `--index-url` removed or made `--extra-index-url`, `--extra-index-url` or `--find-links` removed, `--no-index` removed, a `[[tool.uv.index]]` removed or with `default = true` or `explicit = true` changed, a poetry source's `priority` lowered, uv's indexes or a Pipfile's sources put in another order (the public registry named and then not is no change, and neither is naming it where it already served; named again where the base's settings kept it out, it is a finding). Registries, indexes and settings count where the tool reads them: the `.npmrc` of the directory npm runs in, a requirements file with the files it includes, a `pyproject.toml`'s poetry or pdm sources, a Pipfile's, and for uv the nearest directory up that has a `uv.toml` or a `[tool.uv]` table, where a `uv.toml` hides the table beside it. A directory a uv workspace's root names as a member reads what the root reads, whatever `[tool.uv]` table or `uv.toml` the member has of its own. The member's own file is still judged for the indexes it names and no longer names, though uv does not read them while the directory is a member. A directory the root excludes or does not name, and a project under another project, read their own. A requirements file another one includes is also judged as a file a person installs on its own, with the options it and its own includes give, so an index line belongs in the included file. So one moved to a file the tool does not read for that place is taken away, one the base named for another place is new to this one, and a file that hides another's settings takes away what it hides. Poetry's `[[tool.poetry.source]]` named `PyPI` with no `url` is read as PyPI; a lockfile entry edited in place, its version the same and its integrity, a file's hash, where it resolves, what it depends on or its install-script flag not; and a lockfile entry that downloads from outside its registry, or takes another package's file from it. For npm that is checked on the public registry and on every registry the project's files name, by the package name before `/-/` in the path (scoped names included) and the file's name and version after it, and for a URL a `package.json` gives as well as a lockfile's `resolved`: a URL under a registry the project names is that registry, so it has to be the named package's own file. Under a named registry whose paths have no `/-/` (GitHub's serves `download/<name>/<version>/<hash>`), the package's name has to be in the path, segment for segment. For Python, an entry that comes from an index lists files named for the package, on whatever host: a wheel or sdist named for another package is a finding, in `uv.lock`'s file URLs and in `poetry.lock`'s file names |
+| `install-script` | a package new to the lockfile, direct or brought in by another, that runs code when it is installed: `hasInstallScript` in `package-lock.json`, or for Python a package `uv.lock` or `poetry.lock` holds only as a source distribution, which is built on install. Also a package whose versions at the base ran no install script and whose new version does |
+| `unpinned-range` | a range that takes any version (`*`, `latest` or another dist-tag, `x`, `>=0`, no version at all, a git dependency on a branch or with no ref), added or changed by the change, where no lockfile pins it. A git ref pins only as a commit or as a version of three parts (`v1.2.3`, `1.2.3-rc.1`): `v2`, `1.x` and `2024` are read as branches. A ref of 7 to 40 hex letters is read as a commit, so a branch named in hex is too. A lockfile pins a range when it covers the manifest and holds the name: a `package-lock.json` in the manifest's own directory, or above it where the manifest is a member of that lockfile's workspace; for Python, a `uv.lock`, `poetry.lock` or `Pipfile.lock` in the manifest's directory or above it. A lockfile this rule does not read (`yarn.lock`, `pnpm-lock.yaml`, `bun.lock`, `pdm.lock`, `pylock.toml`) is taken to cover the manifests under its directory where the base had it in the same place, and not where the change adds it |
+
+What passes: a version move of a dependency the project already had, from the same source (the
+same repository, URL directory, path, registry or index), and the
+packages it brings with it that the project already had; a control's pin moving from one
+tag of its repository to the next is one. Removing a dependency. A dependency moved to the project's
+own code, which is in the change and read by the rest of the gate. A dependency on the project's own
+code, where the tool resolves it locally: a path inside the project (for npm, `file:./local` or
+`./local`, which npm reads as a path and not as GitHub's `owner/repository`), where neither the path
+nor a directory above it is a symbolic link, since the rest of the gate does not read what a link
+points at; an npm workspace member the
+lockfile links, or a `workspace:` range names, where the lockfile is the manifest's own or its root
+`package.json` names the manifest's directory in `workspaces` (in one directory npm follows
+`npm-shrinkwrap.json`, not `package-lock.json`; a `workspaces` pattern is read as npm's minimatch
+reads it, with braces, `*`, `?`, `**` and character classes such as `packages/[yz]`, and an
+extglob such as `packages/+(y|z)` is not read, so a dependency on a member only an extglob names
+blocks as new); a uv source to a directory or a workspace member
+where a `uv.lock` covering the manifest holds the name from there (pip does not read
+`[tool.uv.sources]`); a project's own extras (`p[extra]` in `p`); a Go module replaced with its
+directory in the requiring module's `go.mod`, or by or through a `go.work` that uses that module. A name that matches a member, a nested project or
+a nested module is not enough: the tool fetches that name from the registry unless something points
+it at the directory, so it is a new dependency. A manifest under a declared fixture is not the project's,
+so a dependency only a fixture had at the base is new when the project declares it. A manifest moved
+or renamed adds nothing by moving, and an addition made in the same change still blocks. Names are
+compared as the ecosystem compares them: PyPI takes `Foo_Bar` and `foo-bar` for one package.
+
+A person approves from the finding, so it carries the name and range, the manifest, where the
+package resolves from, how many packages it adds to the lockfile, the first six of them by name and
+which of them run code when installed, and the allowlist entry that approves it, written out.
+`--json` gives every one of those packages, as `brings.packages` on the finding under
+`factory.dependencies.findings`:
+
+```
+factory: new dependency — npm package @opentelemetry/sdk-node "^0.221.0" in package.json (devDependencies),
+from the npm registry. It adds 69 packages to package-lock.json (with it: @opentelemetry/api 1.9.1,
+@opentelemetry/semantic-conventions 1.43.0, @opentelemetry/sdk-trace-node 2.10.0,
+@opentelemetry/sdk-trace-base 2.10.0, @opentelemetry/sdk-trace 2.10.0, @opentelemetry/resources 2.10.0,
++62 more), and 1 of them runs code when installed (protobufjs). The base did not declare it, and in factory mode a dependency needs a person's approval.
+Remove it, or have the pipeline's allowlist approve it:
+{"kind":"new-dependency","ecosystem":"npm","package":"@opentelemetry/sdk-node","reason":"<why a person approved it>"}
+```
+
+That change, `cc01536` in this repository, also blocks on `install-script` for protobufjs:
+approving a name does not approve the script. Over the first-parent history of wolfproof and its four
+controls, each change against its parent, 6 of 759 changes block and 14 version moves pass. The six
+add a package: the four controls by git URL (each `new-dependency` and `dependency-source`),
+`yaml`, the Langfuse and OpenTelemetry packages, the Anthropic SDK, `express` and `supertest` in a
+nested `bench/reference/package.json`, and `@aws-sdk/client-sts` in terraform-guard-mcp.
+
+A manifest or lockfile the rule cannot read, at the head or at the base, is exit 3, and the line
+names the file: an `.npmrc` whose key is JSON other than a string (`'[1,2,3]'=x`) is one. So is a
+`package-lock.json` that npm reads as one from before npm 7, which records no install scripts (npm
+reads each package for one and runs it): npm's test is a `lockfileVersion` that is not 2 or more,
+whatever sections the file has, and the rule also takes one with no `packages` section. It is exit 3
+where the change added or moved packages in it or rewrote it in that format:
+whether the change adds a package that runs code when installed is not known.
+
+A manifest or lockfile that is a symbolic link is not opened, and is exit 3 with the file's name: a
+link can point outside the project, and the rule quotes what it reads. The same holds for a file
+under a directory that is a link, and for a Go source file that is one, where what it imports decides
+whether a module marked `// indirect` is the project's. A URL that does not parse, in a lockfile's
+entry or as a dependency in a manifest, is exit 3 for the file that gives it, and so is a file's URL
+whose path does not decode (`%zz`). An allowlist entry whose `source` starts as a URL and is not one
+is exit 3 too, and the line gives the entry.
+
+A change that edits a manifest of an ecosystem this rule does not read is named above the verdict, as
+`factory deps   : not checked by this rule: Cargo.toml (crates.io)`. So is a `yarn.lock`,
+`pnpm-lock.yaml`, `bun.lock`, `.yarnrc.yml`, `.pnpmfile.cjs`, `setup.py`, `setup.cfg`, `pdm.lock` or
+`pylock.toml`, which it does not read either. A manifest or lockfile under a directory the gate's
+walks skip (`build`, `dist`, `venv`, `.venv`, `node_modules`, `__pycache__`, `.terraform`,
+`.external_modules`) or under a declared fixture is not read by this rule either. A change that
+writes one there blocks as a write [where the checks do not look](#where-the-checks-do-not-look),
+kind `skipped-location`. Once
+a person has approved the place, the file is still named above the verdict:
+`factory deps   : not checked by this rule: build/requirements.txt (under build/, a directory this rule does not read)`.
+
+No line this rule prints carries a URL's user, password or token, or its query: `--index-url
+https://user:secret@host/simple` is printed as `--index-url https://host/simple`. Two sources are
+compared without those parts, so the allowlist entry a line writes out still matches. An ssh URL
+keeps its user. A setting whose name says its value is a secret (one with `token`, `auth`,
+`password`, `secret` or `key` in it) and which is on neither of the rule's lists is printed with a short hash
+in place of the value.
+
+Nothing is looked up: no registry is asked what a package holds or how old it is, so what a new
+dependency brings and whether any of it runs code is what the lockfile records
+([what it does not do](#what-it-does-not-do)).
+
 ### Exemptions it judges
 
 Each of these is confirmed to loosen a check:
@@ -351,7 +453,8 @@ a new grant.
 A base that cannot be resolved — a ref the checkout does not have — is **exit 3**: with nothing to
 compare with, nothing self-granted can be told apart. So is a checkout that does not hold every
 commit between the base and the head, or a secret-guard that could not scan them: the change's
-commits were not all read. Everything else factory mode refuses is
+commits were not all read. So is a manifest or lockfile the [dependency rule](#dependencies) cannot read, at
+the head or the base: whether the change adds a dependency is then not known. Everything else factory mode refuses is
 **exit 1**, because the change made it and can undo it; exit 3 means "fix the environment", which
 would send it to the wrong owner.
 
@@ -398,6 +501,36 @@ is ignored and reported. The kinds are the exemptions above plus `changed-under-
 `skipped-location`, `moved-to-unchecked`, `server-in-test`, `reviewed-finding`, `known-finding`, `ignored-directory`, `agent-instructions` and `workflow-change`, which covers both
 `.github/workflows/` and `.github/actions/`. `known-declared` is the one exemption above with no
 kind here: an entry naming it is ignored and reported.
+
+A [dependency](#dependencies) is approved by name, not by path, with the kinds `new-dependency`,
+`dependency-source`, `install-script` and `unpinned-range`:
+
+```json
+{ "exemptions": [
+  { "kind": "new-dependency", "ecosystem": "npm", "package": "yaml", "reason": "YAML parser, read by the platform team" },
+  { "kind": "dependency-source", "ecosystem": "npm", "package": "@tjwitko/secret-guard-mcp",
+    "source": "git+https://github.com/tjwitko/secret-guard-mcp.git", "reason": "our own control, by tag" },
+  { "kind": "install-script", "ecosystem": "npm", "package": "esbuild", "path": "web", "reason": "downloads its own binary" }
+] }
+```
+
+`ecosystem` is `npm`, `PyPI` or `Go`, so approving `yaml` on npm does not approve `yaml` on PyPI.
+`package` names one package exactly, compared as its ecosystem compares names; an entry with a
+pattern in it is ignored and reported. So is an entry whose `ecosystem` is none of the three. An approved name covers later versions, so an update is not a
+person's job. `path`, which may be left out, narrows the entry to a manifest or a directory: it
+approves the manifests under that path and no other, so a name added in two directories needs each
+of them under some entry's path. Each kind
+is its own entry: approving a name does not approve its source or its install script. A
+`dependency-source` entry names the source without its ref, so a move to another tag of the same
+repository passes and another repository needs an entry of its own. For a registry or index the
+project's files name, `source` is its URL, and `package` is the npm scope it is for or is left out.
+For a dependency moved to a registry or index, `source` is that registry's or index's URL
+(`"https://registry.npmjs.org/"`, `"https://pypi.org/simple/"`), and for a Go module that comes
+from its own path again, the module's path; the finding writes the entry out.
+For one taken away, `source` is `no longer` and what the base named, as the finding writes it
+(`"no longer registry=https://npm.corp.example/"`): approving a registry as a source does not
+approve taking it away.
+A `*` entry approves none of the four: the point is that a person read the name.
 
 A `workflow-change` path is from the repository root, where GitHub reads workflows, even when the
 project is a subdirectory:
@@ -461,6 +594,18 @@ approves by path.
 
 ## What it does not do
 
+- **Look a dependency up.** The [dependency rule](#dependencies) asks no registry what a package holds,
+  who publishes it or how old it is; a rule on a package's age was considered and left out for that
+  reason. What a new dependency brings, and whether any of it runs code when installed, is what the
+  lockfile records. With no lockfile that is not known, and the finding says so. `Pipfile.lock` and
+  requirements files do not record which package brings which, and only `uv.lock` and `poetry.lock`
+  say whether a Python package is built from source. For npm, an install script is what
+  `hasInstallScript` in `package-lock.json` says: npm writes it from the package, and with it removed
+  by hand, `npm ci`, `npm install` and `npm rebuild` (npm 11.17.0) did not run the script. yarn,
+  pnpm and bun do not read `package-lock.json`, and their lockfiles are not read here.
+- **Read every ecosystem's dependencies.** npm, Python and Go are read. A change to Cargo, Bundler,
+  Composer, Maven, Gradle, NuGet or another ecosystem's manifest is named above the verdict as not
+  checked by this rule, and its new dependencies are held only to their advisories.
 - **Measure behaviour.** Whether the software does what its user needs is scenario validation —
   end-to-end checks kept where the agents cannot read them — and wolfproof sits beside it, not in
   place of it. Factory mode answers a narrower question: did the change narrow its own checks?
