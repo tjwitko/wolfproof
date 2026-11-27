@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.19.0
+wolfproof 1.19.1
   terraform-guard  v1.1.3  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.4  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.1.0  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.19.0
-- uses: tjwitko/wolfproof@v1.19.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.19.1
+- uses: tjwitko/wolfproof@v1.19.1
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.19.0
+npm install --save-dev github:tjwitko/wolfproof#v1.19.1
 ```
 
 ## 3. Refresh what setup wrote
@@ -1183,9 +1183,9 @@ Measured on the renderer with a finding that names such a file: v1.18.0 prints o
 would read as a command, and this version prints none. The verdict and the exit code never depended
 on it, and nothing in a workflow has to change.
 
-### After v1.19.0
+### In v1.19.1
 
-**After v1.19.0: three narrower cases of the dependency rule.** Each can turn a passing factory run
+**In v1.19.1: three narrower cases of the dependency rule.** Each can turn a passing factory run
 red, **exit 1**, and one false block goes away; default mode is unchanged. Measured through the CLI
 where the table gives an exit code, and at the rule's interface where it gives a finding.
 
