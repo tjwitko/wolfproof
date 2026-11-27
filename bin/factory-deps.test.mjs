@@ -389,12 +389,15 @@ test("the reviewer's cases: an entry's path, a linked manifest, a password in a 
       ["a version move to its own wheel there", uv("1.0.0", "lib-1.0.0-py3-none-any.whl"), uv("1.0.2", "lib-1.0.2-py3-none-any.whl"), 0, null],
       // A package.json under the root's lockfile that is not a member of its workspace: nothing pins its ranges.
       ["a nested manifest's range made *, under a lockfile that does not cover it", { ...BASE, "tools/package.json": pkg({ "is-odd": "^3.0.1" }) }, { "tools/package.json": pkg({ "is-odd": "*" }) }, 1, /^factory: a range that takes anything — npm package is-odd "\*" in tools\/package\.json \(dependencies\), and no lockfile pins what installs/],
-      ["the same manifest edited, its range left alone", { ...BASE, "tools/package.json": pkg({ "is-odd": "^3.0.1" }) }, { "tools/package.json": pkg({ "is-odd": "^3.0.1" }).replace('"version"', '"description": "tools",\n  "version"') }, 0, null],
+      // The rule has nothing to say; the gate blocks on the manifest no lockfile covers, as it does at the root.
+      ["the same manifest edited, its range left alone", { ...BASE, "tools/package.json": pkg({ "is-odd": "^3.0.1" }) }, { "tools/package.json": pkg({ "is-odd": "^3.0.1" }).replace('"version"', '"description": "tools",\n  "version"') }, 1, null, /check_dependencies: 1 package\.json file\(s\) declare dependencies and have no lockfile[\s\S]*tools\/package\.json/],
     ];
-    for (const [label, b, change, want, expected] of cases) {
+    for (const [label, b, change, want, expected, lockless] of cases) {
       const f = run(b, change);
       assert.equal(f.code, want, `${label}: ${said(f)}`);
       if (expected) assert.match(rule(f.doc).join("\n"), expected, label);
+      else assert.deepEqual(rule(f.doc), [], label);
+      if (lockless) assert.match((f.doc?.findings || []).map((x) => x.message).join("\n"), lockless, label);
     }
   } finally {
     rmSync(outside, { recursive: true, force: true });
@@ -417,7 +420,8 @@ test("the seventh review's cases: two entries of one name and version, a lockfil
     ["a nested manifest's range made *, and the change adds a yarn.lock that holds a comment", { ...BASE, "tools/package.json": tools("^3.0.1") }, { "tools/package.json": tools("*"), "tools/yarn.lock": "# yarn lockfile v1\n" }, 1, /a range that takes anything — npm package is-odd "\*" in tools\/package\.json/],
     ["a manifest no lockfile covers: a git dependency moved from https to git://, the same tag", { ...BASE, "tools/package.json": pkg({ lib: "git+https://github.com/corp/lib.git#v1.2.3" }) }, { "tools/package.json": pkg({ lib: "git://github.com/corp/lib.git#v1.2.3" }) }, 1, /dependency from a new source — npm package lib "git:\/\/github\.com\/corp\/lib\.git#v1\.2\.3" in tools\/package\.json/],
     ["the same, from a commit to #v2", { ...BASE, "tools/package.json": pkg({ lib: `git+https://github.com/corp/lib.git#${SHA}` }) }, { "tools/package.json": pkg({ lib: "git+https://github.com/corp/lib.git#v2" }) }, 1, /a range that takes anything — npm package lib "git\+https:\/\/github\.com\/corp\/lib\.git#v2" in tools\/package\.json/],
-    ["the same, from a commit to #v1.2.3", { ...BASE, "tools/package.json": pkg({ lib: `git+https://github.com/corp/lib.git#${SHA}` }) }, { "tools/package.json": pkg({ lib: "git+https://github.com/corp/lib.git#v1.2.3" }) }, 0, null],
+    // The rule has nothing to say; the gate blocks on the manifest no lockfile covers, as it does at the root.
+    ["the same, from a commit to #v1.2.3", { ...BASE, "tools/package.json": pkg({ lib: `git+https://github.com/corp/lib.git#${SHA}` }) }, { "tools/package.json": pkg({ lib: "git+https://github.com/corp/lib.git#v1.2.3" }) }, 1, null, null, /check_dependencies: 1 package\.json file\(s\) declare dependencies and have no lockfile[\s\S]*tools\/package\.json/],
     ["package.json gains x: file:pkgs/x, and pkgs/x is a link to a directory outside the project", BASE, { "package.json": pkg({ "left-pad": "^1.1.0", x: "file:pkgs/x" }), "package-lock.json": lock({ "node_modules/left-pad": entry("left-pad", "1.1.3"), "node_modules/x": { resolved: "pkgs/x", link: true } }, { "left-pad": "^1.1.0", x: "file:pkgs/x" }) }, 1, /npm package x "file:pkgs\/x" in package\.json.*through pkgs\/x, a symbolic link out of what this gate reads/, (dir) => {
       mkdirSync(path.join(outside, "x"), { recursive: true });
       writeFileSync(path.join(outside, "x", "package.json"), JSON.stringify({ name: "x", version: "1.0.0" }));
@@ -426,7 +430,7 @@ test("the seventh review's cases: two entries of one name and version, a lockfil
     }],
   ];
   try {
-    for (const [label, b, change, want, line, link] of cases) {
+    for (const [label, b, change, want, line, link, lockless] of cases) {
       const r = repo(b, change);
       try {
         if (link) {
@@ -438,6 +442,8 @@ test("the seventh review's cases: two entries of one name and version, a lockfil
         const f = cli([r.dir, "--json", "--factory", `--base=${r.sha}`]);
         assert.equal(f.code, want, `${label}: ${JSON.stringify(rule(f.doc))} ${JSON.stringify(f.doc?.couldNotRun)} ${JSON.stringify((f.doc?.findings || []).map((x) => x.message.slice(0, 120)))}`);
         if (line) assert.match(rule(f.doc).join("\n"), line, label);
+        else assert.deepEqual(rule(f.doc), [], label);
+        if (lockless) assert.match((f.doc?.findings || []).map((x) => x.message).join("\n"), lockless, label);
       } finally {
         r.cleanup();
       }

@@ -88,8 +88,40 @@ test("a pyproject.toml is covered by a requirements*.txt, which osv-scanner read
 });
 
 test("a workspace lockfile at the root covers its members", () => {
-  assert.deepEqual(unscanned({ "package-lock.json": "x", "packages/a/package.json": NPM }), []);
+  const ws = (workspaces) => JSON.stringify({ name: "root", version: "1.0.0", workspaces });
+  assert.deepEqual(unscanned({ "package.json": ws(["packages/*"]), "package-lock.json": "x", "packages/a/package.json": NPM }), []);
+  assert.deepEqual(unscanned({ "package.json": ws({ packages: ["packages/**"] }), "yarn.lock": "x", "packages/a/b/package.json": NPM }), [], "yarn's form, and **");
+  assert.deepEqual(unscanned({ "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n", "pnpm-lock.yaml": "x", "packages/a/package.json": NPM }), [], "pnpm-workspace.yaml");
   assert.deepEqual(unscanned({ "Cargo.lock": "x", "crates/a/Cargo.toml": '[dependencies]\nserde = "1"\n' }), []);
+});
+
+// Measured on v1.19.1: tools/package.json declaring lodash 4.17.4, with no lockfile of its own and
+// not a member of the root's workspace, was exit 0 in both modes, with nothing said about it, because
+// the root's package-lock.json was taken to cover it. npm run in tools/ uses tools' own lockfile, or
+// none, and the root's holds nothing of it. The same package.json at the root of a project with no
+// lockfile was exit 1.
+test("a lockfile above a manifest covers it only where that directory names it as a workspace member", () => {
+  const ws = (workspaces) => JSON.stringify({ name: "root", version: "1.0.0", dependencies: { "left-pad": "^1.1.0" }, ...(workspaces ? { workspaces } : {}) });
+  for (const lock of ["package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock"]) {
+    assert.deepEqual(unscanned({ "package.json": ws(), [lock]: "x", "tools/package.json": NPM }), ["tools/package.json"], lock);
+  }
+  assert.deepEqual(unscanned({ "package-lock.json": "x", "tools/package.json": NPM }), ["tools/package.json"], "no root package.json");
+  assert.deepEqual(unscanned({ "package.json": ws(["web"]), "package-lock.json": "x", "tools/package.json": NPM }), ["tools/package.json"], "a workspace that names another directory");
+  assert.deepEqual(unscanned({ "package.json": ws(["*", "!tools"]), "package-lock.json": "x", "tools/package.json": NPM, "web/package.json": NPM }), ["tools/package.json"], "a member a ! pattern takes out");
+  assert.deepEqual(unscanned({ "package.json": ws(["+(tools|web)"]), "package-lock.json": "x", "tools/package.json": NPM }), [], "a pattern this does not read is taken to name it, as before");
+  assert.deepEqual(unscanned({ "package.json": ws(), "package-lock.json": "x", "tools/package.json": NPM, "tools/package-lock.json": "x" }), [], "its own lockfile");
+  assert.deepEqual(unscanned({ "package.json": ws(["apps/*"]), "package-lock.json": "x", "apps/a/package.json": ws(), "apps/a/tools/package.json": NPM }), ["apps/a/tools/package.json"], "a member's own subdirectory is not a member");
+});
+
+test("a uv.lock above a pyproject.toml covers it only as a member of the root's uv workspace; another Python lockfile only in its own directory", () => {
+  const PROJ = '[project]\nname = "t"\nversion = "1"\ndependencies = ["jinja2==2.4.1"]\n';
+  const root = (ws = "") => `[project]\nname = "p"\nversion = "1"\ndependencies = ["idna==3.7"]\n${ws}`;
+  assert.deepEqual(unscanned({ "pyproject.toml": root(), "uv.lock": "x", "tools/pyproject.toml": PROJ }), ["tools/pyproject.toml"]);
+  assert.deepEqual(unscanned({ "pyproject.toml": root('\n[tool.uv.workspace]\nmembers = ["tools"]\n'), "uv.lock": "x", "tools/pyproject.toml": PROJ }), []);
+  assert.deepEqual(unscanned({ "pyproject.toml": root('\n[tool.uv.workspace]\nmembers = ["libs/*"]\nexclude = ["libs/x"]\n'), "uv.lock": "x", "libs/x/pyproject.toml": PROJ, "libs/y/pyproject.toml": PROJ }), ["libs/x/pyproject.toml"]);
+  for (const lock of ["poetry.lock", "pdm.lock", "Pipfile.lock", "pylock.toml"]) assert.deepEqual(unscanned({ "pyproject.toml": root(), [lock]: "x", "tools/pyproject.toml": PROJ }), ["tools/pyproject.toml"], lock);
+  assert.deepEqual(unscanned({ "pyproject.toml": root(), "requirements.txt": "idna==3.7\n", "tools/pyproject.toml": PROJ }), [], "a requirements file above still covers it, as before");
+  assert.deepEqual(unscanned({ "pyproject.toml": "not toml [", "uv.lock": "x", "tools/pyproject.toml": PROJ }), ["tools/pyproject.toml"], "a root pyproject.toml this cannot read names no member");
 });
 
 test("a lockfile beside a different manifest does not cover this one", () => {

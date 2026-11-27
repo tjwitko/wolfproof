@@ -18,8 +18,11 @@
 // a package.json that only holds scripts would teach people to ignore this check.
 import { readdirSync, readFileSync, existsSync } from "fs";
 import path from "path";
+import { parse as parseYaml } from "yaml";
 
 import { SKIP_DIRS } from "./skip-dirs.mjs";
+import { uvGlobMatches, workspaceMatches } from "../lib/factory-deps.mjs";
+import { readToml } from "../lib/toml.mjs";
 
 const PY_LOCKS = ["poetry.lock", "pdm.lock", "uv.lock", "Pipfile.lock", "pylock.toml"];
 const isRequirementsTxt = (name) => /^requirements.*\.txt$/.test(name);
@@ -43,6 +46,7 @@ export const NEEDS_LOCKFILE = {
       );
     },
     fix: "`npm install` writes package-lock.json (yarn, pnpm and `bun install --save-text-lockfile` also work; bun.lockb does not — it is binary and osv-scanner cannot read it)",
+    member: npmMember,
   },
   "Cargo.toml": {
     ecosystem: "crates.io",
@@ -63,6 +67,7 @@ export const NEEDS_LOCKFILE = {
     ecosystem: "PyPI",
     locks: PY_LOCKS,
     coveredBy: isRequirementsTxt,
+    member: uvMember,
     declares: pyprojectDeclares,
     fix: "`uv lock`, `poetry lock` or `pdm lock` writes a lockfile; or `pip freeze > requirements-lock.txt` (not requirements.lock, which osv-scanner does not read)",
   },
@@ -195,16 +200,64 @@ function gradleDeclares(text) {
   return false;
 }
 
+// Whether the directory `root`, which holds a lockfile, names `dir` as a member of its workspace, so
+// that the lockfile holds what dir's manifest declares. A lockfile above a manifest that is not its
+// workspace's member holds nothing of it: npm, yarn, pnpm and bun run in that directory use its own
+// lockfile, or none. A pattern this cannot read (an extglob) is taken to name it, as it was before.
+function npmMember(root, dir) {
+  const rel = path.relative(root, dir).split(path.sep).join("/");
+  const patterns = [];
+  const strings = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");
+  try {
+    const ws = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"))?.workspaces;
+    if (strings(ws)) patterns.push(...ws);
+    else if (strings(ws?.packages)) patterns.push(...ws.packages);
+  } catch {
+    /* no root package.json, or not JSON: it names no members */
+  }
+  try {
+    const doc = parseYaml(readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf8"));
+    if (strings(doc?.packages)) patterns.push(...doc.packages);
+  } catch {
+    /* no pnpm-workspace.yaml, or not one this reads */
+  }
+  const named = patterns.filter((w) => !w.startsWith("!") || w.startsWith("!(")).map((w) => workspaceMatches(w, rel));
+  const excluded = patterns.filter((w) => w.startsWith("!") && !w.startsWith("!(")).some((w) => workspaceMatches(w.slice(1), rel) === true);
+  return !excluded && named.some((m) => m !== false);
+}
+
+// The same for uv: a uv.lock holds the projects its root's [tool.uv.workspace] names as members
+// (`members` matched, `exclude` not). poetry.lock, pdm.lock, Pipfile.lock and pylock.toml are a
+// project's own and cover only the directory they are in.
+function uvMember(root, dir, lock) {
+  if (path.basename(lock) !== "uv.lock") return false;
+  let text;
+  try {
+    text = readFileSync(path.join(root, "pyproject.toml"), "utf8");
+  } catch {
+    return false;
+  }
+  const t = readToml(text);
+  const ws = t.value?.tool?.uv?.workspace;
+  if (t.error || !ws || typeof ws !== "object") return false;
+  const list = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
+  const rel = path.relative(root, dir).split(path.sep).join("/");
+  return list(ws.members).some((m) => uvGlobMatches(m, rel)) && !list(ws.exclude).some((m) => uvGlobMatches(m, rel, true));
+}
+
 /**
- * The lockfile that covers a manifest in `dir`: one in the manifest's directory or any directory
- * above it, up to the project root (workspaces, npm and Cargo, keep one lockfile at the root for
- * every member), as a path; or null when there is none. Whatever decides a manifest is covered must
+ * The lockfile that covers a manifest in `dir`: one in the manifest's directory, or in a directory
+ * above it, up to the project root, that holds what the manifest declares (workspaces, npm and Cargo,
+ * keep one lockfile at the root for every member), as a path; or null when there is none. Where the
+ * ecosystem says which directories a lockfile above holds (`member`), one it does not name is not
+ * covered by it. Whatever decides a manifest is covered must
  * find the lockfile the same way: the relock step in lib/gate-core.mjs looked only in the manifest's
  * own directory, so a member's entry went stale and was dropped without its lockfile being scanned.
  */
 export function coveringLockfile(projectDir, dir, rule) {
   for (let d = dir; ; d = path.dirname(d)) {
-    const lock = rule.locks.find((l) => existsSync(path.join(d, l)));
+    const locks = rule.locks.filter((l) => existsSync(path.join(d, l)));
+    const lock = d === dir || !rule.member ? locks[0] : locks.find((l) => rule.member(d, dir, l));
     if (lock) return path.join(d, lock);
     if (rule.coveredBy) {
       try {

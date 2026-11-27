@@ -949,6 +949,9 @@ async function main() {
     console.error(USAGE);
     await exitWhenWritten(EXIT.USAGE);
   }
+  // A project and a task file, and nothing more: a third word was dropped without a word, so a
+  // mistyped option or a second project went unchecked while the run looked like what was asked.
+  if (positional.length > 2) usageExit(`one project and at most one task file, not ${positional.length} arguments: ${positional.slice(2).map((a) => JSON.stringify(a)).join(", ")} ${positional.length === 3 ? "is" : "are"} extra. ${USAGE.split("\n")[0]}`);
   // Factory mode. Its options are refused without it rather than ignored: a pipeline that passes an
   // allowlist and forgets --factory believes it is in a mode it is not in.
   const factoryFlag = args.includes("--factory");
