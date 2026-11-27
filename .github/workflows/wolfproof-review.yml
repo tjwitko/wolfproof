@@ -7,7 +7,7 @@ permissions:
   pull-requests: write
 jobs:
   wolfproof-review:
-    uses: tjwitko/wolfproof-review/.github/workflows/review.yml@v0.3.5
+    uses: tjwitko/wolfproof-review/.github/workflows/review.yml@v0.3.6
     # A review that was due and did not finish fails this check, so it is not read as a review that
     # found nothing. No finding fails it.
     with:
