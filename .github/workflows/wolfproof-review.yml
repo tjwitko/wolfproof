@@ -8,10 +8,5 @@ permissions:
 jobs:
   wolfproof-review:
     uses: tjwitko/wolfproof-review/.github/workflows/review.yml@v0.3.3
-    # Pull request 41 is larger than the default budget of 1,000,000 input tokens allows: three of
-    # its seven reviews stopped at it before they finished. It alone gets 3,000,000. Remove this
-    # `with` once it is merged.
-    with:
-      max-input-tokens: ${{ github.event.pull_request.number == 41 && 3000000 || 1000000 }}
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
