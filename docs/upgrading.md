@@ -1183,6 +1183,34 @@ Measured on the renderer with a finding that names such a file: v1.18.0 prints o
 would read as a command, and this version prints none. The verdict and the exit code never depended
 on it, and nothing in a workflow has to change.
 
+### After v1.19.0
+
+**After v1.19.0: three narrower cases of the dependency rule.** Each can turn a passing factory run
+red, **exit 1**, and one false block goes away; default mode is unchanged. Measured through the CLI
+where the table gives an exit code, and at the rule's interface where it gives a finding.
+
+| The change | factory, v1.19.0 | factory, now |
+|---|---|---|
+| a git dependency in the scp form keeps its host and path and changes its account: `alice@git.corp.example:lib.git` to `mallory@git.corp.example:lib.git` | 0 | **1**, `dependency-source` |
+| the same written `git@github.com:corp/lib.git` and `git+https://github.com/corp/lib.git` (control) | 0 | 0 |
+| `alice@git.corp.example:lib.git` rewritten as `git+ssh://alice@git.corp.example/~/lib.git`, the same commit | 1 | **0** |
+| a Go `replace` to `./third/uuid`, where `third/uuid` is a symbolic link | no finding | `dependency-source` |
+| the same to a real directory in the project (control) | no finding | no finding |
+| a new workspace member that depends on another, under a `workspaces` pattern whose braces make 2,048 patterns | no finding | `new-dependency` and `dependency-source` |
+
+- **The scp form.** ssh reads `alice@host:lib.git` as `lib.git` in alice's home, so the account is
+  part of the place, as it already was for `ssh://alice@host/~/lib.git`. The two spellings are now one
+  place, where v1.19.0 read them as two. A forge's `git@` form is read as before.
+- **A Go `replace` through a link.** A path dependency through a symbolic link stopped being the
+  project's own code in v1.19.0 for npm and Python; a Go `replace` is read the same way now.
+- **Braces in `workspaces`.** A pattern whose braces would make more than 1,000 patterns is not read,
+  as an extglob is not, and is answered at once. It took 24 seconds at 22 pairs of `{a,b}` and twice
+  as long for each pair more.
+
+Over the first-parent history of wolfproof and its four controls, flask and flaskbb, each change
+against its parent, no change is judged differently from v1.19.0; the 34 calibration checkouts,
+each against an empty base, have the same 1,918 findings.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
