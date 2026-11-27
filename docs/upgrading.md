@@ -1169,10 +1169,19 @@ Measured through the CLI, v1.18.0 against this version, each change one commit o
 | a version move of an existing dependency | 0 | 0 | 0 |
 
 Over the first-parent history of wolfproof and its four controls, each change against its parent,
-6 of 759 changes block and 14 version moves pass. Approve a dependency by name in the pipeline's
+6 of 762 changes block and 14 version moves pass. Approve a dependency by name in the pipeline's
 allowlist, `{ "kind": "new-dependency", "ecosystem": "npm", "package": "yaml", "reason": "..." }`,
 with one entry for each kind a finding names ([factory mode](factory-mode.md#dependencies)). The
 finding writes the entry out. A `*` entry approves none of them.
+
+**After v1.18.0: a line of the Action's report does not start a workflow command.** The Action
+prints findings, advisories and could-not-run lines, and those can hold a file's name. A name with a
+line break in it, followed by `::warning` or `::error`, put a line in the log that the runner reads as
+a command, so a change could write an annotation for itself. Each line of the report that would
+start with `::` or `##[` now has a zero-width space before it, and the runner prints it as text.
+Measured on the renderer with a finding that names such a file: v1.18.0 prints one line the runner
+would read as a command, and this version prints none. The verdict and the exit code never depended
+on it, and nothing in a workflow has to change.
 
 ## Keeping current
 
