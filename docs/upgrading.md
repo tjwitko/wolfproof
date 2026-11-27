@@ -7,7 +7,7 @@ them. You only upgrade a control separately if you wired it into an editor on it
 
 ```text
 $ ./node_modules/.bin/wolfproof --version
-wolfproof 1.18.0
+wolfproof 1.19.0
   terraform-guard  v1.1.3  node_modules @tjwitko/terraform-guard-mcp
   dep-audit        v1.0.4  node_modules @tjwitko/dep-audit-mcp
   secret-guard     v1.1.0  node_modules @tjwitko/secret-guard-mcp
@@ -41,8 +41,8 @@ switches its checks off.
 **GitHub Action** — bump **both** references, which name one repository at one version:
 
 ```yaml
-- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.18.0
-- uses: tjwitko/wolfproof@v1.18.0
+- uses: tjwitko/wolfproof/.github/actions/control-tooling@v1.19.0
+- uses: tjwitko/wolfproof@v1.19.0
 ```
 
 A workflow left at two versions runs one release's gate on another's toolchain. It is an easy one to
@@ -51,7 +51,7 @@ miss: a search for `wolfproof@` does not match the first line.
 **npm:**
 
 ```bash
-npm install --save-dev github:tjwitko/wolfproof#v1.18.0
+npm install --save-dev github:tjwitko/wolfproof#v1.19.0
 ```
 
 ## 3. Refresh what setup wrote
@@ -1113,9 +1113,9 @@ refusal says why.
 path, so a checkout at `.../vendor/app`, `.../node_modules/app` or `.../env/lib/app` was read as nothing and
 reported clean. Can turn a passing run into **exit 3**, in both modes. Move the checkout.
 
-### After v1.18.0
+### In v1.19.0
 
-**After v1.18.0: factory mode needs a person's approval for a dependency a change adds.** Can turn a
+**In v1.19.0: factory mode needs a person's approval for a dependency a change adds.** Can turn a
 passing factory run red, **exit 1**: a change that adds a dependency the base did not declare, takes
 one from somewhere other than its registry, brings in a package that runs code when it is installed,
 or adds a range that takes any version where no lockfile pins it. A version move counts when its
@@ -1174,7 +1174,7 @@ allowlist, `{ "kind": "new-dependency", "ecosystem": "npm", "package": "yaml", "
 with one entry for each kind a finding names ([factory mode](factory-mode.md#dependencies)). The
 finding writes the entry out. A `*` entry approves none of them.
 
-**After v1.18.0: a line of the Action's report does not start a workflow command.** The Action
+**In v1.19.0: a line of the Action's report does not start a workflow command.** The Action
 prints findings, advisories and could-not-run lines, and those can hold a file's name. A name with a
 line break in it, followed by `::warning` or `::error`, put a line in the log that the runner reads as
 a command, so a change could write an annotation for itself. Each line of the report that would
