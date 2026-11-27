@@ -442,14 +442,20 @@ rules to known answers at pinned commits:
 Control: dep-audit (`osv-scanner`).
 
 **Blocks on:** high or critical CVEs; a manifest that declares dependencies with no lockfile the
-scanner can read.
+scanner can read. A lockfile covers the manifest beside it, and one in a directory above it only
+where that directory names the manifest's as a member of its workspace: `workspaces` in its
+`package.json` or `packages` in `pnpm-workspace.yaml` for npm, yarn, pnpm and bun, and
+`[tool.uv.workspace]` for `uv.lock`. A `poetry.lock`, `pdm.lock`, `Pipfile.lock` or `pylock.toml`
+covers only its own directory. So `tools/package.json` under a root `package-lock.json` that does
+not name it is a manifest no lockfile covers, as it would be at the root.
 
 A `package.json` with no lockfile is scanned anyway, at the lowest version each range allows its
 direct dependencies (`^4.17.4` is checked as 4.17.4). A high or critical CVE found that way blocks;
 an install may pick a later, fixed version, and raising the range's lower bound past the fix settles
 it either way. A range with no lowest version is not checked, and the report names it: one with no
 lower bound (`<=4.17.20`, or an `||` alternative with none, as in `<2.0.0 || >=3.0.0`, which allows
-every 1.x) and one that names no version (`*`, `latest`, a URL or a path). The `package.json`'s
+every 1.x) and one that names no version (`*`, `latest`, a URL or a path), printed without a URL's
+user, password, token or query. The `package.json`'s
 transitive dependencies are not checked at all, so the missing lockfile still blocks. A
 [snapshot](configuration.md#known-findings) can hold both; held, the missing lockfile is an advisory
 on every run. A `package.json` that does not parse is not scanned: it is reported with the reason

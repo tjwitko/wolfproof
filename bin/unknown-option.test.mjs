@@ -56,6 +56,24 @@ test("the gate: an option it does not define is exit 2 and named, and nothing is
   }
 });
 
+// Measured on v1.19.1: `wolfproof <project> task.txt extra` ran as if `extra` were not there, exit 0.
+test("the gate: a third positional argument is exit 2 with a usage line, and nothing is reported on the project", () => {
+  const p = project();
+  try {
+    for (const args of [[p.dir, path.join(p.dir, "task.txt"), "extra"], [p.dir, path.join(p.dir, "task.txt"), "extra", "more"], [p.dir, "--json", path.join(p.dir, "task.txt"), "extra"]]) {
+      const r = wolfproof(args, p.dir);
+      assert.equal(r.status, 2, `${args.slice(1).join(" ")}: ${r.stdout.slice(0, 300)}${r.stderr.slice(0, 300)}`);
+      assert.match(r.stderr, /^wolfproof: one project and at most one task file, not \d arguments: "extra"(?:, "more" are| is) extra\. usage: wolfproof <project-dir> \[task-file\]/m);
+      assert.doesNotMatch(r.stdout, /BLOCKING|"findings"/);
+      if (args.includes("--json")) assert.equal(JSON.parse(r.stdout).exitCode, 2);
+    }
+    // Two are what the gate takes, and the run goes ahead.
+    assert.equal(wolfproof([p.dir, path.join(p.dir, "task.txt"), "--json"], p.dir).status !== 2, true);
+  } finally {
+    p.done();
+  }
+});
+
 test("the gate in --json mode: the usage error is the one document, and it is not a verdict", () => {
   const p = project();
   try {

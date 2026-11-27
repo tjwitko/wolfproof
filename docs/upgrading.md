@@ -1211,6 +1211,40 @@ Over the first-parent history of wolfproof and its four controls, flask and flas
 against its parent, no change is judged differently from v1.19.0; the 34 calibration checkouts,
 each against an empty base, have the same 1,918 findings.
 
+### After v1.19.1
+
+**After v1.19.1: a manifest under a lockfile that does not hold it is a manifest with no lockfile.**
+A lockfile in a directory above a manifest covered it, whatever that lockfile held. Now it covers it
+only where that directory names the manifest's as a workspace member (`workspaces` or
+`pnpm-workspace.yaml` for npm, yarn, pnpm and bun; `[tool.uv.workspace]` for `uv.lock`), and a
+`poetry.lock`, `pdm.lock`, `Pipfile.lock` or `pylock.toml` covers only its own directory. Can turn
+a passing run red, **exit 1**, in both modes. Measured through the CLI:
+
+| The change | v1.19.1 | now |
+|---|---|---|
+| `tools/package.json` declares `lodash` 4.17.4, not a member of the root's workspace; only the root has a `package-lock.json` | 0 | **1**, the missing lockfile and lodash's four high findings |
+| the same `package.json` at the root of a project with no lockfile (control) | 1 | 1 |
+| `tools/` named in the root's `workspaces`, or in `pnpm-workspace.yaml`, or with a lockfile of its own (controls) | 0 | 0 |
+| `tools/pyproject.toml` declares `jinja2==2.4.1` under a root `uv.lock` whose `pyproject.toml` names no workspace | 0 | **1** |
+| the same under a root `poetry.lock` | 0 | **1** |
+| `tools/` a member of the root's `[tool.uv.workspace]` (control) | 0 | 0 |
+
+A nested `requirements.txt` is unchanged: osv-scanner reads one wherever it is, so its pins are
+scanned without a lockfile. Of the 34 calibration checkouts, the four controls and wolfproof, one
+project gains a finding: flask's `examples/javascript` and `examples/tutorial`, whose
+`pyproject.toml` files declare dependencies the root's `uv.lock` does not hold. flask's verdict was
+exit 1 already. Commit a lockfile beside the manifest, or name its directory in the root's workspace.
+
+**After v1.19.1: the specs a `package.json` with no lockfile could not be checked at are printed
+without credentials.** The line that lists them printed each as written, so a git URL with a token
+(`git+https://<token>@github.com/corp/lib.git`) printed the token, in both modes. A URL's user,
+password, token and query are left out now. The verdict is the same, exit 1 at both versions.
+
+**After v1.19.1: a third positional argument is a usage error.** `wolfproof <project> task.txt
+extra` ran as if `extra` were not there and reported on the project, exit 0 or 1 as it stood. It is
+**exit 2** now, with a usage line, as an option the gate does not define has been since v1.17.0.
+`wolfproof init`, `known` and `review` refused one too many already.
+
 ## Keeping current
 
 Dependabot's `github-actions` updater opens a pull request when a new tag is published:
