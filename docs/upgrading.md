@@ -1158,6 +1158,9 @@ Measured through the CLI, v1.18.0 against this version, each change one commit o
 | a range made the URL of another package's file on the registry `.npmrc` names | 0 | **1**, `dependency-source` | 0 |
 | a lockfile entry moved to another package's path on a registry `.npmrc` names whose paths have no `/-/` | 0 | **1**, `dependency-source` | 0 |
 | `.npmrc` replaced by a symbolic link to a file in the project that says the same | 0 | **3** | 0 |
+| a nested manifest's git dependency moved from a commit to `#v2`, no lockfile covering it | 0 | **1**, `unpinned-range` | 0 |
+| the same moved from `git+https://` to `git://`, the same tag | 0 | **1**, `dependency-source` | 0 |
+| `file:pkgs/x`, where `pkgs/x` is a symbolic link to a directory outside the project | 0 | **1**, `new-dependency` and `dependency-source` | 0 |
 | `strict-ssl=0` added to `.npmrc` | 0 | 0 | 0 |
 | `'[1,2,3]'=x` added to `.npmrc`, a key that is JSON other than a string | 0 | **3** | 0 |
 | the lockfile rewritten as `lockfileVersion` 1, with a version move | 0 | **3** | 0 |

@@ -400,3 +400,49 @@ test("the reviewer's cases: an entry's path, a linked manifest, a password in a 
     rmSync(outside, { recursive: true, force: true });
   }
 });
+
+test("the seventh review's cases: two entries of one name and version, a lockfile the change adds, a linked path, a plain git scheme, a ref that is a branch's name", () => {
+  const outside = realpathSync(mkdtempSync(path.join(tmpdir(), "factory-deps-outside7-")));
+  const py = `[project]\nname = "p"\nversion = "1.0.0"\nrequires-python = ">=3.10"\ndependencies = ["six"]\n`;
+  const top = `version = 1\nrequires-python = ">=3.10"\n\n[[package]]\nname = "p"\nversion = "1.0.0"\nsource = { virtual = "." }\ndependencies = [{ name = "six" }]\n\n[package.metadata]\nrequires-dist = [{ name = "six" }]\n`;
+  const six = `\n[[package]]\nname = "six"\nversion = "1.17.0"\nsource = { registry = "https://pypi.org/simple" }\nwheels = [{ url = "https://files.pythonhosted.org/packages/b7/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:six1170" }]\n`;
+  const gitSix = `\n[[package]]\nname = "six"\nversion = "1.17.0"\nsource = { git = "https://github.com/evil/six?rev=abc#0123456789abcdef0123456789abcdef01234567" }\n`;
+  const pipLock = (def, dev) => `${JSON.stringify({ _meta: { sources: [{ name: "pypi", url: "https://pypi.org/simple", verify_ssl: true }] }, default: def, develop: dev }, null, 2)}\n`;
+  const pinned = { six: { version: "==1.17.0" } };
+  const tools = (range) => pkg({ "is-odd": range });
+  const SHA = "0123456789abcdef0123456789abcdef01234567";
+  const cases = [
+    ["uv.lock gains a git entry for six 1.17.0, written before the registry's entry", { "pyproject.toml": py, "uv.lock": top + six, "notes.txt": "one\n" }, { "uv.lock": top + gitSix + six }, 1, /PyPI package six "1\.17\.0" in uv\.lock, from https:\/\/github\.com\/evil\/six/],
+    ["Pipfile.lock: default's six moves to git, develop keeps the registry's", { Pipfile: '[packages]\nsix = "==1.17.0"\n', "Pipfile.lock": pipLock(pinned, pinned), "notes.txt": "one\n" }, { "Pipfile.lock": pipLock({ six: { git: "https://github.com/evil/six", ref: "abc" } }, pinned) }, 1, /PyPI package six "" in Pipfile\.lock, from https:\/\/github\.com\/evil\/six/],
+    ["a nested manifest's range made *, and the change adds a yarn.lock that holds a comment", { ...BASE, "tools/package.json": tools("^3.0.1") }, { "tools/package.json": tools("*"), "tools/yarn.lock": "# yarn lockfile v1\n" }, 1, /a range that takes anything — npm package is-odd "\*" in tools\/package\.json/],
+    ["a manifest no lockfile covers: a git dependency moved from https to git://, the same tag", { ...BASE, "tools/package.json": pkg({ lib: "git+https://github.com/corp/lib.git#v1.2.3" }) }, { "tools/package.json": pkg({ lib: "git://github.com/corp/lib.git#v1.2.3" }) }, 1, /dependency from a new source — npm package lib "git:\/\/github\.com\/corp\/lib\.git#v1\.2\.3" in tools\/package\.json/],
+    ["the same, from a commit to #v2", { ...BASE, "tools/package.json": pkg({ lib: `git+https://github.com/corp/lib.git#${SHA}` }) }, { "tools/package.json": pkg({ lib: "git+https://github.com/corp/lib.git#v2" }) }, 1, /a range that takes anything — npm package lib "git\+https:\/\/github\.com\/corp\/lib\.git#v2" in tools\/package\.json/],
+    ["the same, from a commit to #v1.2.3", { ...BASE, "tools/package.json": pkg({ lib: `git+https://github.com/corp/lib.git#${SHA}` }) }, { "tools/package.json": pkg({ lib: "git+https://github.com/corp/lib.git#v1.2.3" }) }, 0, null],
+    ["package.json gains x: file:pkgs/x, and pkgs/x is a link to a directory outside the project", BASE, { "package.json": pkg({ "left-pad": "^1.1.0", x: "file:pkgs/x" }), "package-lock.json": lock({ "node_modules/left-pad": entry("left-pad", "1.1.3"), "node_modules/x": { resolved: "pkgs/x", link: true } }, { "left-pad": "^1.1.0", x: "file:pkgs/x" }) }, 1, /npm package x "file:pkgs\/x" in package\.json.*through pkgs\/x, a symbolic link out of what this gate reads/, (dir) => {
+      mkdirSync(path.join(outside, "x"), { recursive: true });
+      writeFileSync(path.join(outside, "x", "package.json"), JSON.stringify({ name: "x", version: "1.0.0" }));
+      mkdirSync(path.join(dir, "pkgs"), { recursive: true });
+      symlinkSync(path.join(outside, "x"), path.join(dir, "pkgs", "x"));
+    }],
+  ];
+  try {
+    for (const [label, b, change, want, line, link] of cases) {
+      const r = repo(b, change);
+      try {
+        if (link) {
+          link(r.dir);
+          const git = (...a) => spawnSync("git", ["-C", r.dir, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...a], { encoding: "utf8" });
+          git("add", "-A");
+          git("commit", "-qm", "link");
+        }
+        const f = cli([r.dir, "--json", "--factory", `--base=${r.sha}`]);
+        assert.equal(f.code, want, `${label}: ${JSON.stringify(rule(f.doc))} ${JSON.stringify(f.doc?.couldNotRun)} ${JSON.stringify((f.doc?.findings || []).map((x) => x.message.slice(0, 120)))}`);
+        if (line) assert.match(rule(f.doc).join("\n"), line, label);
+      } finally {
+        r.cleanup();
+      }
+    }
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
